@@ -1,0 +1,57 @@
+{
+  "entities": {
+    "BotFlow": {
+      "title": "Bot Flow",
+      "description": "Configuration for a chatbot conversation tree.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Name of the bot flow" },
+        "nodes": { "type": "array", "description": "List of nodes in the flow" },
+        "edges": { "type": "array", "description": "List of connections between nodes" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "createdBy": { "type": "string", "description": "UID of the creator" }
+      },
+      "required": ["name", "nodes", "edges", "createdBy"]
+    },
+    "Lead": {
+      "title": "Lead",
+      "description": "Captured lead data from a chatbot interaction.",
+      "type": "object",
+      "properties": {
+        "flowId": { "type": "string", "description": "ID of the bot flow that captured the lead" },
+        "data": { "type": "object", "description": "Captured field values (email, name, etc.)" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "sourceUrl": { "type": "string", "description": "URL where the lead was captured" }
+      },
+      "required": ["flowId", "data", "timestamp"]
+    },
+    "User": {
+      "title": "User",
+      "description": "User profile information.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "lastLogin": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/bot_configurations/{flowId}": {
+      "schema": "BotFlow",
+      "description": "Storage for bot conversation trees."
+    },
+    "/leads/{leadId}": {
+      "schema": "Lead",
+      "description": "Storage for captured leads."
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile storage."
+    }
+  }
+}
