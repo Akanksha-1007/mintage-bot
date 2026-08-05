@@ -83,37 +83,14 @@
     var iframeSide = position === 'left' ? 'left:0;' : 'right:0;';
     wrapper.style.cssText = 'display:none; position:absolute; bottom:72px; ' + iframeSide + ' width:380px; height:620px; max-width:calc(100vw - 32px); max-height:calc(100vh - 96px); border-radius:18px; box-shadow:0 12px 40px rgba(0,0,0,0.22); background:white; overflow:hidden; transition: opacity 0.25s ease, transform 0.25s ease; opacity:0; transform:translateY(12px); z-index:2147483647;';
 
-    // Top Helper Bar (Allows opening in popup if iframe is blocked by browser cross-origin policy)
-    var topBar = document.createElement('div');
-    topBar.style.cssText = 'height:32px; background:#f8fafc; border-bottom:1px solid #e2e8f0; display:flex; align-items:center; justify-content:between; padding:0 12px; font-size:11px; color:#64748b; font-weight:600;';
-    
-    var label = document.createElement('span');
-    label.innerText = 'BotFlow Assistant';
-    
-    var popBtn = document.createElement('a');
-    popBtn.href = targetUrl;
-    popBtn.target = '_blank';
-    popBtn.rel = 'noopener noreferrer';
-    popBtn.style.cssText = 'color:#4f46e5; text-decoration:none; margin-left:auto; display:flex; align-items:center; gap:4px; font-weight:700; cursor:pointer;';
-    popBtn.innerHTML = 'Open Chat ↗';
-    popBtn.onclick = function(e) {
-      if (e) e.preventDefault();
-      var left = Math.max(0, (window.screen.width || 1200) - 440);
-      window.open(targetUrl, 'BotFlowChat_' + botId, 'width=420,height=680,left=' + left + ',top=100,resizable=yes,scrollbars=yes');
-    };
-
-    topBar.appendChild(label);
-    topBar.appendChild(popBtn);
-
     // Iframe
     var iframe = document.createElement('iframe');
     iframe.id = 'botflow-widget-iframe';
     iframe.src = targetUrl;
     iframe.title = 'Chatbot';
     iframe.setAttribute('allow', 'autoplay; camera; microphone');
-    iframe.style.cssText = 'width:100%; height:calc(100% - 32px); border:none; background:white; color-scheme: normal;';
+    iframe.style.cssText = 'width:100%; height:100%; border:none; background:white; color-scheme: normal;';
 
-    wrapper.appendChild(topBar);
     wrapper.appendChild(iframe);
 
     var isOpen = false;
