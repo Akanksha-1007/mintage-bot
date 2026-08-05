@@ -200,45 +200,38 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       // 6. Hardcoded default fallback bot flow to ensure widget never fails
       if (!botData) {
         botData = {
-          id: 'default_riverscape_fallback',
-          name: 'Riverscape Assistant',
+          id: 'default_risinia_fallback',
+          name: 'Risinia-first',
           nodes: [
             {
               id: 'node_welcome',
               type: 'message',
-              data: { label: '👋 Welcome to Riverscape!\n\nThank you for visiting.' },
+              data: { label: 'Hello welcom to risinia' },
               position: { x: 250, y: 120 }
-            },
-            {
-              id: 'node_intro',
-              type: 'message',
-              data: { label: 'Discover luxury 4 & 5 BHK Riverfront Villas in Bandlaguda Jagir, Hyderabad.' },
-              position: { x: 250, y: 240 }
             },
             {
               id: 'node_name',
               type: 'name',
               data: { label: 'To start, could you share your full name with us? ✨', key: 'full_name' },
-              position: { x: 250, y: 360 }
+              position: { x: 250, y: 240 }
             },
             {
               id: 'node_phone',
               type: 'phone',
               data: { label: 'Thanks! Could you also give us your phone number? 📞', key: 'phone_number' },
-              position: { x: 250, y: 480 }
+              position: { x: 250, y: 360 }
             },
             {
               id: 'node_email',
               type: 'email',
               data: { label: 'Perfect! Now please provide your email address so our team can reach out! ✉️', key: 'email_address' },
-              position: { x: 250, y: 600 }
+              position: { x: 250, y: 480 }
             }
           ],
           edges: [
-            { id: 'e1', source: 'node_welcome', target: 'node_intro' },
-            { id: 'e2', source: 'node_intro', target: 'node_name' },
-            { id: 'e3', source: 'node_name', target: 'node_phone' },
-            { id: 'e4', source: 'node_phone', target: 'node_email' }
+            { id: 'e1', source: 'node_welcome', target: 'node_name' },
+            { id: 'e2', source: 'node_name', target: 'node_phone' },
+            { id: 'e3', source: 'node_phone', target: 'node_email' }
           ]
         };
       }

@@ -1,43 +1,18 @@
 [
   {
     "id": "bot_1785929652154",
-    "name": "Riverscape Assistant",
+    "name": "Risinia-first",
     "nodes": [
       {
         "id": "node_1785821556345",
         "type": "message",
         "data": {
-          "label": "👋 Welcome to Riverscape!\n\nThank you for visiting.",
+          "label": "Hello welcom to risinia",
           "key": ""
         },
         "position": {
           "x": 250,
           "y": 120
-        }
-      },
-      {
-        "id": "node_1785821576993",
-        "type": "message",
-        "data": {
-          "label": "Discover luxury 4 & 5 BHK Riverfront Villas in Bandlaguda Jagir, Hyderabad.",
-          "key": ""
-        },
-        "position": {
-          "x": 250,
-          "y": 240
-        }
-      },
-      {
-        "id": "node_1785821591465",
-        "type": "message",
-        "data": {
-          "label": "Riverscape - Nature at Your Doorstep. Luxury in Every Detail.",
-          "key": "",
-          "imageUrl": "https://risiniatheedge.com/wp-content/uploads/2024/04/slide02.jpg"
-        },
-        "position": {
-          "x": 250,
-          "y": 360
         }
       },
       {
@@ -49,7 +24,7 @@
         },
         "position": {
           "x": 250,
-          "y": 480
+          "y": 240
         }
       },
       {
@@ -61,7 +36,7 @@
         },
         "position": {
           "x": 250,
-          "y": 600
+          "y": 360
         }
       },
       {
@@ -73,26 +48,14 @@
         },
         "position": {
           "x": 250,
-          "y": 720
+          "y": 480
         }
       }
     ],
     "edges": [
       {
-        "id": "e_node_1785821556345-node_1785821576993",
+        "id": "e_node_1785821556345-node_1785821676785",
         "source": "node_1785821556345",
-        "target": "node_1785821576993",
-        "type": "smoothstep"
-      },
-      {
-        "id": "e_node_1785821576993-node_1785821591465",
-        "source": "node_1785821576993",
-        "target": "node_1785821591465",
-        "type": "smoothstep"
-      },
-      {
-        "id": "e_node_1785821591465-node_1785821676785",
-        "source": "node_1785821591465",
         "target": "node_1785821676785",
         "type": "smoothstep"
       },
@@ -111,47 +74,22 @@
     ],
     "spreadsheetId": "",
     "createdBy": "demo_user",
-    "updatedAt": "2026-08-05T11:00:00.000Z"
+    "updatedAt": "2026-08-05T12:00:00.000Z"
   },
   {
     "id": "bot_1785308637621",
-    "name": "My New Bot",
+    "name": "Risinia-first",
     "nodes": [
       {
         "id": "node_1785821556345",
         "type": "message",
         "data": {
-          "label": "👋 Welcome to Risinia The Edge! .\n\nThank you for visiting",
+          "label": "Hello welcom to risinia",
           "key": ""
         },
         "position": {
           "x": 250,
           "y": 120
-        }
-      },
-      {
-        "id": "node_1785821576993",
-        "type": "message",
-        "data": {
-          "label": "Discover thoughtfully designed 2 & 3 BHK Premium Apartments where comfort, convenience, and modern living come together.",
-          "key": ""
-        },
-        "position": {
-          "x": 250,
-          "y": 240
-        }
-      },
-      {
-        "id": "node_1785821591465",
-        "type": "message",
-        "data": {
-          "label": "Risinia The Edge\n",
-          "key": "",
-          "imageUrl": "https://risiniatheedge.com/wp-content/uploads/2024/04/slide02.jpg"
-        },
-        "position": {
-          "x": 250,
-          "y": 360
         }
       },
       {
@@ -163,7 +101,7 @@
         },
         "position": {
           "x": 250,
-          "y": 480
+          "y": 240
         }
       },
       {
@@ -175,7 +113,7 @@
         },
         "position": {
           "x": 250,
-          "y": 600
+          "y": 360
         }
       },
       {
@@ -187,26 +125,14 @@
         },
         "position": {
           "x": 250,
-          "y": 720
+          "y": 480
         }
       }
     ],
     "edges": [
       {
-        "id": "e_node_1785821556345-node_1785821576993",
+        "id": "e_node_1785821556345-node_1785821676785",
         "source": "node_1785821556345",
-        "target": "node_1785821576993",
-        "type": "smoothstep"
-      },
-      {
-        "id": "e_node_1785821576993-node_1785821591465",
-        "source": "node_1785821576993",
-        "target": "node_1785821591465",
-        "type": "smoothstep"
-      },
-      {
-        "id": "e_node_1785821591465-node_1785821676785",
-        "source": "node_1785821591465",
         "target": "node_1785821676785",
         "type": "smoothstep"
       },
@@ -225,6 +151,6 @@
     ],
     "spreadsheetId": "",
     "createdBy": "demo_user",
-    "updatedAt": "2026-08-05T09:37:29.556Z"
+    "updatedAt": "2026-08-05T12:00:00.000Z"
   }
 ]
