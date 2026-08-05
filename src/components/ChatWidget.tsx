@@ -27,165 +27,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   const [leadData, setLeadData] = useState<Record<string, any>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const loadBot = async () => {
-      if (!botId || botId === 'SAVE_FIRST') {
-        setError('Please save and publish your bot in the builder before previewing.');
-        setIsLoading(false);
-        return;
-      }
 
-      let nodesData: any[] = [];
-      let edgesData: any[] = [];
-      let found = false;
-
-      // 1. Try Firestore
-      try {
-        const docRef = doc(db, 'bot_configurations', botId);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          const rawNodes = data.nodes;
-          nodesData = Array.isArray(rawNodes) ? rawNodes : (rawNodes && typeof rawNodes === 'object' ? Object.values(rawNodes) : []);
-          const rawEdges = data.edges;
-          edgesData = Array.isArray(rawEdges) ? rawEdges : (rawEdges && typeof rawEdges === 'object' ? Object.values(rawEdges) : []);
-          found = true;
-        }
-      } catch (err) {
-        console.warn('Firestore fetch failed, trying server fallback:', err);
-      }
-
-      // 2. Try Server REST API Fallback
-      if (!found) {
-        try {
-          const res = await fetch(`/api/bots/${encodeURIComponent(botId)}`);
-          if (res.ok) {
-            const data = await res.json();
-            if (data.success && data.bot) {
-              const rawNodes = data.bot.nodes;
-              nodesData = Array.isArray(rawNodes) ? rawNodes : (rawNodes && typeof rawNodes === 'object' ? Object.values(rawNodes) : []);
-              const rawEdges = data.bot.edges;
-              edgesData = Array.isArray(rawEdges) ? rawEdges : (rawEdges && typeof rawEdges === 'object' ? Object.values(rawEdges) : []);
-              found = true;
-            }
-          }
-        } catch (serverErr) {
-          console.warn('Server bot fetch error:', serverErr);
-        }
-      }
-
-      // 3. Try Local Storage Fallback if not found in Firestore or Server
-      if (!found) {
-        try {
-          const localBotsRaw = localStorage.getItem('mintage_bots') || localStorage.getItem('botflow_local_bots');
-          if (localBotsRaw) {
-            const parsed = JSON.parse(localBotsRaw);
-            const match = Array.isArray(parsed) ? parsed.find((b: any) => b.id === botId) : (parsed[botId] || null);
-            if (match && match.nodes) {
-              const rawNodes = match.nodes;
-              nodesData = Array.isArray(rawNodes) ? rawNodes : Object.values(rawNodes);
-              const rawEdges = match.edges || [];
-              edgesData = Array.isArray(rawEdges) ? rawEdges : Object.values(rawEdges);
-              found = true;
-            }
-          }
-        } catch (e) {
-          console.warn('Local storage fallback error:', e);
-        }
-      }
-
-      // 3.5 Try fetching ALL bots from Express server API
-      if (!found) {
-        try {
-          const res = await fetch('/api/bots');
-          if (res.ok) {
-            const data = await res.json();
-            if (data.success && Array.isArray(data.bots) && data.bots.length > 0) {
-              const latestBot = data.bots[0];
-              if (latestBot && latestBot.nodes && latestBot.nodes.length > 0) {
-                const rawNodes = latestBot.nodes;
-                nodesData = Array.isArray(rawNodes) ? rawNodes : Object.values(rawNodes);
-                const rawEdges = latestBot.edges || [];
-                edgesData = Array.isArray(rawEdges) ? rawEdges : Object.values(rawEdges);
-                found = true;
-              }
-            }
-          }
-        } catch (e) {}
-      }
-
-      // 3.6 Try fallback to ANY saved bot in Local Storage
-      if (!found) {
-        try {
-          const localBotsRaw = localStorage.getItem('mintage_bots') || localStorage.getItem('botflow_local_bots');
-          if (localBotsRaw) {
-            const parsed = JSON.parse(localBotsRaw);
-            const firstBot = Array.isArray(parsed) && parsed.length > 0 ? parsed[0] : null;
-            if (firstBot && firstBot.nodes) {
-              const rawNodes = firstBot.nodes;
-              nodesData = Array.isArray(rawNodes) ? rawNodes : Object.values(rawNodes);
-              const rawEdges = firstBot.edges || [];
-              edgesData = Array.isArray(rawEdges) ? rawEdges : Object.values(rawEdges);
-              found = true;
-            }
-          }
-        } catch (e) {}
-      }
-
-      // 3.7 Try fallback to ANY saved bot in Firestore collection
-      if (!found) {
-        try {
-          const qSnap = await getDocs(collection(db, 'bot_configurations'));
-          if (!qSnap.empty) {
-            const firstDoc = qSnap.docs[0].data();
-            if (firstDoc && firstDoc.nodes) {
-              const rawNodes = firstDoc.nodes;
-              nodesData = Array.isArray(rawNodes) ? rawNodes : Object.values(rawNodes);
-              const rawEdges = firstDoc.edges || [];
-              edgesData = Array.isArray(rawEdges) ? rawEdges : Object.values(rawEdges);
-              found = true;
-            }
-          }
-        } catch (e) {}
-      }
-
-      if (!found || nodesData.length === 0) {
-        setError('No custom bot flow found. Please build and save your bot flow in the dashboard.');
-        setIsLoading(false);
-        return;
-      }
-
-      setNodes(nodesData);
-      setEdges(edgesData);
-      setMessages([]); // Clear messages
-
-      // Find initial starting node
-      const startNode = nodesData.find((n: any) => n.type === 'input') || nodesData[0];
-      if (startNode) {
-        const startLabel = (startNode.data?.label || startNode.data?.text || '').trim();
-        // If the start node has no message text and is purely an anchor, skip to connected node
-        if (startNode.type === 'input' && (!startLabel || startLabel.toLowerCase() === 'start')) {
-          const firstEdge = edgesData.find((e: any) => e.source === startNode.id);
-          if (firstEdge) {
-            const nextNode = nodesData.find((n: any) => n.id === firstEdge.target);
-            if (nextNode) {
-              setCurrentNodeId(nextNode.id);
-              processBotStep(nextNode);
-              setIsLoading(false);
-              return;
-            }
-          }
-        }
-        
-        setCurrentNodeId(startNode.id);
-        processBotStep(startNode);
-      } else {
-        setError('This bot has no messages configured yet.');
-      }
-      setIsLoading(false);
-    };
-    loadBot();
-  }, [botId]);
 
   const [isTyping, setIsTyping] = useState(false);
 
@@ -256,81 +98,75 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
   useEffect(() => {
     const loadBot = async () => {
-      if (!botId) {
-        setError('No Bot ID provided.');
+      if (!botId || botId === 'SAVE_FIRST') {
+        setError('Invalid Bot ID.');
         setIsLoading(false);
         return;
       }
 
-      let nodesData: any[] = [];
-      let edgesData: any[] = [];
-      let found = false;
+      setIsLoading(true);
+      setError(null);
 
-      // 1. Try Firestore
       try {
-        const docRef = doc(db, 'bot_configurations', botId);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          const rawNodes = data.nodes;
-          nodesData = Array.isArray(rawNodes) ? rawNodes : (rawNodes && typeof rawNodes === 'object' ? Object.values(rawNodes) : []);
-          const rawEdges = data.edges;
-          edgesData = Array.isArray(rawEdges) ? rawEdges : (rawEdges && typeof rawEdges === 'object' ? Object.values(rawEdges) : []);
-          found = true;
+        console.log('Loading bot from Firestore:', botId);
+
+        const botRef = doc(db, 'bot_configurations', botId);
+        const botSnap = await getDoc(botRef);
+
+        if (!botSnap.exists()) {
+          console.error('Bot not found in Firestore:', botId);
+          setError(`Bot "${botId}" was not found.`);
+          setIsLoading(false);
+          return;
         }
-      } catch (err) {
-        console.warn('Firestore fetch failed, trying local storage fallback:', err);
-      }
 
-      // 2. Try Local Storage Fallback if not found in Firestore
-      if (!found) {
-        try {
-          const localBotsRaw = localStorage.getItem('mintage_bots') || localStorage.getItem('botflow_local_bots');
-          if (localBotsRaw) {
-            const parsed = JSON.parse(localBotsRaw);
-            const match = Array.isArray(parsed) ? parsed.find((b: any) => b.id === botId) : (parsed[botId] || null);
-            if (match && match.nodes) {
-              const rawNodes = match.nodes;
-              nodesData = Array.isArray(rawNodes) ? rawNodes : Object.values(rawNodes);
-              const rawEdges = match.edges || [];
-              edgesData = Array.isArray(rawEdges) ? rawEdges : Object.values(rawEdges);
-              found = true;
-            }
-          }
-        } catch (e) {
-          console.warn('Local storage fallback error:', e);
+        const data = botSnap.data();
+
+        console.log('Firestore bot data:', data);
+
+        const nodesData = Array.isArray(data.nodes)
+          ? data.nodes
+          : data.nodes && typeof data.nodes === 'object'
+            ? Object.values(data.nodes)
+            : [];
+
+        const edgesData = Array.isArray(data.edges)
+          ? data.edges
+          : data.edges && typeof data.edges === 'object'
+            ? Object.values(data.edges)
+            : [];
+
+        if (nodesData.length === 0) {
+          setError('This bot exists, but it has no configured flow.');
+          setIsLoading(false);
+          return;
         }
-      }
 
-      // 3. Fallback Default Starter Flow for demo or new widgets
-      if (!found) {
-        nodesData = [
-          { id: 'node_1', type: 'message', data: { label: '👋 Hello! Welcome to BotFlow!' } },
-          { id: 'node_1b', type: 'message', data: { label: 'We help businesses automate lead capture effortlessly.' } },
-          { id: 'node_2', type: 'singleChoice', data: { label: 'What is your inquiry regarding?', choices: ['Sales & Pricing', 'Support & Help', 'Book a Demo'] } },
-          { id: 'node_3', type: 'name', data: { label: 'May I know your full name?' } },
-          { id: 'node_4', type: 'email', data: { label: 'And what is the best email address to reach you at?' } },
-          { id: 'node_5', type: 'message', data: { label: 'Thank you! Our team will get back to you shortly. Have a great day! 🎉' } }
-        ];
-        edgesData = [
-          { id: 'e1-1b', source: 'node_1', target: 'node_1b' },
-          { id: 'e1b-2', source: 'node_1b', target: 'node_2' },
-          { id: 'e2-3', source: 'node_2', target: 'node_3' },
-          { id: 'e3-4', source: 'node_3', target: 'node_4' },
-          { id: 'e4-5', source: 'node_4', target: 'node_5' }
-        ];
-      }
+        setNodes(nodesData);
+        setEdges(edgesData);
+        setMessages([]);
 
-      setNodes(nodesData);
-      setEdges(edgesData);
-      setMessages([]); // Clear messages
+        const startNode =
+          nodesData.find((node: any) => node.type === 'input') ||
+          nodesData[0];
 
-      const startNode = nodesData.find((n: any) => n.type === 'input') || nodesData[0];
-      if (startNode) {
+        if (!startNode) {
+          setError('This bot has no starting node.');
+          setIsLoading(false);
+          return;
+        }
+
+        // Skip empty Start/Input node
         if (startNode.type === 'input') {
-          const firstEdge = edgesData.find((e: any) => e.source === startNode.id);
+          const firstEdge = edgesData.find(
+            (edge: any) => edge.source === startNode.id
+          );
+
           if (firstEdge) {
-            const nextNode = nodesData.find((n: any) => n.id === firstEdge.target);
+            const nextNode = nodesData.find(
+              (node: any) => node.id === firstEdge.target
+            );
+
             if (nextNode) {
               setCurrentNodeId(nextNode.id);
               processBotStep(nextNode);
@@ -339,13 +175,21 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
             }
           }
         }
+
         setCurrentNodeId(startNode.id);
         processBotStep(startNode);
-      } else {
-        setError('This bot has no messages configured yet.');
+
+      } catch (err) {
+        console.error('Firestore bot loading error:', err);
+
+        setError(
+          'Unable to load this bot from Firestore. Check Firebase configuration and Firestore security rules.'
+        );
+      } finally {
+        setIsLoading(false);
       }
-      setIsLoading(false);
     };
+
     loadBot();
   }, [botId]);
 
@@ -358,91 +202,91 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     setMessages(prev => [...prev, userMsg]);
     setInputValue('');
 
-      // Process lead data if current node is a question
-      const currentNode = safeNodes.find((n: any) => n.id === currentNodeId);
-      if (currentNode) {
-        const newLeadData = { ...leadData };
-        const key = currentNode.data.leadKey || currentNode.data.label;
-        
-        if (currentNode.type === 'name') newLeadData.name = text;
-        else if (currentNode.type === 'email') newLeadData.email = text;
-        else if (currentNode.type === 'phone') newLeadData.phone = text;
-        else if (currentNode.type === 'textQuestion' || currentNode.type === 'singleChoice' || currentNode.type === 'multipleChoice') {
-          newLeadData[key] = text;
+    // Process lead data if current node is a question
+    const currentNode = safeNodes.find((n: any) => n.id === currentNodeId);
+    if (currentNode) {
+      const newLeadData = { ...leadData };
+      const key = currentNode.data.leadKey || currentNode.data.label;
+
+      if (currentNode.type === 'name') newLeadData.name = text;
+      else if (currentNode.type === 'email') newLeadData.email = text;
+      else if (currentNode.type === 'phone') newLeadData.phone = text;
+      else if (currentNode.type === 'textQuestion' || currentNode.type === 'singleChoice' || currentNode.type === 'multipleChoice') {
+        newLeadData[key] = text;
+      }
+
+      setLeadData(newLeadData);
+
+      // Determine target next node based on option routes, nextStepId, edges or sequence
+      let targetNodeId: string | null = null;
+
+      // 1. Check if currentNode has an option route for this choice text
+      if (currentNode.data?.optionRoutes && currentNode.data.optionRoutes[text]) {
+        targetNodeId = currentNode.data.optionRoutes[text];
+      }
+
+      // 2. Check if currentNode has an explicit nextStepId set
+      if (!targetNodeId && currentNode.data?.nextStepId) {
+        if (currentNode.data.nextStepId === 'END') {
+          await saveLead(newLeadData);
+          return;
         }
-        
-        setLeadData(newLeadData);
+        targetNodeId = currentNode.data.nextStepId;
+      }
 
-        // Determine target next node based on option routes, nextStepId, edges or sequence
-        let targetNodeId: string | null = null;
-
-        // 1. Check if currentNode has an option route for this choice text
-        if (currentNode.data?.optionRoutes && currentNode.data.optionRoutes[text]) {
-          targetNodeId = currentNode.data.optionRoutes[text];
+      // 3. Check if an edge explicitly matches this choice text
+      if (!targetNodeId) {
+        const choiceEdge = safeEdges.find((e: any) => e.source === currentNodeId && (e.label === text || e.sourceHandle === text || e.choice === text));
+        if (choiceEdge) {
+          targetNodeId = choiceEdge.target;
         }
+      }
 
-        // 2. Check if currentNode has an explicit nextStepId set
-        if (!targetNodeId && currentNode.data?.nextStepId) {
-          if (currentNode.data.nextStepId === 'END') {
+      // 4. Fallback to default edge from currentNodeId
+      if (!targetNodeId) {
+        const defaultEdge = safeEdges.find((e: any) => e.source === currentNodeId && !e.sourceHandle);
+        if (defaultEdge) {
+          targetNodeId = defaultEdge.target;
+        } else {
+          const anyEdge = safeEdges.find((e: any) => e.source === currentNodeId);
+          if (anyEdge) targetNodeId = anyEdge.target;
+        }
+      }
+
+      // 5. Fallback to sequential next node in safeNodes
+      if (!targetNodeId) {
+        const currentIdx = safeNodes.findIndex((n: any) => n.id === currentNodeId);
+        if (currentIdx !== -1 && currentIdx + 1 < safeNodes.length) {
+          targetNodeId = safeNodes[currentIdx + 1].id;
+        }
+      }
+
+      if (targetNodeId) {
+        const nextNode = safeNodes.find((n: any) => n.id === targetNodeId);
+        if (nextNode) {
+          if (nextNode.type === 'saveLead') {
             await saveLead(newLeadData);
-            return;
-          }
-          targetNodeId = currentNode.data.nextStepId;
-        }
-
-        // 3. Check if an edge explicitly matches this choice text
-        if (!targetNodeId) {
-          const choiceEdge = safeEdges.find((e: any) => e.source === currentNodeId && (e.label === text || e.sourceHandle === text || e.choice === text));
-          if (choiceEdge) {
-            targetNodeId = choiceEdge.target;
-          }
-        }
-
-        // 4. Fallback to default edge from currentNodeId
-        if (!targetNodeId) {
-          const defaultEdge = safeEdges.find((e: any) => e.source === currentNodeId && !e.sourceHandle);
-          if (defaultEdge) {
-            targetNodeId = defaultEdge.target;
-          } else {
-            const anyEdge = safeEdges.find((e: any) => e.source === currentNodeId);
-            if (anyEdge) targetNodeId = anyEdge.target;
-          }
-        }
-
-        // 5. Fallback to sequential next node in safeNodes
-        if (!targetNodeId) {
-          const currentIdx = safeNodes.findIndex((n: any) => n.id === currentNodeId);
-          if (currentIdx !== -1 && currentIdx + 1 < safeNodes.length) {
-            targetNodeId = safeNodes[currentIdx + 1].id;
-          }
-        }
-
-        if (targetNodeId) {
-          const nextNode = safeNodes.find((n: any) => n.id === targetNodeId);
-          if (nextNode) {
-            if (nextNode.type === 'saveLead') {
-              await saveLead(newLeadData);
-              // After saving, immediately look for the node AFTER the save node
-              const nextEdge = safeEdges.find((e: any) => e.source === nextNode.id);
-              if (nextEdge) {
-                const finalNextNode = safeNodes.find((n: any) => n.id === nextEdge.target);
-                if (finalNextNode) {
-                  setCurrentNodeId(finalNextNode.id);
-                  processBotStep(finalNextNode);
-                  return;
-                }
+            // After saving, immediately look for the node AFTER the save node
+            const nextEdge = safeEdges.find((e: any) => e.source === nextNode.id);
+            if (nextEdge) {
+              const finalNextNode = safeNodes.find((n: any) => n.id === nextEdge.target);
+              if (finalNextNode) {
+                setCurrentNodeId(finalNextNode.id);
+                processBotStep(finalNextNode);
+                return;
               }
             }
-            
-            setCurrentNodeId(nextNode.id);
-            processBotStep(nextNode);
-            return;
           }
-        }
 
-        // End of flow - save lead
-        saveLead(newLeadData);
+          setCurrentNodeId(nextNode.id);
+          processBotStep(nextNode);
+          return;
+        }
       }
+
+      // End of flow - save lead
+      saveLead(newLeadData);
+    }
   };
 
   const handleChoice = (choice: string) => {
@@ -457,12 +301,12 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       let ownerId = null;
       let ownerData = null;
       let botSpreadsheetId = null;
-      
+
       if (botSnap.exists()) {
         const botData = botSnap.data();
         ownerId = botData.createdBy;
         botSpreadsheetId = botData.spreadsheetId || null;
-        
+
         if (ownerId) {
           const ownerRef = doc(db, 'users', ownerId);
           const ownerSnap = await getDoc(ownerRef);
@@ -479,7 +323,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         timestamp: serverTimestamp(),
         sourceUrl: window.location.href,
       });
-      
+
       // Sync to Google Sheets if configured (prefers bot-specific sheet, falls back to owner default sheet)
       const targetSpreadsheetId = botSpreadsheetId || ownerData?.spreadsheetId;
       if (ownerData && ownerData.googleTokens && targetSpreadsheetId) {
@@ -520,7 +364,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         <p className="text-sm text-gray-500 leading-relaxed max-w-[240px]">
           {error}
         </p>
-        <button 
+        <button
           onClick={() => window.location.reload()}
           className="mt-6 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-all"
         >
@@ -559,13 +403,12 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
             >
-              <div className={`max-w-[80%] p-3 rounded-2xl text-sm shadow-sm ${
-                msg.sender === 'user' 
-                  ? 'bg-indigo-600 text-white rounded-tr-none' 
+              <div className={`max-w-[80%] p-3 rounded-2xl text-sm shadow-sm ${msg.sender === 'user'
+                  ? 'bg-indigo-600 text-white rounded-tr-none'
                   : 'bg-white text-gray-800 border border-gray-100 rounded-tl-none'
-              }`}>
+                }`}>
                 {msg.text}
-                
+
                 {msg.choices && msg.sender === 'bot' && (
                   <div className="mt-3 space-y-2">
                     {msg.choices.map((choice, i) => (
@@ -602,7 +445,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
       {/* Input */}
       {isQuestion && !currentNode.data.choices && (
-        <form 
+        <form
           onSubmit={(e) => { e.preventDefault(); if (inputValue.trim()) handleUserInput(inputValue); }}
           className="p-4 bg-white border-t border-gray-100 flex gap-2"
         >
@@ -613,7 +456,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
             placeholder="Type your answer..."
             className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
           />
-          <button 
+          <button
             type="submit"
             className="bg-indigo-600 text-white p-2.5 rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
           >
