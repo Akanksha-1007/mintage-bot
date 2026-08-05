@@ -1,5 +1,119 @@
 [
   {
+    "id": "bot_1785929652154",
+    "name": "Riverscape Assistant",
+    "nodes": [
+      {
+        "id": "node_1785821556345",
+        "type": "message",
+        "data": {
+          "label": "👋 Welcome to Riverscape!\n\nThank you for visiting.",
+          "key": ""
+        },
+        "position": {
+          "x": 250,
+          "y": 120
+        }
+      },
+      {
+        "id": "node_1785821576993",
+        "type": "message",
+        "data": {
+          "label": "Discover luxury 4 & 5 BHK Riverfront Villas in Bandlaguda Jagir, Hyderabad.",
+          "key": ""
+        },
+        "position": {
+          "x": 250,
+          "y": 240
+        }
+      },
+      {
+        "id": "node_1785821591465",
+        "type": "message",
+        "data": {
+          "label": "Riverscape - Nature at Your Doorstep. Luxury in Every Detail.",
+          "key": "",
+          "imageUrl": "https://risiniatheedge.com/wp-content/uploads/2024/04/slide02.jpg"
+        },
+        "position": {
+          "x": 250,
+          "y": 360
+        }
+      },
+      {
+        "id": "node_1785821676785",
+        "type": "name",
+        "data": {
+          "label": "To start, could you share your full name with us? ✨",
+          "key": "full_name"
+        },
+        "position": {
+          "x": 250,
+          "y": 480
+        }
+      },
+      {
+        "id": "node_1785821681184",
+        "type": "phone",
+        "data": {
+          "label": "Thanks! Could you also give us your phone number? 📞",
+          "key": "phone_number"
+        },
+        "position": {
+          "x": 250,
+          "y": 600
+        }
+      },
+      {
+        "id": "node_1785821682841",
+        "type": "email",
+        "data": {
+          "label": "Perfect! Now please provide your email address so our team can reach out! ✉️",
+          "key": "email_address"
+        },
+        "position": {
+          "x": 250,
+          "y": 720
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e_node_1785821556345-node_1785821576993",
+        "source": "node_1785821556345",
+        "target": "node_1785821576993",
+        "type": "smoothstep"
+      },
+      {
+        "id": "e_node_1785821576993-node_1785821591465",
+        "source": "node_1785821576993",
+        "target": "node_1785821591465",
+        "type": "smoothstep"
+      },
+      {
+        "id": "e_node_1785821591465-node_1785821676785",
+        "source": "node_1785821591465",
+        "target": "node_1785821676785",
+        "type": "smoothstep"
+      },
+      {
+        "id": "e_node_1785821676785-node_1785821681184",
+        "source": "node_1785821676785",
+        "target": "node_1785821681184",
+        "type": "smoothstep"
+      },
+      {
+        "id": "e_node_1785821681184-node_1785821682841",
+        "source": "node_1785821681184",
+        "target": "node_1785821682841",
+        "type": "smoothstep"
+      }
+    ],
+    "spreadsheetId": "",
+    "createdBy": "demo_user",
+    "updatedAt": "2026-08-05T11:00:00.000Z"
+  },
+  {
     "id": "bot_1785308637621",
     "name": "My New Bot",
     "nodes": [

@@ -19,7 +19,7 @@
   if (!baseUrl && scriptTag && scriptTag.src) {
     try {
       var urlObj = new URL(scriptTag.src);
-      if (urlObj.origin && urlObj.origin.indexOf('127.0.0.1') === -1 && urlObj.origin.indexOf('localhost') === -1 && urlObj.origin.indexOf('file:') === -1) {
+      if (urlObj.origin && urlObj.origin.indexOf('file:') === -1) {
         var scriptPath = urlObj.pathname.replace(/\/widget\.js$/, '');
         baseUrl = urlObj.origin + scriptPath;
       }
@@ -36,9 +36,9 @@
     baseUrl = baseUrl.replace(/\/$/, '') + '/mintage-bot';
   }
 
-  // Fallback to live GitHub Pages app URL if baseUrl is empty or local
+  // Fallback to live GitHub Pages app URL if baseUrl is still empty
   var fallbackUrl = 'https://akanksha-1007.github.io/mintage-bot';
-  if (!baseUrl || baseUrl.indexOf('127.0.0.1') !== -1 || baseUrl.indexOf('localhost') !== -1) {
+  if (!baseUrl) {
     baseUrl = fallbackUrl;
   }
 
