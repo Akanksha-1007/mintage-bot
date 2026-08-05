@@ -353,33 +353,22 @@ function BuilderContent() {
       const cleanNodes = JSON.parse(JSON.stringify(safeNodes));
       const cleanEdges = JSON.parse(JSON.stringify(safeEdges));
 
-      let savedId = id;
+      let savedId = id || ('bot_' + Date.now());
       let firestoreSuccess = false;
 
-      // 1. Try saving to Firestore
+      // 1. Try saving to Firestore with explicit document ID matching savedId
       try {
-        if (id) {
-          await setDoc(doc(db, 'bot_configurations', id), {
-            name: botName || 'Unnamed Bot',
-            nodes: cleanNodes,
-            edges: cleanEdges,
-            spreadsheetId: cleanSpreadsheetId,
-            updatedAt: serverTimestamp(),
-          }, { merge: true });
-          firestoreSuccess = true;
-        } else {
-          const docRef = await addDoc(collection(db, 'bot_configurations'), {
-            name: botName || 'Unnamed Bot',
-            nodes: cleanNodes,
-            edges: cleanEdges,
-            spreadsheetId: cleanSpreadsheetId,
-            createdBy: targetUserId,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          });
-          savedId = docRef.id;
-          firestoreSuccess = true;
-        }
+        await setDoc(doc(db, 'bot_configurations', savedId), {
+          id: savedId,
+          name: botName || 'Unnamed Bot',
+          nodes: cleanNodes,
+          edges: cleanEdges,
+          spreadsheetId: cleanSpreadsheetId,
+          createdBy: targetUserId,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+        firestoreSuccess = true;
       } catch (fsErr) {
         console.warn('Firestore save flow warning, falling back to local/server cache:', fsErr);
       }

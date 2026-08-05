@@ -111,12 +111,12 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
           if (botSnap && botSnap.exists()) {
             botData = botSnap.data();
           } else {
-            // Try fetching any saved bot configuration from Firestore
+            // Try fetching any saved bot configuration from Firestore matching botId or recent
             const allSnap = await getDocs(collection(db, 'bot_configurations')).catch(() => null);
             if (allSnap && !allSnap.empty) {
-              const firstDoc = allSnap.docs[0];
-              if (firstDoc && firstDoc.exists()) {
-                botData = firstDoc.data();
+              const matchedDoc = allSnap.docs.find(d => d.id === botId || d.data()?.id === botId) || allSnap.docs[0];
+              if (matchedDoc && matchedDoc.exists()) {
+                botData = matchedDoc.data();
               }
             }
           }
