@@ -29,6 +29,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const [isTyping, setIsTyping] = useState(false);
+  const [botTitle, setBotTitle] = useState('BotFlow Assistant');
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -102,19 +103,30 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       setError(null);
 
       let botData: any = null;
+      const cleanBotId = (botId || '').trim();
+      const lowerBotId = cleanBotId.toLowerCase();
 
       // 1. Try loading from Firestore if botId is given and not SAVE_FIRST
-      if (botId && botId !== 'SAVE_FIRST') {
+      if (cleanBotId && cleanBotId !== 'SAVE_FIRST') {
         try {
-          const botRef = doc(db, 'bot_configurations', botId);
+          const botRef = doc(db, 'bot_configurations', cleanBotId);
           const botSnap = await getDoc(botRef).catch(() => null);
           if (botSnap && botSnap.exists()) {
             botData = botSnap.data();
           } else {
-            // Try fetching any saved bot configuration from Firestore matching botId or recent
+            // Match specifically by exact ID or exact client name in Firestore (NO cross-client matching)
             const allSnap = await getDocs(collection(db, 'bot_configurations')).catch(() => null);
             if (allSnap && !allSnap.empty) {
-              const matchedDoc = allSnap.docs.find(d => d.id === botId || d.data()?.id === botId) || allSnap.docs[0];
+              const matchedDoc = allSnap.docs.find(d => {
+                const data = d.data();
+                const dId = (d.id || '').toLowerCase();
+                const name = (data?.name || '').toLowerCase();
+                if (dId === lowerBotId || data?.id === cleanBotId) return true;
+                if (name === lowerBotId) return true;
+                if (lowerBotId.includes('risinia') && name.includes('risinia') && !lowerBotId.includes('river')) return true;
+                if (lowerBotId.includes('river') && name.includes('river') && !lowerBotId.includes('risinia')) return true;
+                return false;
+              });
               if (matchedDoc && matchedDoc.exists()) {
                 botData = matchedDoc.data();
               }
@@ -126,9 +138,9 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       }
 
       // 2. Try loading from Server API (/api/bots/:id)
-      if (!botData && botId && botId !== 'SAVE_FIRST') {
+      if (!botData && cleanBotId && cleanBotId !== 'SAVE_FIRST') {
         try {
-          const res = await fetch(`/api/bots/${encodeURIComponent(botId)}`);
+          const res = await fetch(`/api/bots/${encodeURIComponent(cleanBotId)}`);
           const contentType = res.headers.get('content-type') || '';
           if (res.ok && contentType.includes('application/json')) {
             const apiRes = await res.json();
@@ -142,14 +154,20 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       }
 
       // 3. Try loading from localStorage
-      if (!botData && botId && botId !== 'SAVE_FIRST') {
+      if (!botData && cleanBotId && cleanBotId !== 'SAVE_FIRST') {
         try {
           const localBotsRaw = localStorage.getItem('mintage_bots') || localStorage.getItem('botflow_local_bots');
           if (localBotsRaw) {
             const localBots = JSON.parse(localBotsRaw);
             const botsList = Array.isArray(localBots) ? localBots : Object.values(localBots);
             if (Array.isArray(botsList) && botsList.length > 0) {
-              botData = botsList.find((b: any) => b.id === botId) || botsList[0];
+              botData = botsList.find((b: any) => {
+                const idMatch = (b.id || '').toLowerCase() === lowerBotId;
+                const nameMatch = (b.name || '').toLowerCase() === lowerBotId;
+                const risiniaMatch = lowerBotId.includes('risinia') && !lowerBotId.includes('river') && (b.name || '').toLowerCase().includes('risinia');
+                const riverMatch = lowerBotId.includes('river') && !lowerBotId.includes('risinia') && (b.name || '').toLowerCase().includes('river');
+                return idMatch || nameMatch || risiniaMatch || riverMatch;
+              });
             }
           }
         } catch (lsErr) {
@@ -157,22 +175,8 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         }
       }
 
-      // 4. Try loading default bot list from /api/bots as fallback
-      if (!botData) {
-        try {
-          const res = await fetch('/api/bots');
-          const contentType = res.headers.get('content-type') || '';
-          if (res.ok && contentType.includes('application/json')) {
-            const apiRes = await res.json();
-            if (apiRes.success && Array.isArray(apiRes.bots) && apiRes.bots.length > 0) {
-              botData = apiRes.bots[0];
-            }
-          }
-        } catch (e) {}
-      }
-
-      // 5. Try loading static bots.json file fallback (for production static hosting like GitHub Pages)
-      if (!botData) {
+      // 4. Try loading static bots.json file
+      if (!botData && cleanBotId && cleanBotId !== 'SAVE_FIRST') {
         const baseUrl = import.meta.env.BASE_URL || '/';
         const cleanBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
         const fetchTargets = [
@@ -189,7 +193,13 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
             if (res.ok && (contentType.includes('json') || contentType.includes('text/plain') || targetUrl.endsWith('.json'))) {
               const staticBots = await res.json();
               if (Array.isArray(staticBots) && staticBots.length > 0) {
-                botData = staticBots.find((b: any) => b.id === botId) || staticBots.find((b: any) => b.id === 'bot_1785929652154') || staticBots[0];
+                botData = staticBots.find((b: any) => {
+                  const idMatch = (b.id || '').toLowerCase() === lowerBotId;
+                  const nameMatch = (b.name || '').toLowerCase() === lowerBotId;
+                  const risiniaMatch = lowerBotId.includes('risinia') && !lowerBotId.includes('river') && (b.name || '').toLowerCase().includes('risinia');
+                  const riverMatch = lowerBotId.includes('river') && !lowerBotId.includes('risinia') && (b.name || '').toLowerCase().includes('river');
+                  return idMatch || nameMatch || risiniaMatch || riverMatch;
+                });
                 if (botData) break;
               }
             }
@@ -197,16 +207,28 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         }
       }
 
-      // 6. Hardcoded default fallback bot flow to ensure widget never fails
+      // 5. Fallback distinct default flow for requested client/bot ID if not found
       if (!botData) {
+        const isRiver = lowerBotId.includes('river');
+        const isRisinia = lowerBotId.includes('risinia');
+        const clientName = isRiver 
+          ? 'River Scape Residences' 
+          : (isRisinia ? 'Risinia Builders' : 'BotFlow Assistant');
+        
         botData = {
-          id: 'default_risinia_fallback',
-          name: 'Risinia-first',
+          id: cleanBotId || 'default_bot',
+          name: clientName,
           nodes: [
             {
               id: 'node_welcome',
               type: 'message',
-              data: { label: 'Hello welcom to risinia' },
+              data: { 
+                label: isRiver 
+                  ? '🌿 Welcome to River Scape Residences!\n\nExperience serene waterfront luxury homes with breathtaking views and modern lifestyle amenities.' 
+                  : (isRisinia 
+                    ? '👋 Welcome to Risinia Builders!\n\nDiscover thoughtfully designed 2 & 3 BHK Premium Apartments where luxury, comfort, and modern living come together.'
+                    : '👋 Welcome! How can we assist you today?')
+              },
               position: { x: 250, y: 120 }
             },
             {
@@ -241,6 +263,8 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         setIsLoading(false);
         return;
       }
+
+      setBotTitle(botData.name || 'BotFlow Assistant');
 
       const nodesData = Array.isArray(botData.nodes)
         ? botData.nodes
@@ -303,41 +327,63 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   }, [botId]);
 
   const handleUserInput = async (text: string) => {
+    const cleanText = text.trim();
+    if (!cleanText) return;
+
     const userMsg: Message = {
       id: Date.now().toString(),
-      text,
+      text: cleanText,
       sender: 'user',
     };
     setMessages(prev => [...prev, userMsg]);
     setInputValue('');
 
-    // Process lead data if current node is a question
     const currentNode = safeNodes.find((n: any) => n.id === currentNodeId);
+    
+    // Process lead data
+    const newLeadData = { ...leadData };
     if (currentNode) {
-      const newLeadData = { ...leadData };
-      const key = currentNode.data.leadKey || currentNode.data.label;
+      const key = currentNode.data?.key || currentNode.data?.leadKey || currentNode.data?.label;
 
-      if (currentNode.type === 'name') newLeadData.name = text;
-      else if (currentNode.type === 'email') newLeadData.email = text;
-      else if (currentNode.type === 'phone') newLeadData.phone = text;
-      else if (currentNode.type === 'textQuestion' || currentNode.type === 'singleChoice' || currentNode.type === 'multipleChoice') {
-        newLeadData[key] = text;
+      if (currentNode.type === 'name') newLeadData.name = cleanText;
+      else if (currentNode.type === 'email') newLeadData.email = cleanText;
+      else if (currentNode.type === 'phone') newLeadData.phone = cleanText;
+      else {
+        newLeadData[key || 'user_input'] = cleanText;
       }
+    } else {
+      newLeadData['user_message_' + Date.now()] = cleanText;
+    }
 
-      setLeadData(newLeadData);
+    setLeadData(newLeadData);
 
-      // Determine target next node based on option routes, nextStepId, edges or sequence
+    if (currentNode) {
       let targetNodeId: string | null = null;
 
-      // 1. Check if currentNode has an option route for this choice text
-      if (currentNode.data?.optionRoutes && currentNode.data.optionRoutes[text]) {
-        targetNodeId = currentNode.data.optionRoutes[text];
+      // 1. Check if choice matching or optionRoutes match (case-insensitive)
+      if (currentNode.data?.optionRoutes) {
+        const routes = currentNode.data.optionRoutes;
+        const matchedRouteKey = Object.keys(routes).find(
+          k => k.toLowerCase().trim() === cleanText.toLowerCase()
+        );
+        if (matchedRouteKey) {
+          targetNodeId = routes[matchedRouteKey];
+        }
       }
 
       // 2. Check if currentNode has an explicit nextStepId set
       if (!targetNodeId && currentNode.data?.nextStepId) {
         if (currentNode.data.nextStepId === 'END') {
           await saveLead(newLeadData);
+          setIsTyping(true);
+          setTimeout(() => {
+            setIsTyping(false);
+            setMessages(prev => [...prev, {
+              id: Date.now().toString(),
+              text: '🎉 Thank you! Your details have been submitted. Our team will contact you shortly.',
+              sender: 'bot'
+            }]);
+          }, 600);
           return;
         }
         targetNodeId = currentNode.data.nextStepId;
@@ -345,7 +391,12 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
       // 3. Check if an edge explicitly matches this choice text
       if (!targetNodeId) {
-        const choiceEdge = safeEdges.find((e: any) => e.source === currentNodeId && (e.label === text || e.sourceHandle === text || e.choice === text));
+        const choiceEdge = safeEdges.find((e: any) => 
+          e.source === currentNodeId && 
+          ((e.label && e.label.toLowerCase().trim() === cleanText.toLowerCase()) || 
+           (e.sourceHandle && e.sourceHandle.toLowerCase().trim() === cleanText.toLowerCase()) || 
+           (e.choice && e.choice.toLowerCase().trim() === cleanText.toLowerCase()))
+        );
         if (choiceEdge) {
           targetNodeId = choiceEdge.target;
         }
@@ -375,7 +426,6 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         if (nextNode) {
           if (nextNode.type === 'saveLead') {
             await saveLead(newLeadData);
-            // After saving, immediately look for the node AFTER the save node
             const nextEdge = safeEdges.find((e: any) => e.source === nextNode.id);
             if (nextEdge) {
               const finalNextNode = safeNodes.find((n: any) => n.id === nextEdge.target);
@@ -393,8 +443,30 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         }
       }
 
-      // End of flow - save lead
-      saveLead(newLeadData);
+      // End of flow reached - save lead and send completion message
+      await saveLead(newLeadData);
+      setCurrentNodeId(null);
+      setIsTyping(true);
+      setTimeout(() => {
+        setIsTyping(false);
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          text: '🎉 Thank you! Your details have been submitted. Our team will reach out to you shortly.',
+          sender: 'bot'
+        }]);
+      }, 600);
+    } else {
+      // Flow ended previously, user is continuing chat
+      await saveLead(newLeadData);
+      setIsTyping(true);
+      setTimeout(() => {
+        setIsTyping(false);
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          text: `Thanks for your message! Our ${botTitle} team has received your note and will get back to you ASAP.`,
+          sender: 'bot'
+        }]);
+      }, 600);
     }
   };
 
@@ -404,34 +476,78 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
   const saveLead = async (data: any) => {
     try {
-      // Fetch bot owner UID to store as ownerId on the lead
-      const botRef = doc(db, 'bot_configurations', botId);
-      const botSnap = await getDoc(botRef);
-      let ownerId = null;
-      let ownerData = null;
-      let botSpreadsheetId = null;
+      let ownerId: string | null = null;
+      let ownerData: any = null;
+      let botSpreadsheetId: string | null = null;
 
-      if (botSnap.exists()) {
-        const botData = botSnap.data();
-        ownerId = botData.createdBy;
-        botSpreadsheetId = botData.spreadsheetId || null;
+      // 1. Try resolving ownerId from Firestore
+      try {
+        const botRef = doc(db, 'bot_configurations', botId);
+        const botSnap = await getDoc(botRef).catch(() => null);
 
-        if (ownerId) {
-          const ownerRef = doc(db, 'users', ownerId);
-          const ownerSnap = await getDoc(ownerRef);
-          if (ownerSnap.exists()) {
-            ownerData = ownerSnap.data();
+        if (botSnap && botSnap.exists()) {
+          const bData = botSnap.data();
+          ownerId = bData.createdBy || null;
+          botSpreadsheetId = bData.spreadsheetId || null;
+
+          if (ownerId) {
+            const ownerRef = doc(db, 'users', ownerId);
+            const ownerSnap = await getDoc(ownerRef).catch(() => null);
+            if (ownerSnap && ownerSnap.exists()) {
+              ownerData = ownerSnap.data();
+            }
           }
         }
+      } catch (err) {
+        console.warn('Firestore bot owner lookup notice:', err);
       }
 
-      await addDoc(collection(db, 'leads'), {
+      // 2. Fallback owner resolution from Local Storage or preset bots
+      if (!ownerId) {
+        try {
+          const localBotsRaw = localStorage.getItem('mintage_bots');
+          if (localBotsRaw) {
+            const parsed = JSON.parse(localBotsRaw);
+            const found = parsed.find((b: any) => b.id === botId);
+            if (found) {
+              ownerId = found.createdBy || null;
+              if (found.spreadsheetId) botSpreadsheetId = found.spreadsheetId;
+            }
+          }
+        } catch {}
+      }
+
+      const leadRecord = {
         flowId: botId,
-        ownerId, // Link the lead to the bot owner for secure dashboard queries
+        ownerId: ownerId || 'demo_user',
+        clientName: botTitle,
         data,
         timestamp: serverTimestamp(),
         sourceUrl: window.location.href,
+      };
+
+      // Write to Firestore leads collection
+      await addDoc(collection(db, 'leads'), leadRecord).catch(fsErr => {
+        console.warn('Firestore lead submission warning:', fsErr);
       });
+
+      // Also POST to Express server API for backend storage persistence
+      try {
+        await fetch('/api/leads', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            flowId: botId,
+            ownerId: ownerId || 'demo_user',
+            clientName: botTitle,
+            data,
+            timestamp: new Date().toISOString(),
+            sourceUrl: window.location.href
+          }),
+        });
+      } catch (apiErr) {
+        console.warn('Server API lead submission warning:', apiErr);
+      }
 
       // Sync to Google Sheets if configured (prefers bot-specific sheet, falls back to owner default sheet)
       const targetSpreadsheetId = botSpreadsheetId || ownerData?.spreadsheetId;
@@ -484,7 +600,6 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   }
 
   const currentNode = safeNodes.find((n: any) => n.id === currentNodeId);
-  const isQuestion = currentNode && ['name', 'email', 'phone', 'textQuestion', 'singleChoice', 'multipleChoice'].includes(currentNode.type);
 
   return (
     <div className="flex flex-col h-full bg-gray-50 font-sans overflow-hidden border border-gray-100 rounded-2xl shadow-2xl">
@@ -494,7 +609,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
           <Bot className="w-5 h-5 text-white" />
         </div>
         <div>
-          <h3 className="text-white font-bold text-sm">BotFlow Assistant</h3>
+          <h3 className="text-white font-bold text-sm">{botTitle}</h3>
           <div className="flex items-center gap-1.5">
             <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></div>
             <span className="text-[10px] text-indigo-100 font-medium uppercase tracking-wider">Online</span>
@@ -559,22 +674,28 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
-      {isQuestion && !currentNode.data.choices && (
+      {/* User Input Area */}
+      {!isTyping && (
         <form
           onSubmit={(e) => { e.preventDefault(); if (inputValue.trim()) handleUserInput(inputValue); }}
-          className="p-4 bg-white border-t border-gray-100 flex gap-2"
+          className="p-3 bg-white border-t border-gray-100 flex gap-2 items-center"
         >
           <input
             type="text"
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            placeholder="Type your answer..."
-            className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+            placeholder={
+              currentNode?.type === 'name' ? 'Type your full name...' :
+              currentNode?.type === 'phone' ? 'Type your phone number...' :
+              currentNode?.type === 'email' ? 'Type your email address...' :
+              'Type your response...'
+            }
+            className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-xs font-medium text-gray-800 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
           />
           <button
             type="submit"
-            className="bg-indigo-600 text-white p-2.5 rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+            disabled={!inputValue.trim()}
+            className="bg-indigo-600 text-white p-2.5 rounded-xl hover:bg-indigo-700 transition-all shadow-md shadow-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Send className="w-4 h-4" />
           </button>

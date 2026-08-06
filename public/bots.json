@@ -1,156 +1,144 @@
 [
   {
-    "id": "bot_1785929652154",
-    "name": "Risinia-first",
+    "id": "bot_risinia",
+    "name": "Risinia Builders",
     "nodes": [
       {
-        "id": "node_1785821556345",
+        "id": "node_welcome_risinia",
         "type": "message",
         "data": {
-          "label": "Hello welcom to risinia",
+          "label": "👋 Welcome to Risinia Builders!\n\nDiscover thoughtfully designed 2 & 3 BHK Premium Apartments where luxury, comfort, and modern living come together.",
           "key": ""
         },
-        "position": {
-          "x": 250,
-          "y": 120
-        }
+        "position": { "x": 250, "y": 120 }
       },
       {
-        "id": "node_1785821676785",
+        "id": "node_image_risinia",
+        "type": "message",
+        "data": {
+          "label": "Risinia The Edge - Premier Living",
+          "key": "",
+          "imageUrl": "https://risiniatheedge.com/wp-content/uploads/2024/04/slide02.jpg"
+        },
+        "position": { "x": 250, "y": 240 }
+      },
+      {
+        "id": "node_options_risinia",
+        "type": "singleChoice",
+        "data": {
+          "label": "How can our team assist you today?",
+          "choices": ["Explore 2 BHK Flats", "Explore 3 BHK Flats", "Schedule Site Visit", "Talk to Sales Representative"]
+        },
+        "position": { "x": 250, "y": 360 }
+      },
+      {
+        "id": "node_name_risinia",
         "type": "name",
         "data": {
-          "label": "To start, could you share your full name with us? ✨",
+          "label": "To get started, could you share your full name with us? ✨",
           "key": "full_name"
         },
-        "position": {
-          "x": 250,
-          "y": 240
-        }
+        "position": { "x": 250, "y": 480 }
       },
       {
-        "id": "node_1785821681184",
+        "id": "node_phone_risinia",
         "type": "phone",
         "data": {
-          "label": "Thanks! Could you also give us your phone number? 📞",
+          "label": "Thanks! What is the best phone number to share project details? 📞",
           "key": "phone_number"
         },
-        "position": {
-          "x": 250,
-          "y": 360
-        }
+        "position": { "x": 250, "y": 600 }
       },
       {
-        "id": "node_1785821682841",
+        "id": "node_email_risinia",
         "type": "email",
         "data": {
-          "label": "Perfect! Now please provide your email address so our team can reach out! ✉️",
+          "label": "Perfect! Please provide your email address so we can send the floor plans & brochure! ✉️",
           "key": "email_address"
         },
-        "position": {
-          "x": 250,
-          "y": 480
-        }
+        "position": { "x": 250, "y": 720 }
       }
     ],
     "edges": [
-      {
-        "id": "e_node_1785821556345-node_1785821676785",
-        "source": "node_1785821556345",
-        "target": "node_1785821676785",
-        "type": "smoothstep"
-      },
-      {
-        "id": "e_node_1785821676785-node_1785821681184",
-        "source": "node_1785821676785",
-        "target": "node_1785821681184",
-        "type": "smoothstep"
-      },
-      {
-        "id": "e_node_1785821681184-node_1785821682841",
-        "source": "node_1785821681184",
-        "target": "node_1785821682841",
-        "type": "smoothstep"
-      }
+      { "id": "e1", "source": "node_welcome_risinia", "target": "node_image_risinia", "type": "smoothstep" },
+      { "id": "e2", "source": "node_image_risinia", "target": "node_options_risinia", "type": "smoothstep" },
+      { "id": "e3", "source": "node_options_risinia", "target": "node_name_risinia", "type": "smoothstep" },
+      { "id": "e4", "source": "node_name_risinia", "target": "node_phone_risinia", "type": "smoothstep" },
+      { "id": "e5", "source": "node_phone_risinia", "target": "node_email_risinia", "type": "smoothstep" }
     ],
     "spreadsheetId": "",
     "createdBy": "demo_user",
-    "updatedAt": "2026-08-05T12:00:00.000Z"
+    "updatedAt": "2026-08-06T06:00:00.000Z"
   },
   {
-    "id": "bot_1785308637621",
-    "name": "Risinia-first",
+    "id": "bot_riverscape",
+    "name": "River Scape Residences",
     "nodes": [
       {
-        "id": "node_1785821556345",
+        "id": "node_welcome_river",
         "type": "message",
         "data": {
-          "label": "Hello welcom to risinia",
+          "label": "🌿 Welcome to River Scape Residences!\n\nExperience serene waterfront luxury homes with breathtaking views and modern lifestyle amenities.",
           "key": ""
         },
-        "position": {
-          "x": 250,
-          "y": 120
-        }
+        "position": { "x": 250, "y": 120 }
       },
       {
-        "id": "node_1785821676785",
+        "id": "node_image_river",
+        "type": "message",
+        "data": {
+          "label": "River Scape Waterfront Living",
+          "key": "",
+          "imageUrl": "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=800&auto=format&fit=crop&q=80"
+        },
+        "position": { "x": 250, "y": 240 }
+      },
+      {
+        "id": "node_options_river",
+        "type": "singleChoice",
+        "data": {
+          "label": "What information would you like to receive?",
+          "choices": ["Floor Plans & Layouts", "Pricing & Payment Plans", "Book Virtual / Site Tour", "Request Callback"]
+        },
+        "position": { "x": 250, "y": 360 }
+      },
+      {
+        "id": "node_name_river",
         "type": "name",
         "data": {
-          "label": "To start, could you share your full name with us? ✨",
+          "label": "May we know your full name to address you properly? ✨",
           "key": "full_name"
         },
-        "position": {
-          "x": 250,
-          "y": 240
-        }
+        "position": { "x": 250, "y": 480 }
       },
       {
-        "id": "node_1785821681184",
+        "id": "node_phone_river",
         "type": "phone",
         "data": {
-          "label": "Thanks! Could you also give us your phone number? 📞",
+          "label": "Great! Please share your phone number so our representative can get in touch 📞",
           "key": "phone_number"
         },
-        "position": {
-          "x": 250,
-          "y": 360
-        }
+        "position": { "x": 250, "y": 600 }
       },
       {
-        "id": "node_1785821682841",
+        "id": "node_email_river",
         "type": "email",
         "data": {
-          "label": "Perfect! Now please provide your email address so our team can reach out! ✉️",
+          "label": "And your email address to receive the complete River Scape brochure? 📧",
           "key": "email_address"
         },
-        "position": {
-          "x": 250,
-          "y": 480
-        }
+        "position": { "x": 250, "y": 720 }
       }
     ],
     "edges": [
-      {
-        "id": "e_node_1785821556345-node_1785821676785",
-        "source": "node_1785821556345",
-        "target": "node_1785821676785",
-        "type": "smoothstep"
-      },
-      {
-        "id": "e_node_1785821676785-node_1785821681184",
-        "source": "node_1785821676785",
-        "target": "node_1785821681184",
-        "type": "smoothstep"
-      },
-      {
-        "id": "e_node_1785821681184-node_1785821682841",
-        "source": "node_1785821681184",
-        "target": "node_1785821682841",
-        "type": "smoothstep"
-      }
+      { "id": "er1", "source": "node_welcome_river", "target": "node_image_river", "type": "smoothstep" },
+      { "id": "er2", "source": "node_image_river", "target": "node_options_river", "type": "smoothstep" },
+      { "id": "er3", "source": "node_options_river", "target": "node_name_river", "type": "smoothstep" },
+      { "id": "er4", "source": "node_name_river", "target": "node_phone_river", "type": "smoothstep" },
+      { "id": "er5", "source": "node_phone_river", "target": "node_email_river", "type": "smoothstep" }
     ],
     "spreadsheetId": "",
     "createdBy": "demo_user",
-    "updatedAt": "2026-08-05T12:00:00.000Z"
+    "updatedAt": "2026-08-06T06:05:00.000Z"
   }
 ]

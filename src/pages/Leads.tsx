@@ -36,33 +36,78 @@ export default function Leads() {
       : query(collection(db, 'leads'), where('ownerId', '==', targetUserId), orderBy('timestamp', 'desc'));
 
     const unsubscribeLeads = onSnapshot(q, async (snapshot) => {
-      const leadsData = snapshot.docs.map(doc => ({
+      let firestoreLeads = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       })) as Lead[];
-      
-      setLeads(leadsData);
+
+      // Fetch server backend leads
+      let serverLeads: Lead[] = [];
+      try {
+        const url = isGlobalAdminView ? '/api/leads' : `/api/leads?ownerId=${encodeURIComponent(targetUserId)}`;
+        const res = await fetch(url);
+        if (res.ok) {
+          const sData = await res.json();
+          if (sData.success && Array.isArray(sData.leads)) {
+            serverLeads = sData.leads.map((l: any) => ({
+              id: l.id,
+              flowId: l.flowId,
+              flowName: l.clientName,
+              data: l.data || l,
+              timestamp: l.timestamp,
+              sourceUrl: l.sourceUrl
+            }));
+          }
+        }
+      } catch (err) {
+        console.warn('Backend leads API warning:', err);
+      }
+
+      // Merge Firestore + Server API leads without duplication
+      const leadMap = new Map<string, Lead>();
+      serverLeads.forEach(l => leadMap.set(l.id, l));
+      firestoreLeads.forEach(l => leadMap.set(l.id, l));
+
+      const mergedLeads = Array.from(leadMap.values());
+      setLeads(mergedLeads);
       setLoading(false);
 
       // Fetch unique bot names for these leads
-      const uniqueFlowIds = Array.from(new Set(leadsData.map(l => l.flowId)));
       const names: Record<string, string> = { ...botNames };
-      
+      mergedLeads.forEach(l => {
+        if (l.flowId && l.flowName) {
+          names[l.flowId] = l.flowName;
+        }
+      });
+
+      const uniqueFlowIds = Array.from(new Set(mergedLeads.map(l => l.flowId)));
       for (const flowId of uniqueFlowIds) {
         if (!names[flowId]) {
-          try {
-            const botDoc = await getDoc(doc(db, 'bot_configurations', flowId));
-            if (botDoc.exists()) {
-              names[flowId] = botDoc.data().name;
-            }
-          } catch (e) {
-            // Ignore
+          if (flowId.includes('risinia')) names[flowId] = 'Risinia Builders';
+          else if (flowId.includes('river')) names[flowId] = 'River Scape Residences';
+          else {
+            try {
+              const botDoc = await getDoc(doc(db, 'bot_configurations', flowId));
+              if (botDoc.exists()) {
+                names[flowId] = botDoc.data().name;
+              }
+            } catch (e) {}
           }
         }
       }
       setBotNames(names);
-    }, (error) => {
-      console.warn('Leads fetch error:', error);
+    }, async (error) => {
+      console.warn('Leads snapshot error, fetching from server API fallback:', error);
+      try {
+        const url = isGlobalAdminView ? '/api/leads' : `/api/leads?ownerId=${encodeURIComponent(targetUserId)}`;
+        const res = await fetch(url);
+        if (res.ok) {
+          const sData = await res.json();
+          if (sData.success && Array.isArray(sData.leads)) {
+            setLeads(sData.leads);
+          }
+        }
+      } catch (e) {}
       setLoading(false);
     });
 

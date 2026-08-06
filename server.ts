@@ -349,7 +349,9 @@ async function startServer() {
 
   // Server-side Bot Configurations Cache & File Persistence
   const BOTS_FILE_PATH = path.join(process.cwd(), 'public', 'bots.json');
+  const LEADS_FILE_PATH = path.join(process.cwd(), 'public', 'leads.json');
   const serverBotsMap = new Map<string, any>();
+  const serverLeadsList: any[] = [];
 
   function loadBotsFromFile() {
     try {
@@ -369,8 +371,23 @@ async function startServer() {
     }
   }
 
+  function loadLeadsFromFile() {
+    try {
+      if (fs.existsSync(LEADS_FILE_PATH)) {
+        const rawData = fs.readFileSync(LEADS_FILE_PATH, 'utf-8');
+        const parsed = JSON.parse(rawData);
+        if (Array.isArray(parsed)) {
+          serverLeadsList.splice(0, serverLeadsList.length, ...parsed);
+        }
+      }
+    } catch (err) {
+      console.warn('Could not load leads.json:', err);
+    }
+  }
+
   // Load initially
   loadBotsFromFile();
+  loadLeadsFromFile();
 
   function saveBotsToFile() {
     try {
@@ -382,6 +399,18 @@ async function startServer() {
       fs.writeFileSync(BOTS_FILE_PATH, JSON.stringify(botsArray, null, 2), 'utf-8');
     } catch (err) {
       console.warn('Could not write to bots.json:', err);
+    }
+  }
+
+  function saveLeadsToFile() {
+    try {
+      const publicDir = path.join(process.cwd(), 'public');
+      if (!fs.existsSync(publicDir)) {
+        fs.mkdirSync(publicDir, { recursive: true });
+      }
+      fs.writeFileSync(LEADS_FILE_PATH, JSON.stringify(serverLeadsList, null, 2), 'utf-8');
+    } catch (err) {
+      console.warn('Could not write to leads.json:', err);
     }
   }
 
@@ -412,15 +441,34 @@ async function startServer() {
     const { id } = req.params;
     loadBotsFromFile(); // Reload to capture any direct file edits or multi-worker updates
 
+    // 1. Direct ID match
     if (serverBotsMap.has(id)) {
       return res.json({ success: true, bot: serverBotsMap.get(id) });
     }
 
-    // Fallback: If requested ID is not found, but we have saved bots, return the most recent custom bot flow
-    if (serverBotsMap.size > 0) {
-      const allBots = Array.from(serverBotsMap.values());
-      allBots.sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
-      return res.json({ success: true, bot: allBots[0], fallback: true });
+    // 2. Case-insensitive ID or client name match
+    const lowerId = id.toLowerCase().trim();
+    const allBots = Array.from(serverBotsMap.values());
+
+    // Exact case-insensitive ID match
+    let matchedBot = allBots.find(b => (b.id || '').toLowerCase() === lowerId);
+
+    // Exact name match
+    if (!matchedBot) {
+      matchedBot = allBots.find(b => (b.name || '').toLowerCase() === lowerId);
+    }
+
+    // Specific client keyword match ONLY when requested ID explicitly contains the keyword
+    if (!matchedBot) {
+      if (lowerId.includes('risinia')) {
+        matchedBot = allBots.find(b => (b.id || '').toLowerCase().includes('risinia') || (b.name || '').toLowerCase().includes('risinia'));
+      } else if (lowerId.includes('river')) {
+        matchedBot = allBots.find(b => (b.id || '').toLowerCase().includes('river') || (b.name || '').toLowerCase().includes('river'));
+      }
+    }
+
+    if (matchedBot) {
+      return res.json({ success: true, bot: matchedBot });
     }
 
     res.status(404).json({ error: 'Bot configuration not found on server' });
@@ -433,12 +481,35 @@ async function startServer() {
     res.json({ success: true, bots: botsList });
   });
 
-  // Level 5: Lead Routing to Google Sheets (Placeholder)
+  // Backend Lead Storage & Retrieval
   app.post('/api/leads', async (req, res) => {
-    const leadData = req.body;
-    console.log('Captured Lead:', leadData);
-    // In a real implementation, we would use googleapis to append to a sheet
-    res.json({ success: true, message: 'Lead captured' });
+    const leadRecord = req.body;
+    const newLead = {
+      id: 'lead_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+      flowId: leadRecord.flowId || 'default',
+      ownerId: leadRecord.ownerId || 'guest_user',
+      clientName: leadRecord.clientName || leadRecord.botName || '',
+      data: leadRecord.data || leadRecord,
+      timestamp: leadRecord.timestamp || new Date().toISOString(),
+      sourceUrl: leadRecord.sourceUrl || ''
+    };
+    serverLeadsList.unshift(newLead);
+    saveLeadsToFile();
+    console.log('Captured & Saved Lead to Backend:', newLead.id);
+    res.json({ success: true, lead: newLead });
+  });
+
+  app.get('/api/leads', (req, res) => {
+    loadLeadsFromFile();
+    const { ownerId, flowId } = req.query;
+    let filtered = [...serverLeadsList];
+    if (ownerId && typeof ownerId === 'string') {
+      filtered = filtered.filter(l => l.ownerId === ownerId);
+    }
+    if (flowId && typeof flowId === 'string') {
+      filtered = filtered.filter(l => l.flowId === flowId);
+    }
+    res.json({ success: true, leads: filtered });
   });
 
   // Vite middleware for development

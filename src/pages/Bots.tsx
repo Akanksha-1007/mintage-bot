@@ -67,6 +67,20 @@ export default function Bots() {
         }
       } catch {}
 
+      if (!isGlobalAdminView && targetUserId) {
+        serverBots = serverBots.filter(b => {
+          if (!b.createdBy || b.createdBy === 'demo_user' || b.createdBy === 'guest_user') {
+            const bName = (b.name || '').toLowerCase();
+            const bId = (b.id || '').toLowerCase();
+            const tId = targetUserId.toLowerCase();
+            if (tId.includes('risinia')) return bName.includes('risinia') || bId.includes('risinia');
+            if (tId.includes('river')) return bName.includes('river') || bId.includes('river');
+            return true;
+          }
+          return b.createdBy === targetUserId;
+        });
+      }
+
       // Merge with local storage cached flows so saved flows are always visible
       const localBotsRaw = localStorage.getItem('mintage_bots');
       let localBots: BotConfig[] = [];
