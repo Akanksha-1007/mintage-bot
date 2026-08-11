@@ -120,10 +120,12 @@ export default function Leads() {
       firestoreLeads.forEach(l => leadMap.set(l.id, l));
 
       const mergedLeads = Array.from(leadMap.values());
+      console.log('[LEAD_DASHBOARD]', { effectiveClientId: targetUserId, leadCount: mergedLeads.length });
       console.log('[LEADS_PAGE] mergedLeadCount =', mergedLeads.length, 'leadIds =', mergedLeads.map(l => l.id));
 
       setLeads(mergedLeads);
       setLoading(false);
+
 
 
       // Fetch unique bot names for these leads
