@@ -61,14 +61,27 @@ export default function Leads() {
     const isGlobalAdminView = isAdmin && !impersonatedClient;
 
     const q = isGlobalAdminView
-      ? query(collection(db, 'leads'), orderBy('timestamp', 'desc'))
-      : query(collection(db, 'leads'), where('ownerId', '==', targetUserId), orderBy('timestamp', 'desc'));
+      ? query(collection(db, 'leads'))
+      : query(collection(db, 'leads'), where('clientId', '==', targetUserId));
 
     const unsubscribeLeads = onSnapshot(q, async (snapshot) => {
       let firestoreLeads = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       })) as Lead[];
+
+      // Fallback query by ownerId if clientId yields empty
+      if (!isGlobalAdminView && firestoreLeads.length === 0) {
+        try {
+          const fallbackQ = query(collection(db, 'leads'), where('ownerId', '==', targetUserId));
+          const fallbackSnap = await getDocs(fallbackQ);
+          firestoreLeads = fallbackSnap.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          })) as Lead[];
+        } catch (e) {}
+      }
+
 
       // Fetch server backend leads
       let serverLeads: Lead[] = [];

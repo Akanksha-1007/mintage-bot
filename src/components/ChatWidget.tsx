@@ -502,89 +502,63 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   const saveLead = async (data: any, fieldsList: Array<{ fieldId: string; label: string; value: string }> = dynamicFields) => {
     if (isSubmitting) return;
     setIsSubmitting(true);
+    
+    const payload = {
+      botId,
+      fields: fieldsList,
+      sourceUrl: window.location.href,
+      submittedAt: new Date().toISOString()
+    };
+
+    console.log('[LEAD] submitting', payload);
+
     try {
-      let ownerId: string | null = null;
-      let ownerData: any = null;
-      let botSpreadsheetId: string | null = null;
-      let botWorksheetName: string | null = null;
-
-      // 1. Try resolving ownerId from Firestore
-      try {
-        const botRef = doc(db, 'bot_configurations', botId);
-        const botSnap = await getDoc(botRef).catch(() => null);
-
-        if (botSnap && botSnap.exists()) {
-          const bData = botSnap.data();
-          ownerId = bData.createdBy || null;
-          botSpreadsheetId = bData.spreadsheetId || null;
-          botWorksheetName = bData.worksheetName || null;
-
-          if (ownerId) {
-            const ownerRef = doc(db, 'users', ownerId);
-            const ownerSnap = await getDoc(ownerRef).catch(() => null);
-            if (ownerSnap && ownerSnap.exists()) {
-              ownerData = ownerSnap.data();
-            }
-          }
-        }
-      } catch (err) {
-        console.warn('Firestore bot owner lookup notice:', err);
-      }
-
-      // 2. Fallback owner resolution from Local Storage or preset bots
-      if (!ownerId) {
-        try {
-          const localBotsRaw = localStorage.getItem('mintage_bots');
-          if (localBotsRaw) {
-            const parsed = JSON.parse(localBotsRaw);
-            const found = parsed.find((b: any) => b.id === botId);
-            if (found) {
-              ownerId = found.createdBy || null;
-              if (found.spreadsheetId) botSpreadsheetId = found.spreadsheetId;
-              if (found.worksheetName) botWorksheetName = found.worksheetName;
-            }
-          }
-        } catch {}
-      }
-
-      const leadRecord = {
-        botId,
-        flowId: botId,
-        clientId: ownerId || 'demo_user',
-        ownerId: ownerId || 'demo_user',
-        botName: botTitle,
-        clientName: botTitle,
-        fields: fieldsList,
-        data,
-        timestamp: serverTimestamp(),
-        submittedAt: new Date().toISOString(),
-        sourceUrl: window.location.href,
-        googleTokens: ownerData?.googleTokens || null,
-        spreadsheetId: botSpreadsheetId || ownerData?.spreadsheetId || null,
-        worksheetName: botWorksheetName || ownerData?.worksheetName || 'Sheet1'
-      };
-
-      // Write to Firestore leads collection
-      await addDoc(collection(db, 'leads'), leadRecord).catch(fsErr => {
-        console.warn('Firestore lead submission warning:', fsErr);
+      const res = await fetch('/api/leads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       });
 
-      // Also POST to Express server API for backend storage persistence & Google Sheets auto sync
-      try {
-        await fetch('/api/leads', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(leadRecord),
-        });
-      } catch (apiErr) {
-        console.warn('Server API lead submission warning:', apiErr);
+      const resData = await res.json();
+      if (res.ok && resData.success) {
+        console.log('[LEAD] submission success:', resData.leadId);
+        setIsTyping(true);
+        setTimeout(() => {
+          setIsTyping(false);
+          setMessages(prev => [...prev, {
+            id: Date.now().toString(),
+            text: '🎉 Thank you! Your details have been submitted successfully. Our team will contact you shortly.',
+            sender: 'bot'
+          }]);
+        }, 600);
+      } else {
+        console.error('[LEAD] submission failed:', resData.error);
+        setIsTyping(true);
+        setTimeout(() => {
+          setIsTyping(false);
+          setMessages(prev => [...prev, {
+            id: Date.now().toString(),
+            text: '⚠️ Unable to submit your details. Please try again.',
+            sender: 'bot'
+          }]);
+        }, 600);
       }
     } catch (error) {
-      console.error('Error saving lead:', error);
+      console.error('[LEAD] submission network error:', error);
+      setIsTyping(true);
+      setTimeout(() => {
+        setIsTyping(false);
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          text: '⚠️ Unable to submit your details due to a network error. Please try again.',
+          sender: 'bot'
+        }]);
+      }, 600);
     } finally {
       setIsSubmitting(false);
     }
   };
+
 
 
 

@@ -5,17 +5,36 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { google } from 'googleapis';
 import dotenv from 'dotenv';
+import { initializeApp } from 'firebase/app';
+import { getFirestore, doc, getDoc, setDoc, getDocs, collection, query, where } from 'firebase/firestore';
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Initialize Firebase Firestore on server
+const firebaseConfigPath = path.join(__dirname, 'firebase-applet-config.json');
+let db: any = null;
+
+try {
+  if (fs.existsSync(firebaseConfigPath)) {
+    const firebaseConfig = JSON.parse(fs.readFileSync(firebaseConfigPath, 'utf-8'));
+    const firebaseApp = initializeApp(firebaseConfig);
+    const databaseId = firebaseConfig.firestoreDatabaseId || "ai-studio-773a3703-7861-48f8-a809-1456568b7d33";
+    db = getFirestore(firebaseApp, databaseId);
+    console.log('[FIREBASE_INIT] Firestore initialized on server with database ID:', databaseId);
+  }
+} catch (err) {
+  console.warn('[FIREBASE_INIT_WARNING] Could not initialize Firebase on server:', err);
+}
+
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,
   `${process.env.APP_URL || 'http://localhost:3000'}/auth/callback`
 );
+
 
 // In-memory store for tokens (In production, use Firestore)
 const userTokens = new Map<string, any>();
@@ -593,58 +612,163 @@ async function startServer() {
     res.json({ success: true, bots: botsList });
   });
 
-  // Backend Lead Storage & Retrieval with Dynamic Fields, Backend Ownership & Idempotency
-  app.post('/api/leads', async (req, res) => {
-    const leadRecord = req.body || {};
-    const botId = leadRecord.botId || leadRecord.flowId || 'default_bot';
+  // Helper to resolve bot & client owner securely server-side
+  async function resolveBotAndOwner(botId: string) {
+    const cleanBotId = (botId || '').trim();
+    if (!cleanBotId) return null;
 
-    // 1. Resolve bot owner securely from server configuration (DO NOT trust client-supplied ownerId)
-    loadBotsFromFile();
-    let resolvedOwnerId = 'demo_user';
-    let resolvedBotName = leadRecord.botName || leadRecord.clientName || 'Chatbot';
-    let resolvedSpreadsheetId = leadRecord.spreadsheetId || '';
-    let resolvedWorksheetName = leadRecord.worksheetName || 'Sheet1';
-
-    if (serverBotsMap.has(botId)) {
-      const botConfig = serverBotsMap.get(botId);
-      if (botConfig.createdBy) resolvedOwnerId = botConfig.createdBy;
-      if (botConfig.name) resolvedBotName = botConfig.name;
-      if (botConfig.spreadsheetId) resolvedSpreadsheetId = botConfig.spreadsheetId;
-      if (botConfig.worksheetName) resolvedWorksheetName = botConfig.worksheetName;
-    } else {
-      resolvedOwnerId = leadRecord.clientId || leadRecord.ownerId || 'demo_user';
+    // 1. Check Firestore bot_configurations collection first
+    if (db) {
+      try {
+        const botRef = doc(db, 'bot_configurations', cleanBotId);
+        const botSnap = await getDoc(botRef).catch(() => null);
+        if (botSnap && botSnap.exists()) {
+          const data = botSnap.data();
+          if (data && data.createdBy) {
+            return {
+              botId: cleanBotId,
+              botName: data.name || 'Chatbot',
+              clientId: data.createdBy,
+              spreadsheetId: data.spreadsheetId || '',
+              worksheetName: data.worksheetName || 'Sheet1'
+            };
+          }
+        }
+      } catch (err) {
+        console.warn('[BOT_LOOKUP_WARNING] Firestore bot doc fetch error:', err);
+      }
     }
 
-    // 2. Parse dynamic fields list
+    // 2. Check serverBotsMap (or bots.json)
+    loadBotsFromFile();
+    if (serverBotsMap.has(cleanBotId)) {
+      const b = serverBotsMap.get(cleanBotId);
+      if (b && b.createdBy) {
+        return {
+          botId: cleanBotId,
+          botName: b.name || 'Chatbot',
+          clientId: b.createdBy,
+          spreadsheetId: b.spreadsheetId || '',
+          worksheetName: b.worksheetName || 'Sheet1'
+        };
+      }
+    }
+
+    // 3. Check case-insensitive match in serverBotsMap
+    const lowerId = cleanBotId.toLowerCase();
+    const allBots = Array.from(serverBotsMap.values());
+    const found = allBots.find(b => 
+      (b.id || '').toLowerCase() === lowerId || 
+      (b.name || '').toLowerCase() === lowerId ||
+      (lowerId.includes('risinia') && (b.id || '').toLowerCase().includes('risinia')) ||
+      (lowerId.includes('river') && (b.id || '').toLowerCase().includes('river'))
+    );
+
+    if (found && found.createdBy) {
+      return {
+        botId: found.id || cleanBotId,
+        botName: found.name || 'Chatbot',
+        clientId: found.createdBy,
+        spreadsheetId: found.spreadsheetId || '',
+        worksheetName: found.worksheetName || 'Sheet1'
+      };
+    }
+
+    return null;
+  }
+
+  // Helper to resolve client Google Sheets configuration (tokens & spreadsheet ID)
+  async function resolveClientGoogleSheetsConfig(clientId: string, botSpreadsheetId?: string, botWorksheetName?: string) {
+    let googleTokens: any = null;
+    let spreadsheetId: string = botSpreadsheetId || '';
+    let worksheetName: string = botWorksheetName || 'Sheet1';
+
+    if (clientId && db) {
+      try {
+        const userRef = doc(db, 'users', clientId);
+        const userSnap = await getDoc(userRef).catch(() => null);
+        if (userSnap && userSnap.exists()) {
+          const uData = userSnap.data();
+          if (uData.googleTokens) {
+            googleTokens = uData.googleTokens;
+          }
+          if (!spreadsheetId && uData.spreadsheetId) {
+            spreadsheetId = uData.spreadsheetId;
+          }
+          if (!botWorksheetName && uData.worksheetName) {
+            worksheetName = uData.worksheetName;
+          }
+        }
+      } catch (err) {
+        console.warn('[USER_LOOKUP_WARNING] Could not fetch user doc for client:', clientId, err);
+      }
+    }
+
+    return { googleTokens, spreadsheetId, worksheetName };
+  }
+
+  // Backend Lead Storage & Retrieval with Dynamic Fields, Backend Ownership & Idempotency
+  app.post('/api/leads', async (req, res) => {
+    const leadPayload = req.body || {};
+    const botId = leadPayload.botId || leadPayload.flowId;
+
+    console.log('[LEAD_RECEIVED]', { botId, sourceUrl: leadPayload.sourceUrl, fieldsCount: Array.isArray(leadPayload.fields) ? leadPayload.fields.length : 0 });
+
+    if (!botId) {
+      return res.status(400).json({ success: false, error: 'botId is required.' });
+    }
+
+    // 1. Resolve bot & owner securely server-side (DO NOT trust client-supplied ownerId/clientId!)
+    const resolvedBot = await resolveBotAndOwner(botId);
+    if (!resolvedBot || !resolvedBot.clientId) {
+      console.error('[LEAD_OWNER_ERROR]', 'Bot configuration or client ownership could not be resolved for botId:', botId);
+      return res.status(400).json({
+        success: false,
+        error: 'Bot configuration or client ownership could not be resolved.'
+      });
+    }
+
+    const clientId = resolvedBot.clientId;
+    const botName = resolvedBot.botName;
+    console.log('[LEAD_OWNER_RESOLVED]', { botId, clientId, botName });
+
+    // 2. Format dynamic fields
     let fields: Array<{ fieldId: string; label: string; value: string }> = [];
-    if (Array.isArray(leadRecord.fields)) {
-      fields = leadRecord.fields;
-    } else if (leadRecord.data && typeof leadRecord.data === 'object') {
-      fields = Object.entries(leadRecord.data).map(([key, val]) => ({
+    if (Array.isArray(leadPayload.fields)) {
+      fields = leadPayload.fields;
+    } else if (leadPayload.data && typeof leadPayload.data === 'object') {
+      fields = Object.entries(leadPayload.data).map(([key, val]) => ({
         fieldId: 'field_' + key,
         label: key,
         value: String(val)
       }));
     }
 
-    const leadId = leadRecord.id || ('lead_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6));
+    // Create flattened key-value data dictionary for fallback queries
+    const flattenedData: Record<string, any> = {};
+    fields.forEach(f => {
+      if (f.label) {
+        flattenedData[f.label] = f.value;
+      }
+    });
 
-    // 3. Deduplication Check (Idempotency) - Prevent duplicate submissions from fast clicks or network retries
+    const leadId = leadPayload.id || ('lead_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6));
+
+    // 3. Idempotency Check (Prevent duplicate submissions)
     loadLeadsFromFile();
     const existingById = serverLeadsList.find(l => l.id === leadId);
     if (existingById) {
-      console.log('Duplicate submission skipped by ID:', leadId);
-      return res.json({ success: true, lead: existingById, duplicate: true });
+      console.log('[LEAD_DUPLICATE_SKIPPED]', leadId);
+      return res.json({ success: true, leadId: existingById.id, duplicate: true });
     }
 
-    // Secondary duplicate check: same botId and identical field values in last 10 seconds
     const tenSecsAgo = Date.now() - 10000;
     const isRecentDuplicate = serverLeadsList.find(l => {
       if ((l.botId === botId || l.flowId === botId) && l.submittedAt) {
         const leadTime = new Date(l.submittedAt).getTime();
         if (leadTime > tenSecsAgo) {
           const lValues = JSON.stringify(l.fields || l.data);
-          const newValues = JSON.stringify(fields || leadRecord.data);
+          const newValues = JSON.stringify(fields || leadPayload.data);
           return lValues === newValues;
         }
       }
@@ -652,132 +776,187 @@ async function startServer() {
     });
 
     if (isRecentDuplicate) {
-      console.log('Recent duplicate submission skipped for bot:', botId);
-      return res.json({ success: true, lead: isRecentDuplicate, duplicate: true });
+      console.log('[LEAD_RECENT_DUPLICATE_SKIPPED]', botId);
+      return res.json({ success: true, leadId: isRecentDuplicate.id, duplicate: true });
     }
 
-    const newLead: any = {
+    // Build Lead Record
+    const newLeadRecord: any = {
       id: leadId,
       botId,
       flowId: botId,
-      clientId: resolvedOwnerId,
-      ownerId: resolvedOwnerId,
-      botName: resolvedBotName,
-      clientName: resolvedBotName,
+      clientId,
+      ownerId: clientId,
+      botName,
+      clientName: botName,
       fields,
-      data: leadRecord.data || leadRecord,
-      timestamp: leadRecord.timestamp || new Date().toISOString(),
-      submittedAt: leadRecord.submittedAt || new Date().toISOString(),
-      sourceUrl: leadRecord.sourceUrl || '',
+      data: flattenedData,
+      sourceUrl: leadPayload.sourceUrl || '',
+      submittedAt: leadPayload.submittedAt || new Date().toISOString(),
+      createdAt: new Date().toISOString(),
       googleSheetSyncStatus: 'pending'
     };
 
-    // Save lead to application database FIRST (Primary source of truth)
-    serverLeadsList.unshift(newLead);
-    saveLeadsToFile();
-    console.log('Captured & Saved Lead to Backend:', newLead.id);
-
-    // Attempt automatic Google Sheets synchronization if tokens & spreadsheet details provided
-    const googleTokens = leadRecord.googleTokens;
-    const spreadsheetId = resolvedSpreadsheetId || leadRecord.spreadsheetId;
-    const worksheetName = resolvedWorksheetName || leadRecord.worksheetName || 'Sheet1';
-
-    if (googleTokens && spreadsheetId) {
+    // 4. SAVE TO FIRESTORE FIRST (Primary production database)
+    if (db) {
       try {
-        await syncLeadToGoogleSheets(googleTokens, spreadsheetId, worksheetName, newLead);
-        newLead.googleSheetSyncStatus = 'synced';
-        newLead.googleSheetSyncedAt = new Date().toISOString();
-        saveLeadsToFile();
-      } catch (syncErr: any) {
-        console.warn('Auto Google Sheets sync failed on lead creation (Lead preserved in DB):', syncErr?.message || syncErr);
-        newLead.googleSheetSyncStatus = 'failed';
-        newLead.googleSheetSyncError = syncErr?.message || 'Sync failed';
-        saveLeadsToFile();
+        await setDoc(doc(db, 'leads', leadId), newLeadRecord);
+        console.log('[LEAD_FIRESTORE_SAVED]', { leadId, clientId, botId });
+      } catch (fsErr: any) {
+        console.warn('[LEAD_FIRESTORE_SAVE_WARNING]', fsErr?.message || fsErr);
       }
     }
 
-    res.json({ success: true, lead: newLead });
-  });
+    // Save to local file memory for fallback API queries
+    serverLeadsList.unshift(newLeadRecord);
+    saveLeadsToFile();
 
+    // 5. SERVER-SIDE GOOGLE SHEETS SYNC
+    const sheetConfig = await resolveClientGoogleSheetsConfig(clientId, resolvedBot.spreadsheetId, resolvedBot.worksheetName);
+    
+    if (sheetConfig.googleTokens && sheetConfig.spreadsheetId) {
+      console.log('[GOOGLE_SHEET_SYNC]', { leadId, spreadsheetId: sheetConfig.spreadsheetId, worksheet: sheetConfig.worksheetName });
+      try {
+        await syncLeadToGoogleSheets(sheetConfig.googleTokens, sheetConfig.spreadsheetId, sheetConfig.worksheetName, newLeadRecord);
+        newLeadRecord.googleSheetSyncStatus = 'synced';
+        newLeadRecord.googleSheetSyncedAt = new Date().toISOString();
+        
+        if (db) {
+          await setDoc(doc(db, 'leads', leadId), { googleSheetSyncStatus: 'synced', googleSheetSyncedAt: newLeadRecord.googleSheetSyncedAt }, { merge: true }).catch(() => null);
+        }
+        saveLeadsToFile();
+        console.log('[GOOGLE_SHEET_SYNC_SUCCESS]', { leadId });
+      } catch (syncErr: any) {
+        console.error('[GOOGLE_SHEET_SYNC_FAILED]', { leadId, error: syncErr?.message || syncErr });
+        newLeadRecord.googleSheetSyncStatus = 'failed';
+        newLeadRecord.googleSheetSyncError = syncErr?.message || 'Sync failed';
+        
+        if (db) {
+          await setDoc(doc(db, 'leads', leadId), { googleSheetSyncStatus: 'failed', googleSheetSyncError: newLeadRecord.googleSheetSyncError }, { merge: true }).catch(() => null);
+        }
+        saveLeadsToFile();
+      }
+    } else {
+      console.log('[GOOGLE_SHEET_NOT_CONFIGURED]', { leadId, clientId });
+      newLeadRecord.googleSheetSyncStatus = 'not_configured';
+      if (db) {
+        await setDoc(doc(db, 'leads', leadId), { googleSheetSyncStatus: 'not_configured' }, { merge: true }).catch(() => null);
+      }
+      saveLeadsToFile();
+    }
+
+    return res.json({ success: true, leadId });
+  });
 
   // Get leads with multi-tenant ownership validation
-  app.get('/api/leads', (req, res) => {
-    loadLeadsFromFile();
+  app.get('/api/leads', async (req, res) => {
     const { ownerId, clientId, botId, flowId } = req.query;
-    let filtered = [...serverLeadsList];
-
     const targetOwner = (ownerId || clientId) as string;
-    if (targetOwner) {
-      filtered = filtered.filter(l => l.ownerId === targetOwner || l.clientId === targetOwner);
-    }
-
     const targetBot = (botId || flowId) as string;
-    if (targetBot) {
-      filtered = filtered.filter(l => l.botId === targetBot || l.flowId === targetBot);
+
+    let firestoreLeads: any[] = [];
+
+    if (db && targetOwner) {
+      try {
+        const q = query(collection(db, 'leads'), where('clientId', '==', targetOwner));
+        const snap = await getDocs(q);
+        firestoreLeads = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      } catch (e) {
+        console.warn('[FIRESTORE_LEADS_FETCH_WARNING]', e);
+      }
     }
 
-    res.json({ success: true, leads: filtered });
-  });
-
-  // Get leads for a specific bot with ownership validation
-  app.get('/api/bots/:botId/leads', (req, res) => {
-    const { botId } = req.params;
-    const { ownerId, clientId } = req.query;
     loadLeadsFromFile();
-
-    let filtered = serverLeadsList.filter(l => l.botId === botId || l.flowId === botId);
-
-    const targetOwner = (ownerId || clientId) as string;
+    let fileLeads = [...serverLeadsList];
     if (targetOwner) {
-      filtered = filtered.filter(l => l.ownerId === targetOwner || l.clientId === targetOwner);
+      fileLeads = fileLeads.filter(l => l.ownerId === targetOwner || l.clientId === targetOwner);
+    }
+    if (targetBot) {
+      fileLeads = fileLeads.filter(l => l.botId === targetBot || l.flowId === targetBot);
     }
 
-    res.json({ success: true, leads: filtered });
-  });
+    // Merge without duplicates
+    const map = new Map<string, any>();
+    fileLeads.forEach(l => map.set(l.id, l));
+    firestoreLeads.forEach(l => map.set(l.id, l));
 
-  // Get single lead details
-  app.get('/api/leads/:id', (req, res) => {
-    const { id } = req.params;
-    loadLeadsFromFile();
-    const lead = serverLeadsList.find(l => l.id === id);
-    if (!lead) {
-      return res.status(404).json({ error: 'Lead not found' });
-    }
-    res.json({ success: true, lead });
+    res.json({ success: true, leads: Array.from(map.values()) });
   });
 
   // Retry Google Sheets synchronization for a specific lead
   app.post('/api/leads/retry-sync', async (req, res) => {
-    const { leadId, googleTokens, spreadsheetId, worksheetName } = req.body;
-    loadLeadsFromFile();
-
-    const leadIndex = serverLeadsList.findIndex(l => l.id === leadId);
-    if (leadIndex === -1) {
-      return res.status(404).json({ error: 'Lead record not found' });
+    const { leadId } = req.body;
+    if (!leadId) {
+      return res.status(400).json({ success: false, error: 'leadId is required.' });
     }
 
-    const lead = serverLeadsList[leadIndex];
-    if (!googleTokens || !spreadsheetId) {
-      return res.status(400).json({ error: 'Missing Google tokens or Spreadsheet ID for retry.' });
+    let lead: any = null;
+
+    // Fetch from Firestore
+    if (db) {
+      try {
+        const leadRef = doc(db, 'leads', leadId);
+        const leadSnap = await getDoc(leadRef);
+        if (leadSnap.exists()) {
+          lead = { id: leadSnap.id, ...leadSnap.data() };
+        }
+      } catch (e) {}
     }
+
+    if (!lead) {
+      loadLeadsFromFile();
+      lead = serverLeadsList.find(l => l.id === leadId);
+    }
+
+    if (!lead) {
+      return res.status(404).json({ success: false, error: 'Lead record not found.' });
+    }
+
+    const resolvedBot = await resolveBotAndOwner(lead.botId || lead.flowId);
+    const clientId = lead.clientId || lead.ownerId || (resolvedBot ? resolvedBot.clientId : null);
+
+    if (!clientId) {
+      return res.status(400).json({ success: false, error: 'Could not resolve client owner for lead.' });
+    }
+
+    const sheetConfig = await resolveClientGoogleSheetsConfig(clientId, resolvedBot?.spreadsheetId, resolvedBot?.worksheetName);
+
+    if (!sheetConfig.googleTokens || !sheetConfig.spreadsheetId) {
+      return res.status(400).json({ success: false, error: 'Google Account or Spreadsheet not connected for client.' });
+    }
+
+    console.log('[GOOGLE_SHEET_RETRY_SYNC]', { leadId, spreadsheetId: sheetConfig.spreadsheetId, worksheet: sheetConfig.worksheetName });
 
     try {
-      await syncLeadToGoogleSheets(googleTokens, spreadsheetId, worksheetName || 'Sheet1', lead);
+      await syncLeadToGoogleSheets(sheetConfig.googleTokens, sheetConfig.spreadsheetId, sheetConfig.worksheetName, lead);
       lead.googleSheetSyncStatus = 'synced';
       lead.googleSheetSyncedAt = new Date().toISOString();
       delete lead.googleSheetSyncError;
-      serverLeadsList[leadIndex] = lead;
+
+      if (db) {
+        await setDoc(doc(db, 'leads', leadId), { googleSheetSyncStatus: 'synced', googleSheetSyncedAt: lead.googleSheetSyncedAt, googleSheetSyncError: null }, { merge: true }).catch(() => null);
+      }
+
+      loadLeadsFromFile();
+      const idx = serverLeadsList.findIndex(l => l.id === leadId);
+      if (idx !== -1) serverLeadsList[idx] = lead;
       saveLeadsToFile();
+
+      console.log('[GOOGLE_SHEET_SYNC_SUCCESS]', { leadId });
       res.json({ success: true, lead });
     } catch (err: any) {
-      console.error('Retry Sync Error:', err?.message || err);
+      console.error('[GOOGLE_SHEET_SYNC_FAILED]', { leadId, error: err?.message || err });
       lead.googleSheetSyncStatus = 'failed';
       lead.googleSheetSyncError = err?.message || 'Sync failed';
-      serverLeadsList[leadIndex] = lead;
-      saveLeadsToFile();
-      res.status(500).json({ error: err?.message || 'Failed to sync lead to Google Sheets.' });
+
+      if (db) {
+        await setDoc(doc(db, 'leads', leadId), { googleSheetSyncStatus: 'failed', googleSheetSyncError: lead.googleSheetSyncError }, { merge: true }).catch(() => null);
+      }
+
+      res.status(500).json({ success: false, error: err?.message || 'Failed to sync lead to Google Sheets.' });
     }
   });
+
 
 
   // Vite middleware for development
