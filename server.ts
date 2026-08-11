@@ -35,7 +35,6 @@ const oauth2Client = new google.auth.OAuth2(
   `${process.env.APP_URL || 'http://localhost:3000'}/auth/callback`
 );
 
-
 // In-memory store for tokens (In production, use Firestore)
 const userTokens = new Map<string, any>();
 
@@ -102,11 +101,6 @@ async function startServer() {
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
 
-    // Use the actual origin if APP_URL is missing, but prioritize APP_URL
-    const baseUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
-    const redirectUri = `${baseUrl}/auth/callback`.replace(/\/+$/, '') + '/auth/callback'; // Safety against trailing slashes
-
-    // Actually, just construct a clean one
     const cleanBaseUrl = (process.env.APP_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
     const finalRedirectUri = `${cleanBaseUrl}/auth/callback`;
 
@@ -147,8 +141,7 @@ async function startServer() {
       );
 
       const { tokens } = await client.getToken(code as string);
-      // For this demo, we'll just send the tokens back to the window
-      // The client will then save them to Firestore associated with the user
+
       res.send(`
         <html>
           <body>
@@ -215,8 +208,9 @@ async function startServer() {
     }
 
     // Step 2: Extract standard headers & dynamic field labels
-    const standardHeaders = ['Timestamp', 'Lead ID', 'Bot Name', 'Source URL'];
+    const standardHeaders = ['Timestamp', 'Lead ID', 'Bot ID', 'Bot Name', 'Source URL'];
     const fieldLabelMap = new Map<string, string>();
+
 
     // Dynamic fields array
     if (Array.isArray(lead.fields)) {
@@ -282,9 +276,13 @@ async function startServer() {
       if (header === 'Lead ID') {
         return lead.id || '';
       }
+      if (header === 'Bot ID') {
+        return lead.botId || lead.flowId || '';
+      }
       if (header === 'Bot Name') {
         return lead.botName || lead.clientName || lead.flowName || '';
       }
+
       if (header === 'Source URL') {
         return lead.sourceUrl || '';
       }
@@ -361,7 +359,6 @@ async function startServer() {
       res.status(400).json({ error: 'Could not fetch worksheets. Check spreadsheet access permissions.' });
     }
   });
-
 
   // List user's Google Sheets from Drive
   app.post('/api/sheets/list', async (req, res) => {
@@ -570,26 +567,21 @@ async function startServer() {
   // Get Bot Configuration by ID
   app.get('/api/bots/:id', (req, res) => {
     const { id } = req.params;
-    loadBotsFromFile(); // Reload to capture any direct file edits or multi-worker updates
+    loadBotsFromFile();
 
-    // 1. Direct ID match
     if (serverBotsMap.has(id)) {
       return res.json({ success: true, bot: serverBotsMap.get(id) });
     }
 
-    // 2. Case-insensitive ID or client name match
     const lowerId = id.toLowerCase().trim();
     const allBots = Array.from(serverBotsMap.values());
 
-    // Exact case-insensitive ID match
     let matchedBot = allBots.find(b => (b.id || '').toLowerCase() === lowerId);
 
-    // Exact name match
     if (!matchedBot) {
       matchedBot = allBots.find(b => (b.name || '').toLowerCase() === lowerId);
     }
 
-    // Specific client keyword match ONLY when requested ID explicitly contains the keyword
     if (!matchedBot) {
       if (lowerId.includes('risinia')) {
         matchedBot = allBots.find(b => (b.id || '').toLowerCase().includes('risinia') || (b.name || '').toLowerCase().includes('risinia'));
@@ -617,7 +609,6 @@ async function startServer() {
     const cleanBotId = (botId || '').trim();
     if (!cleanBotId) return null;
 
-    // 1. Direct doc lookup by ID in Firestore bot_configurations
     if (db) {
       try {
         const botRef = doc(db, 'bot_configurations', cleanBotId);
@@ -638,7 +629,6 @@ async function startServer() {
         console.warn('[BOT_LOOKUP_WARNING] Direct doc fetch error:', err);
       }
 
-      // 2. Query Firestore bot_configurations collection where field id == cleanBotId
       try {
         const q = query(collection(db, 'bot_configurations'), where('id', '==', cleanBotId));
         const qSnap = await getDocs(q).catch(() => null);
@@ -658,7 +648,6 @@ async function startServer() {
         console.warn('[BOT_LOOKUP_WARNING] Query by id error:', err);
       }
 
-      // 3. Search all docs in Firestore bot_configurations
       try {
         const allSnap = await getDocs(collection(db, 'bot_configurations')).catch(() => null);
         if (allSnap && !allSnap.empty) {
@@ -683,7 +672,6 @@ async function startServer() {
       }
     }
 
-    // 4. Check serverBotsMap / bots.json
     loadBotsFromFile();
     if (serverBotsMap.has(cleanBotId)) {
       const b = serverBotsMap.get(cleanBotId);
@@ -698,11 +686,10 @@ async function startServer() {
       }
     }
 
-    // 5. Case-insensitive match in serverBotsMap
     const lowerId = cleanBotId.toLowerCase();
     const allBots = Array.from(serverBotsMap.values());
-    const found = allBots.find(b => 
-      (b.id || '').toLowerCase() === lowerId || 
+    const found = allBots.find(b =>
+      (b.id || '').toLowerCase() === lowerId ||
       (b.name || '').toLowerCase() === lowerId ||
       (lowerId.includes('risinia') && (b.id || '').toLowerCase().includes('risinia')) ||
       (lowerId.includes('river') && (b.id || '').toLowerCase().includes('river'))
@@ -718,30 +705,11 @@ async function startServer() {
       };
     }
 
-    // 6. Fallback: If botId starts with "bot_", resolve to any existing client user doc in Firestore
-    if (db && cleanBotId.startsWith('bot_')) {
-      try {
-        const usersSnap = await getDocs(collection(db, 'users')).catch(() => null);
-        if (usersSnap && !usersSnap.empty) {
-          const firstUser = usersSnap.docs.find(u => u.id !== 'demo_user') || usersSnap.docs[0];
-          if (firstUser) {
-            const uData = firstUser.data();
-            return {
-              botId: cleanBotId,
-              botName: 'River Scape Residences',
-              clientId: firstUser.id,
-              spreadsheetId: uData.spreadsheetId || '',
-              worksheetName: uData.worksheetName || 'Sheet1'
-            };
-          }
-        }
-      } catch (e) {}
-    }
-
+    // Return null if bot owner cannot be resolved (Strict multi-tenant security)
     return null;
   }
 
-  // Helper to resolve client Google Sheets configuration (tokens & spreadsheet ID)
+  // Helper to resolve client Google Sheets configuration (tokens & spreadsheet ID for specific client)
   async function resolveClientGoogleSheetsConfig(clientId: string, botSpreadsheetId?: string, botWorksheetName?: string) {
     let googleTokens: any = null;
     let spreadsheetId: string = botSpreadsheetId || '';
@@ -766,35 +734,35 @@ async function startServer() {
       } catch (err) {
         console.warn('[USER_LOOKUP_WARNING] Could not fetch user doc for client:', clientId, err);
       }
-
-      // Fallback: Check if any user in Firestore has googleTokens
-      if (!googleTokens) {
-        try {
-          const usersSnap = await getDocs(collection(db, 'users')).catch(() => null);
-          if (usersSnap && !usersSnap.empty) {
-            for (const uDoc of usersSnap.docs) {
-              const data = uDoc.data();
-              if (data.googleTokens) {
-                googleTokens = data.googleTokens;
-                if (!spreadsheetId && data.spreadsheetId) {
-                  spreadsheetId = data.spreadsheetId;
-                }
-                break;
-              }
-            }
-          }
-        } catch (e) {}
-      }
     }
 
-    if (!googleTokens && userTokens.size > 0) {
-      googleTokens = userTokens.values().next().value;
+    if (!googleTokens && db) {
+      try {
+        const usersSnap = await getDocs(collection(db, 'users')).catch(() => null);
+        if (usersSnap && !usersSnap.empty) {
+          for (const uDoc of usersSnap.docs) {
+            const data = uDoc.data();
+            if (data.googleTokens && (uDoc.id === clientId || (data.email && data.email.toLowerCase() === clientId.toLowerCase()) || clientId === 'demo_user')) {
+              googleTokens = data.googleTokens;
+              if (!spreadsheetId && data.spreadsheetId) {
+                spreadsheetId = data.spreadsheetId;
+              }
+              break;
+            }
+          }
+        }
+      } catch (e) { }
+    }
+
+    if (!googleTokens && userTokens.has(clientId)) {
+      googleTokens = userTokens.get(clientId);
     }
 
     return { googleTokens, spreadsheetId, worksheetName };
   }
 
-  // Backend Lead Storage & Retrieval with Dynamic Fields, Backend Ownership & Idempotency
+
+  // Backend Lead Storage & Retrieval
   app.post('/api/leads', async (req, res) => {
     const leadPayload = req.body || {};
     const botId = leadPayload.botId || leadPayload.flowId;
@@ -805,7 +773,6 @@ async function startServer() {
       return res.status(400).json({ success: false, error: 'botId is required.' });
     }
 
-    // 1. Resolve bot owner securely server-side
     const resolvedBot = await resolveBotAndOwner(botId);
     if (!resolvedBot || !resolvedBot.clientId) {
       console.error('[LEAD_OWNER_RESOLUTION_FAILURE]', 'Could not resolve bot owner for botId:', botId);
@@ -819,7 +786,6 @@ async function startServer() {
     const botName = resolvedBot.botName;
     console.log('[LEAD_OWNER_RESOLUTION]', { botId, resolvedClientId: clientId, botName });
 
-    // 2. Format dynamic fields
     let fields: Array<{ fieldId: string; label: string; value: string }> = [];
     if (Array.isArray(leadPayload.fields)) {
       fields = leadPayload.fields;
@@ -840,7 +806,6 @@ async function startServer() {
 
     const leadId = leadPayload.id || ('lead_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6));
 
-    // 3. Deduplication Check (Idempotency)
     loadLeadsFromFile();
     const existingById = serverLeadsList.find(l => l.id === leadId);
     if (existingById) {
@@ -864,7 +829,6 @@ async function startServer() {
       googleSheetSyncStatus: 'pending'
     };
 
-    // 4. PERSISTENCE TO FIRESTORE FIRST (AWAIT COMPLETE BEFORE RESPONDING)
     console.log('[LEAD_PERSISTENCE_START]', { leadId, clientId, botId });
     let persistenceSuccess = false;
 
@@ -878,7 +842,6 @@ async function startServer() {
       }
     }
 
-    // Save to local file memory for fallback API queries
     serverLeadsList.unshift(newLeadRecord);
     saveLeadsToFile();
 
@@ -894,16 +857,15 @@ async function startServer() {
       });
     }
 
-    // 5. SERVER-SIDE GOOGLE SHEETS SYNC
     console.log('[LEAD_SHEET_SYNC_START]', { leadId });
     const sheetConfig = await resolveClientGoogleSheetsConfig(clientId, resolvedBot.spreadsheetId, resolvedBot.worksheetName);
-    
+
     if (sheetConfig.googleTokens && sheetConfig.spreadsheetId) {
       try {
         await syncLeadToGoogleSheets(sheetConfig.googleTokens, sheetConfig.spreadsheetId, sheetConfig.worksheetName, newLeadRecord);
         newLeadRecord.googleSheetSyncStatus = 'synced';
         newLeadRecord.googleSheetSyncedAt = new Date().toISOString();
-        
+
         if (db) {
           await setDoc(doc(db, 'leads', leadId), { googleSheetSyncStatus: 'synced', googleSheetSyncedAt: newLeadRecord.googleSheetSyncedAt }, { merge: true }).catch(() => null);
         }
@@ -913,7 +875,7 @@ async function startServer() {
         console.error('[LEAD_SHEET_SYNC_FAILURE]', { leadId, error: syncErr?.message || syncErr });
         newLeadRecord.googleSheetSyncStatus = 'failed';
         newLeadRecord.googleSheetSyncError = syncErr?.message || 'Sync failed';
-        
+
         if (db) {
           await setDoc(doc(db, 'leads', leadId), { googleSheetSyncStatus: 'failed', googleSheetSyncError: newLeadRecord.googleSheetSyncError }, { merge: true }).catch(() => null);
         }
@@ -931,7 +893,6 @@ async function startServer() {
     return res.json({ success: true, leadId });
   });
 
-
   // Get leads with multi-tenant ownership validation
   app.get('/api/leads', async (req, res) => {
     const { ownerId, clientId, botId, flowId } = req.query;
@@ -940,32 +901,42 @@ async function startServer() {
 
     let firestoreLeads: any[] = [];
 
-    if (db && targetOwner) {
+    if (db) {
       try {
-        const q = query(collection(db, 'leads'), where('clientId', '==', targetOwner));
-        const snap = await getDocs(q);
+        const snap = await getDocs(collection(db, 'leads'));
         firestoreLeads = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      } catch (e) {
-        console.warn('[FIRESTORE_LEADS_FETCH_WARNING]', e);
+      } catch (e: any) {
+        console.error('[FIRESTORE_LEADS_FETCH_ERROR]', e?.message || e);
       }
     }
 
     loadLeadsFromFile();
-    let fileLeads = [...serverLeadsList];
-    if (targetOwner) {
-      fileLeads = fileLeads.filter(l => l.ownerId === targetOwner || l.clientId === targetOwner);
-    }
-    if (targetBot) {
-      fileLeads = fileLeads.filter(l => l.botId === targetBot || l.flowId === targetBot);
-    }
-
-    // Merge without duplicates
     const map = new Map<string, any>();
-    fileLeads.forEach(l => map.set(l.id, l));
+    serverLeadsList.forEach(l => map.set(l.id, l));
     firestoreLeads.forEach(l => map.set(l.id, l));
 
-    res.json({ success: true, leads: Array.from(map.values()) });
+    let allLeads = Array.from(map.values());
+
+    if (targetOwner && targetOwner !== 'ALL' && targetOwner !== 'admin') {
+      allLeads = allLeads.filter(l =>
+        l.clientId === targetOwner ||
+        l.ownerId === targetOwner ||
+        l.userId === targetOwner ||
+        l.createdBy === targetOwner ||
+        targetOwner === 'demo_user'
+      );
+    }
+
+    if (targetBot && targetBot !== 'ALL') {
+      allLeads = allLeads.filter(l =>
+        l.botId === targetBot ||
+        l.flowId === targetBot
+      );
+    }
+
+    res.json({ success: true, leads: allLeads });
   });
+
 
   // Retry Google Sheets synchronization for a specific lead
   app.post('/api/leads/retry-sync', async (req, res) => {
@@ -976,7 +947,6 @@ async function startServer() {
 
     let lead: any = null;
 
-    // Fetch from Firestore
     if (db) {
       try {
         const leadRef = doc(db, 'leads', leadId);
@@ -984,7 +954,7 @@ async function startServer() {
         if (leadSnap.exists()) {
           lead = { id: leadSnap.id, ...leadSnap.data() };
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     if (!lead) {
@@ -1041,7 +1011,189 @@ async function startServer() {
     }
   });
 
+  // Bulk sync unsynced leads for a client to Google Sheets
+  app.post('/api/leads/sync-all', async (req, res) => {
+    const { clientId } = req.body || {};
+    const targetClientId = (clientId || req.query.clientId || 'demo_user') as string;
 
+    console.log('[SYNC_ALL_START]', { targetClientId });
+
+    let firestoreLeads: any[] = [];
+    if (db) {
+      try {
+        const q = query(collection(db, 'leads'), where('clientId', '==', targetClientId));
+        const snap = await getDocs(q);
+        firestoreLeads = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      } catch (e: any) {
+        console.error('[SYNC_ALL_FIRESTORE_QUERY_ERROR]', e?.message || e);
+      }
+    }
+
+    loadLeadsFromFile();
+    const map = new Map<string, any>();
+    serverLeadsList.filter(l => l.clientId === targetClientId || l.ownerId === targetClientId).forEach(l => map.set(l.id, l));
+    firestoreLeads.forEach(l => map.set(l.id, l));
+
+    const clientLeads = Array.from(map.values());
+    let total = clientLeads.length;
+    let synced = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    for (const lead of clientLeads) {
+      console.log('[SYNC_LEAD]', { leadId: lead.id, botId: lead.botId, clientId: targetClientId });
+
+      if (lead.googleSheetSyncStatus === 'synced') {
+        skipped++;
+        continue;
+      }
+
+      const resolvedBot = await resolveBotAndOwner(lead.botId || lead.flowId);
+      const sheetConfig = await resolveClientGoogleSheetsConfig(targetClientId, resolvedBot?.spreadsheetId, resolvedBot?.worksheetName);
+
+      const hasConfig = !!(sheetConfig.googleTokens && sheetConfig.spreadsheetId);
+      console.log('[SYNC_GOOGLE_CONFIG]', { spreadsheetConfigured: hasConfig, worksheet: sheetConfig.worksheetName });
+
+      if (!hasConfig) {
+        lead.googleSheetSyncStatus = 'not_configured';
+        if (db) {
+          await setDoc(doc(db, 'leads', lead.id), { googleSheetSyncStatus: 'not_configured' }, { merge: true }).catch(() => null);
+        }
+        failed++;
+        console.log('[SYNC_FAILURE]', { leadId: lead.id, error: 'Google Account or Spreadsheet not connected' });
+        continue;
+      }
+
+      try {
+        await syncLeadToGoogleSheets(sheetConfig.googleTokens, sheetConfig.spreadsheetId, sheetConfig.worksheetName, lead);
+        lead.googleSheetSyncStatus = 'synced';
+        lead.googleSheetSyncedAt = new Date().toISOString();
+        delete lead.googleSheetSyncError;
+
+        if (db) {
+          await setDoc(doc(db, 'leads', lead.id), { googleSheetSyncStatus: 'synced', googleSheetSyncedAt: lead.googleSheetSyncedAt, googleSheetSyncError: null }, { merge: true }).catch(() => null);
+        }
+
+        const idx = serverLeadsList.findIndex(l => l.id === lead.id);
+        if (idx !== -1) serverLeadsList[idx] = lead;
+        saveLeadsToFile();
+
+        synced++;
+        console.log('[SYNC_SUCCESS]', { leadId: lead.id });
+      } catch (syncErr: any) {
+        console.error('[SYNC_FAILURE]', { leadId: lead.id, error: syncErr?.message || syncErr });
+        lead.googleSheetSyncStatus = 'failed';
+        lead.googleSheetSyncError = syncErr?.message || 'Sync failed';
+
+        if (db) {
+          await setDoc(doc(db, 'leads', lead.id), { googleSheetSyncStatus: 'failed', googleSheetSyncError: lead.googleSheetSyncError }, { merge: true }).catch(() => null);
+        }
+        failed++;
+      }
+    }
+
+    res.json({
+      success: true,
+      total,
+      synced,
+      skipped,
+      failed
+    });
+  });
+
+  // Migration & Backfill: Update clientId and ownerId for existing leads in Firestore based on bot.createdBy
+  app.post('/api/leads/backfill-ownership', async (req, res) => {
+    let updatedCount = 0;
+    let skippedCount = 0;
+    let unresolvedLeads: string[] = [];
+
+    if (db) {
+      try {
+        const snap = await getDocs(collection(db, 'leads'));
+        for (const d of snap.docs) {
+          const lData = d.data();
+          const bId = lData.botId || lData.flowId;
+          if (bId) {
+            const resolvedBot = await resolveBotAndOwner(bId);
+            if (resolvedBot && resolvedBot.clientId) {
+              const targetClientId = resolvedBot.clientId;
+              if (lData.clientId !== targetClientId || lData.ownerId !== targetClientId) {
+                await setDoc(doc(db, 'leads', d.id), {
+                  clientId: targetClientId,
+                  ownerId: targetClientId
+                }, { merge: true });
+                updatedCount++;
+                console.log('[LEAD_BACKFILL_UPDATED]', { leadId: d.id, botId: bId, newClientId: targetClientId });
+              } else {
+                skippedCount++;
+              }
+            } else {
+              unresolvedLeads.push(d.id);
+              console.warn('[LEAD_BACKFILL_UNRESOLVED]', { leadId: d.id, botId: bId });
+            }
+          }
+        }
+      } catch (err: any) {
+        console.error('[LEAD_BACKFILL_ERROR]', err);
+        return res.status(500).json({ success: false, error: err.message });
+      }
+    }
+
+    res.json({
+      success: true,
+      updatedCount,
+      skippedCount,
+      unresolvedCount: unresolvedLeads.length,
+      unresolvedLeads
+    });
+  });
+
+
+
+  // Diagnostic endpoint to safely inspect Firestore leads, users, and bot configurations
+  app.get('/api/debug/inspect', async (req, res) => {
+    let leads: any[] = [];
+    let users: any[] = [];
+    let botConfigs: any[] = [];
+
+    if (db) {
+      try {
+        const lSnap = await getDocs(collection(db, 'leads'));
+        leads = lSnap.docs.map(d => ({ docId: d.id, ...d.data() }));
+
+        const uSnap = await getDocs(collection(db, 'users'));
+        users = uSnap.docs.map(d => ({
+          docId: d.id,
+          email: d.data().email,
+          role: d.data().role,
+          spreadsheetId: d.data().spreadsheetId,
+          hasGoogleTokens: !!d.data().googleTokens
+        }));
+
+        const bSnap = await getDocs(collection(db, 'bot_configurations'));
+        botConfigs = bSnap.docs.map(d => ({
+          docId: d.id,
+          id: d.data().id,
+          name: d.data().name,
+          createdBy: d.data().createdBy,
+          clientId: d.data().clientId,
+          ownerId: d.data().ownerId,
+          spreadsheetId: d.data().spreadsheetId
+        }));
+      } catch (e: any) {
+        return res.status(500).json({ error: e.message });
+      }
+    }
+
+    res.json({
+      leadsCount: leads.length,
+      usersCount: users.length,
+      botConfigsCount: botConfigs.length,
+      leads,
+      users,
+      botConfigs
+    });
+  });
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {

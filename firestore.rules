@@ -2,16 +2,15 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if true;
     }
     match /bot_configurations/{botId} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if true;
     }
     match /leads/{leadId} {
-      allow read: if request.auth != null && (resource == null || resource.data.clientId == request.auth.uid || resource.data.ownerId == request.auth.uid);
-      allow create: if true;
-      allow update, delete: if request.auth != null && (resource.data.clientId == request.auth.uid || resource.data.ownerId == request.auth.uid);
+      allow read, create, update: if true;
+      allow delete: if request.auth != null;
     }
   }
 }
