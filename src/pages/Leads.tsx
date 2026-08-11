@@ -318,14 +318,16 @@ export default function Leads() {
 
   const handleSyncAllExistingLeads = async () => {
     setIsSyncingAll(true);
+    const targetUserId = effectiveUserId || auth.currentUser?.uid || 'demo_user';
     try {
       const res = await fetch('/api/leads/sync-all', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: targetUserId })
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        showToast(`🎉 Processed ${data.processedCount} leads for Google Sheets sync!`);
+        showToast(`🎉 Synced ${data.synced || 0} leads to Google Sheet (${data.skipped || 0} already synced)!`);
         setTimeout(() => window.location.reload(), 1500);
       } else {
         showToast(data.error || 'Failed to sync existing leads', 'error');
@@ -336,6 +338,7 @@ export default function Leads() {
       setIsSyncingAll(false);
     }
   };
+
 
   const exportLeads = () => {
     const baseHeaders = ['Date', 'Lead ID', 'Bot Name', ...dynamicColumnLabels, 'Source URL', 'Google Sheet Sync'];
