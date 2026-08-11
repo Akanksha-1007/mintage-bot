@@ -38,7 +38,10 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   const safeNodes = Array.isArray(nodes) ? nodes : (nodes && typeof nodes === 'object' ? Object.values(nodes) : []);
   const safeEdges = Array.isArray(edges) ? edges : (edges && typeof edges === 'object' ? Object.values(edges) : []);
 
-  const processBotStep = (node: any) => {
+  const processBotStep = (node: any, allNodes: any[] = safeNodes, allEdges: any[] = safeEdges) => {
+    const nodesList = Array.isArray(allNodes) && allNodes.length > 0 ? allNodes : safeNodes;
+    const edgesList = Array.isArray(allEdges) && allEdges.length > 0 ? allEdges : safeEdges;
+
     setIsTyping(true);
     setTimeout(() => {
       setIsTyping(false);
@@ -67,29 +70,29 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         }
 
         if (!targetNodeId) {
-          const defaultEdge = safeEdges.find((e: any) => e.source === node.id && !e.sourceHandle);
+          const defaultEdge = edgesList.find((e: any) => e.source === node.id && !e.sourceHandle);
           if (defaultEdge) {
             targetNodeId = defaultEdge.target;
           } else {
-            const anyEdge = safeEdges.find((e: any) => e.source === node.id);
+            const anyEdge = edgesList.find((e: any) => e.source === node.id);
             if (anyEdge) targetNodeId = anyEdge.target;
           }
         }
 
         if (!targetNodeId) {
-          const currentIdx = safeNodes.findIndex((n: any) => n.id === node.id);
-          if (currentIdx !== -1 && currentIdx + 1 < safeNodes.length) {
-            targetNodeId = safeNodes[currentIdx + 1].id;
+          const currentIdx = nodesList.findIndex((n: any) => n.id === node.id);
+          if (currentIdx !== -1 && currentIdx + 1 < nodesList.length) {
+            targetNodeId = nodesList[currentIdx + 1].id;
           }
         }
 
         if (targetNodeId) {
-          const nextNode = safeNodes.find((n: any) => n.id === targetNodeId);
+          const nextNode = nodesList.find((n: any) => n.id === targetNodeId);
           if (nextNode) {
             setCurrentNodeId(nextNode.id);
             // Auto advance to next step with natural typing pause
             setTimeout(() => {
-              processBotStep(nextNode);
+              processBotStep(nextNode, nodesList, edgesList);
             }, 800);
           }
         }
@@ -209,8 +212,9 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
       // 5. Fallback distinct default flow for requested client/bot ID if not found
       if (!botData) {
-        const isRiver = lowerBotId.includes('river');
-        const isRisinia = lowerBotId.includes('risinia');
+        const refUrl = (document.referrer || window.location.href || '').toLowerCase();
+        const isRiver = lowerBotId.includes('river') || refUrl.includes('river') || refUrl.includes('riverscape');
+        const isRisinia = lowerBotId.includes('risinia') || refUrl.includes('risinia');
         const clientName = isRiver 
           ? 'River Scape Residences' 
           : (isRisinia ? 'Risinia Builders' : 'BotFlow Assistant');
@@ -311,7 +315,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
           if (nextNode) {
             setCurrentNodeId(nextNode.id);
-            processBotStep(nextNode);
+            processBotStep(nextNode, nodesData, edgesData);
             setIsLoading(false);
             return;
           }
@@ -319,7 +323,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       }
 
       setCurrentNodeId(startNode.id);
-      processBotStep(startNode);
+      processBotStep(startNode, nodesData, edgesData);
       setIsLoading(false);
     };
 

@@ -140,5 +140,76 @@
     "spreadsheetId": "",
     "createdBy": "demo_user",
     "updatedAt": "2026-08-06T06:05:00.000Z"
+  },
+  {
+    "id": "bot_1785996183520",
+    "name": "River Scape Residences",
+    "nodes": [
+      {
+        "id": "node_welcome_river",
+        "type": "message",
+        "data": {
+          "label": "🌿 Welcome to River Scape Residences!\n\nExperience serene waterfront luxury homes with breathtaking views and modern lifestyle amenities.",
+          "key": ""
+        },
+        "position": { "x": 250, "y": 120 }
+      },
+      {
+        "id": "node_image_river",
+        "type": "message",
+        "data": {
+          "label": "River Scape Waterfront Living",
+          "key": "",
+          "imageUrl": "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=800&auto=format&fit=crop&q=80"
+        },
+        "position": { "x": 250, "y": 240 }
+      },
+      {
+        "id": "node_options_river",
+        "type": "singleChoice",
+        "data": {
+          "label": "What information would you like to receive?",
+          "choices": ["Floor Plans & Layouts", "Pricing & Payment Plans", "Book Virtual / Site Tour", "Request Callback"]
+        },
+        "position": { "x": 250, "y": 360 }
+      },
+      {
+        "id": "node_name_river",
+        "type": "name",
+        "data": {
+          "label": "May we know your full name to address you properly? ✨",
+          "key": "full_name"
+        },
+        "position": { "x": 250, "y": 480 }
+      },
+      {
+        "id": "node_phone_river",
+        "type": "phone",
+        "data": {
+          "label": "Great! Please share your phone number so our representative can get in touch 📞",
+          "key": "phone_number"
+        },
+        "position": { "x": 250, "y": 600 }
+      },
+      {
+        "id": "node_email_river",
+        "type": "email",
+        "data": {
+          "label": "And your email address to receive the complete River Scape brochure? 📧",
+          "key": "email_address"
+        },
+        "position": { "x": 250, "y": 720 }
+      }
+    ],
+    "edges": [
+      { "id": "er1", "source": "node_welcome_river", "target": "node_image_river", "type": "smoothstep" },
+      { "id": "er2", "source": "node_image_river", "target": "node_options_river", "type": "smoothstep" },
+      { "id": "er3", "source": "node_options_river", "target": "node_name_river", "type": "smoothstep" },
+      { "id": "er4", "source": "node_name_river", "target": "node_phone_river", "type": "smoothstep" },
+      { "id": "er5", "source": "node_phone_river", "target": "node_email_river", "type": "smoothstep" }
+    ],
+    "spreadsheetId": "",
+    "createdBy": "demo_user",
+    "updatedAt": "2026-08-06T06:05:00.000Z"
   }
 ]

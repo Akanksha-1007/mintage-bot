@@ -83,8 +83,9 @@ export default function App() {
   return (
     <AuthProvider>
       <BotSync />
-
-      <BrowserRouter basename="/mintage-bot">
+      <BrowserRouter
+        basename={window.location.hostname.endsWith('.github.io') ? '/mintage-bot' : ''}
+      >
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/widget/:id" element={<Widget />} />

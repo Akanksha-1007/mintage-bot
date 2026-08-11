@@ -22,7 +22,7 @@ const userTokens = new Map<string, any>();
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json());
 
@@ -82,18 +82,18 @@ async function startServer() {
   app.get('/api/auth/google/url', (req, res) => {
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    
+
     // Use the actual origin if APP_URL is missing, but prioritize APP_URL
     const baseUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
     const redirectUri = `${baseUrl}/auth/callback`.replace(/\/+$/, '') + '/auth/callback'; // Safety against trailing slashes
-    
+
     // Actually, just construct a clean one
     const cleanBaseUrl = (process.env.APP_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
     const finalRedirectUri = `${cleanBaseUrl}/auth/callback`;
 
     if (!clientId || !clientSecret) {
-      return res.status(400).json({ 
-        error: 'Google OAuth credentials missing. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in environment variables.' 
+      return res.status(400).json({
+        error: 'Google OAuth credentials missing. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in environment variables.'
       });
     }
 
@@ -120,7 +120,7 @@ async function startServer() {
     try {
       const cleanBaseUrl = (process.env.APP_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
       const finalRedirectUri = `${cleanBaseUrl}/auth/callback`;
-      
+
       const client = new google.auth.OAuth2(
         process.env.GOOGLE_CLIENT_ID,
         process.env.GOOGLE_CLIENT_SECRET,
@@ -169,7 +169,7 @@ async function startServer() {
   // Sync Lead to Google Sheets
   app.post('/api/sync-lead', async (req, res) => {
     const { tokens, spreadsheetId, leadData } = req.body;
-    
+
     if (!tokens || !spreadsheetId) {
       return res.status(400).json({ error: 'Missing tokens or spreadsheetId' });
     }
@@ -177,7 +177,7 @@ async function startServer() {
     try {
       const auth = createOAuth2Client(tokens);
       const sheets = google.sheets({ version: 'v4', auth });
-      
+
       // Check if sheet has headers first
       let range = 'Sheet1!A:E';
       try {
@@ -266,7 +266,7 @@ async function startServer() {
     try {
       const auth = createOAuth2Client(tokens);
       const sheets = google.sheets({ version: 'v4', auth });
-      
+
       const sheetTitle = title || 'BotFlow Chatbot Leads';
       const resource = {
         properties: {
@@ -294,11 +294,11 @@ async function startServer() {
         });
       }
 
-      res.json({ 
-        success: true, 
-        spreadsheetId, 
-        spreadsheetUrl, 
-        title: sheetTitle 
+      res.json({
+        success: true,
+        spreadsheetId,
+        spreadsheetUrl,
+        title: sheetTitle
       });
     } catch (error: any) {
       console.error('Error creating Google Sheet:', error?.message || error);
@@ -321,9 +321,9 @@ async function startServer() {
         fields: 'properties.title',
       });
 
-      res.json({ 
-        success: true, 
-        title: response.data.properties?.title || 'Google Sheet' 
+      res.json({
+        success: true,
+        title: response.data.properties?.title || 'Google Sheet'
       });
     } catch (error: any) {
       console.error('Error testing Google Sheet:', error?.message || error);
