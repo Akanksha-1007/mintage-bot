@@ -497,7 +497,11 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     handleUserInput(choice);
   };
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const saveLead = async (data: any, fieldsList: Array<{ fieldId: string; label: string; value: string }> = dynamicFields) => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     try {
       let ownerId: string | null = null;
       let ownerData: any = null;
@@ -577,8 +581,11 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       }
     } catch (error) {
       console.error('Error saving lead:', error);
+    } finally {
+      setIsSubmitting(false);
     }
   };
+
 
 
   const syncToGoogleSheets = async (data: any, tokens: any, spreadsheetId: string) => {

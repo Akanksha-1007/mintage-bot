@@ -593,14 +593,29 @@ async function startServer() {
     res.json({ success: true, bots: botsList });
   });
 
-  // Backend Lead Storage & Retrieval with Dynamic Fields & Google Sheets Auto-Sync
+  // Backend Lead Storage & Retrieval with Dynamic Fields, Backend Ownership & Idempotency
   app.post('/api/leads', async (req, res) => {
     const leadRecord = req.body || {};
     const botId = leadRecord.botId || leadRecord.flowId || 'default_bot';
-    const ownerId = leadRecord.clientId || leadRecord.ownerId || 'guest_user';
-    const botName = leadRecord.botName || leadRecord.clientName || 'Chatbot';
 
-    // Parse dynamic fields list if provided, or format from data object
+    // 1. Resolve bot owner securely from server configuration (DO NOT trust client-supplied ownerId)
+    loadBotsFromFile();
+    let resolvedOwnerId = 'demo_user';
+    let resolvedBotName = leadRecord.botName || leadRecord.clientName || 'Chatbot';
+    let resolvedSpreadsheetId = leadRecord.spreadsheetId || '';
+    let resolvedWorksheetName = leadRecord.worksheetName || 'Sheet1';
+
+    if (serverBotsMap.has(botId)) {
+      const botConfig = serverBotsMap.get(botId);
+      if (botConfig.createdBy) resolvedOwnerId = botConfig.createdBy;
+      if (botConfig.name) resolvedBotName = botConfig.name;
+      if (botConfig.spreadsheetId) resolvedSpreadsheetId = botConfig.spreadsheetId;
+      if (botConfig.worksheetName) resolvedWorksheetName = botConfig.worksheetName;
+    } else {
+      resolvedOwnerId = leadRecord.clientId || leadRecord.ownerId || 'demo_user';
+    }
+
+    // 2. Parse dynamic fields list
     let fields: Array<{ fieldId: string; label: string; value: string }> = [];
     if (Array.isArray(leadRecord.fields)) {
       fields = leadRecord.fields;
@@ -612,14 +627,43 @@ async function startServer() {
       }));
     }
 
+    const leadId = leadRecord.id || ('lead_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6));
+
+    // 3. Deduplication Check (Idempotency) - Prevent duplicate submissions from fast clicks or network retries
+    loadLeadsFromFile();
+    const existingById = serverLeadsList.find(l => l.id === leadId);
+    if (existingById) {
+      console.log('Duplicate submission skipped by ID:', leadId);
+      return res.json({ success: true, lead: existingById, duplicate: true });
+    }
+
+    // Secondary duplicate check: same botId and identical field values in last 10 seconds
+    const tenSecsAgo = Date.now() - 10000;
+    const isRecentDuplicate = serverLeadsList.find(l => {
+      if ((l.botId === botId || l.flowId === botId) && l.submittedAt) {
+        const leadTime = new Date(l.submittedAt).getTime();
+        if (leadTime > tenSecsAgo) {
+          const lValues = JSON.stringify(l.fields || l.data);
+          const newValues = JSON.stringify(fields || leadRecord.data);
+          return lValues === newValues;
+        }
+      }
+      return false;
+    });
+
+    if (isRecentDuplicate) {
+      console.log('Recent duplicate submission skipped for bot:', botId);
+      return res.json({ success: true, lead: isRecentDuplicate, duplicate: true });
+    }
+
     const newLead: any = {
-      id: leadRecord.id || ('lead_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6)),
+      id: leadId,
       botId,
       flowId: botId,
-      clientId: ownerId,
-      ownerId,
-      botName,
-      clientName: botName,
+      clientId: resolvedOwnerId,
+      ownerId: resolvedOwnerId,
+      botName: resolvedBotName,
+      clientName: resolvedBotName,
       fields,
       data: leadRecord.data || leadRecord,
       timestamp: leadRecord.timestamp || new Date().toISOString(),
@@ -635,8 +679,8 @@ async function startServer() {
 
     // Attempt automatic Google Sheets synchronization if tokens & spreadsheet details provided
     const googleTokens = leadRecord.googleTokens;
-    const spreadsheetId = leadRecord.spreadsheetId;
-    const worksheetName = leadRecord.worksheetName || 'Sheet1';
+    const spreadsheetId = resolvedSpreadsheetId || leadRecord.spreadsheetId;
+    const worksheetName = resolvedWorksheetName || leadRecord.worksheetName || 'Sheet1';
 
     if (googleTokens && spreadsheetId) {
       try {
@@ -654,6 +698,7 @@ async function startServer() {
 
     res.json({ success: true, lead: newLead });
   });
+
 
   // Get leads with multi-tenant ownership validation
   app.get('/api/leads', (req, res) => {
