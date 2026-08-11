@@ -9,7 +9,7 @@ export default defineConfig(({ mode }) => {
   return {
     // Required because the app is hosted at
     // akanksha-1007.github.io/mintage-bot/
-    base: './',
+    base: '/',
 
     plugins: [react(), tailwindcss()],
 
