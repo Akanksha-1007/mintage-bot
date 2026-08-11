@@ -36,12 +36,14 @@ export default function Leads() {
   const { effectiveUserId, isAdmin, impersonatedClient } = useAuth();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [botNames, setBotNames] = useState<Record<string, string>>({});
   const [selectedBotFilter, setSelectedBotFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [isRetryingSync, setIsRetryingSync] = useState<boolean>(false);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
@@ -150,8 +152,9 @@ export default function Leads() {
         }
       }
       setBotNames(names);
+      setLoadError(null);
     }, async (error) => {
-      console.warn('Leads snapshot error, fetching from server API fallback:', error);
+      console.error('[LEADS_PAGE] Firestore snapshot error, attempting server API fallback:', error);
       try {
         const url = isGlobalAdminView ? '/api/leads' : `/api/leads?ownerId=${encodeURIComponent(targetUserId)}`;
         const res = await fetch(url);
@@ -159,14 +162,23 @@ export default function Leads() {
           const sData = await res.json();
           if (sData.success && Array.isArray(sData.leads)) {
             setLeads(sData.leads);
+            setLoadError(null);
+          } else {
+            setLoadError('Unable to load leads from server.');
           }
+        } else {
+          setLoadError('Unable to load leads (server returned status ' + res.status + ').');
         }
-      } catch (e) { }
+      } catch (err: any) {
+        console.error('[LEADS_PAGE] Server fallback leads fetch error:', err);
+        setLoadError('Unable to load leads. Please check your network connection.');
+      }
       setLoading(false);
     });
 
     return () => unsubscribeLeads();
   }, [effectiveUserId, isAdmin, impersonatedClient]);
+
 
   // Extract all dynamic field entries for a lead
   const getLeadFieldEntries = (lead: Lead): Array<{ label: string; value: string }> => {
@@ -431,6 +443,14 @@ export default function Leads() {
 
         </div>
       </div>
+
+      {loadError && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-2xl flex items-center gap-3 text-red-800 text-xs font-bold">
+          <AlertCircle className="w-5 h-5 text-red-600 shrink-0" />
+          <span>{loadError}</span>
+        </div>
+      )}
+
 
       {/* Dynamic Table Section */}
       <div className="bg-white rounded-[32px] shadow-xs border border-gray-200 overflow-hidden">
