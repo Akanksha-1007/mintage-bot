@@ -2,8 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { db, auth } from '../lib/firebase';
 import { collection, query, orderBy, onSnapshot, doc, getDoc, where } from 'firebase/firestore';
 import { format } from 'date-fns';
-import { 
-  User, Mail, Calendar, ExternalLink, Bot, Download, Filter, Search, 
+import {
+  User, Mail, Calendar, ExternalLink, Bot, Download, Filter, Search,
   CheckCircle2, AlertCircle, Clock, RefreshCw, X, Layers, FileText
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -60,9 +60,7 @@ export default function Leads() {
     setLoading(true);
     const isGlobalAdminView = isAdmin && !impersonatedClient;
 
-    const q = isGlobalAdminView
-      ? query(collection(db, 'leads'))
-      : query(collection(db, 'leads'), where('clientId', '==', targetUserId));
+    const q = collection(db, 'leads');
 
     const unsubscribeLeads = onSnapshot(q, async (snapshot) => {
       let firestoreLeads = snapshot.docs.map(doc => ({
@@ -70,17 +68,15 @@ export default function Leads() {
         ...doc.data()
       })) as Lead[];
 
-      // Fallback query by ownerId if clientId yields empty
-      if (!isGlobalAdminView && firestoreLeads.length === 0) {
-        try {
-          const fallbackQ = query(collection(db, 'leads'), where('ownerId', '==', targetUserId));
-          const fallbackSnap = await getDocs(fallbackQ);
-          firestoreLeads = fallbackSnap.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-          })) as Lead[];
-        } catch (e) {}
+      if (!isGlobalAdminView) {
+        firestoreLeads = firestoreLeads.filter(l =>
+          l.clientId === targetUserId ||
+          l.ownerId === targetUserId ||
+          l.clientId === 'demo_user' ||
+          l.ownerId === 'demo_user'
+        );
       }
+
 
 
       // Fetch server backend leads
@@ -128,7 +124,7 @@ export default function Leads() {
               if (botDoc.exists()) {
                 names[bId] = botDoc.data().name;
               }
-            } catch (e) {}
+            } catch (e) { }
           }
         }
       }
@@ -144,7 +140,7 @@ export default function Leads() {
             setLeads(sData.leads);
           }
         }
-      } catch (e) {}
+      } catch (e) { }
       setLoading(false);
     });
 
@@ -173,7 +169,7 @@ export default function Leads() {
           if (cleanKey === 'name' || cleanKey === 'full_name') prettyLabel = 'Name';
           else if (cleanKey === 'phone' || cleanKey === 'phone_number') prettyLabel = 'Phone Number';
           else if (cleanKey === 'email' || cleanKey === 'email_address') prettyLabel = 'Email';
-          
+
           if (!map.has(prettyLabel)) {
             map.set(prettyLabel, val !== undefined ? String(val) : '');
           }
@@ -193,7 +189,7 @@ export default function Leads() {
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
       const bName = (botNames[bId] || lead.botName || lead.clientName || '').toLowerCase();
-      const fieldMatch = getLeadFieldEntries(lead).some(f => 
+      const fieldMatch = getLeadFieldEntries(lead).some(f =>
         f.label.toLowerCase().includes(q) || f.value.toLowerCase().includes(q)
       );
       const urlMatch = (lead.sourceUrl || '').toLowerCase().includes(q);
@@ -245,7 +241,7 @@ export default function Leads() {
             spreadsheetId = botDoc.data().spreadsheetId;
             if (botDoc.data().worksheetName) worksheetName = botDoc.data().worksheetName;
           }
-        } catch {}
+        } catch { }
       }
 
       if (!googleTokens || !spreadsheetId) {
@@ -293,8 +289,10 @@ export default function Leads() {
       const fieldMap = new Map(getLeadFieldEntries(lead).map(f => [f.label, f.value]));
       const dateStr = lead.submittedAt || (lead.timestamp?.toDate ? format(lead.timestamp.toDate(), 'yyyy-MM-dd HH:mm') : '');
       const botName = botNames[lead.botId || lead.flowId] || lead.botName || lead.clientName || 'Chatbot';
-      
-      const dynamicVals = dynamicColumnLabels.map(label => `"${(fieldMap.get(label) || '').replace(/"/g, '""')}"`);
+
+      const dynamicVals = dynamicColumnLabels.map(label =>
+        `${String(fieldMap.get(String(label)) ?? '').replace(/"/g, '""')}`
+      );
       const syncStatus = lead.googleSheetSyncStatus || 'synced';
 
       return [
@@ -307,7 +305,7 @@ export default function Leads() {
       ];
     });
 
-    const csvContent = "data:text/csv;charset=utf-8," 
+    const csvContent = "data:text/csv;charset=utf-8,"
       + baseHeaders.join(",") + "\n"
       + rows.map(e => e.join(",")).join("\n");
 
@@ -324,11 +322,10 @@ export default function Leads() {
     <div className="p-8 max-w-7xl mx-auto space-y-8 font-sans">
       {/* Toast Notification */}
       {toast && (
-        <div className={`fixed bottom-6 right-6 z-50 px-5 py-3 rounded-2xl shadow-2xl border text-xs font-bold flex items-center gap-2 animate-bounce ${
-          toast.type === 'success' 
-            ? 'bg-emerald-900 text-emerald-100 border-emerald-700' 
-            : 'bg-red-900 text-red-100 border-red-700'
-        }`}>
+        <div className={`fixed bottom-6 right-6 z-50 px-5 py-3 rounded-2xl shadow-2xl border text-xs font-bold flex items-center gap-2 animate-bounce ${toast.type === 'success'
+          ? 'bg-emerald-900 text-emerald-100 border-emerald-700'
+          : 'bg-red-900 text-red-100 border-red-700'
+          }`}>
           {toast.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <AlertCircle className="w-4 h-4 text-red-400" />}
           <span>{toast.msg}</span>
         </div>
@@ -372,7 +369,7 @@ export default function Leads() {
           </div>
 
           {/* Export CSV Button */}
-          <button 
+          <button
             onClick={exportLeads}
             className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-xl text-xs font-bold hover:bg-black transition-all shadow-md"
           >
@@ -394,7 +391,7 @@ export default function Leads() {
                 <th className="px-6 py-4 text-left text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
                   Chatbot
                 </th>
-                
+
                 {/* Dynamically Generated Field Columns */}
                 {dynamicColumnLabels.length > 0 ? (
                   dynamicColumnLabels.map(label => (
@@ -441,8 +438,8 @@ export default function Leads() {
                   const syncStatus = lead.googleSheetSyncStatus || 'synced';
 
                   return (
-                    <tr 
-                      key={lead.id} 
+                    <tr
+                      key={lead.id}
                       onClick={() => setSelectedLead(lead)}
                       className="hover:bg-indigo-50/40 transition-colors cursor-pointer"
                     >
@@ -469,8 +466,7 @@ export default function Leads() {
                       {/* Dynamic Field Values */}
                       {dynamicColumnLabels.length > 0 ? (
                         dynamicColumnLabels.map(label => {
-                          const val = fieldMap.get(label);
-                          return (
+                          const val = String(fieldMap.get(String(label)) ?? ''); return (
                             <td key={label} className="px-6 py-4 text-xs font-medium text-gray-800 max-w-[200px] truncate">
                               {val ? (
                                 <span>{val}</span>
@@ -495,10 +491,10 @@ export default function Leads() {
                       {/* Source Page URL */}
                       <td className="px-6 py-4 text-xs font-mono text-gray-500 max-w-[180px] truncate">
                         {lead.sourceUrl ? (
-                          <a 
-                            href={lead.sourceUrl} 
-                            target="_blank" 
-                            rel="noopener noreferrer" 
+                          <a
+                            href={lead.sourceUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
                             onClick={(e) => e.stopPropagation()}
                             className="text-indigo-600 hover:underline flex items-center gap-1 font-sans font-bold"
                           >
@@ -600,7 +596,7 @@ export default function Leads() {
             {/* Submission Metadata */}
             <div className="p-5 bg-gray-50 rounded-2xl border border-gray-200/80 space-y-3 text-xs">
               <h4 className="text-xs font-extrabold text-gray-900 uppercase tracking-wider">Submission Metadata</h4>
-              
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-gray-600 font-medium">
                 <div>
                   <span className="text-gray-400 font-bold block">Submission Date:</span>
@@ -619,10 +615,10 @@ export default function Leads() {
                 <div className="sm:col-span-2">
                   <span className="text-gray-400 font-bold block">Source URL:</span>
                   {selectedLead.sourceUrl ? (
-                    <a 
-                      href={selectedLead.sourceUrl} 
-                      target="_blank" 
-                      rel="noopener noreferrer" 
+                    <a
+                      href={selectedLead.sourceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="text-indigo-600 font-mono font-bold hover:underline break-all"
                     >
                       {selectedLead.sourceUrl}
