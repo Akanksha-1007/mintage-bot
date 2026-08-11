@@ -259,6 +259,25 @@ export default function Integrations() {
     }
   };
 
+  const handleDisconnect = async () => {
+    if (auth.currentUser) {
+      try {
+        await setDoc(doc(db, 'users', auth.currentUser.uid), {
+          googleTokens: null,
+          spreadsheetId: '',
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+        setIsConnected(false);
+        setGoogleTokens(null);
+        setUserSheets([]);
+        showToast('Google Account disconnected successfully.');
+      } catch (error: any) {
+        showToast(`Failed to disconnect: ${error?.message || error}`, 'error');
+      }
+    }
+  };
+
+
   const handleCreateDefaultSheet = async () => {
     if (!googleTokens) {
       showToast('Please connect your Google Account first.', 'error');
@@ -856,11 +875,20 @@ export default function Integrations() {
                 </div>
               </div>
               {isConnected ? (
-                <div className="flex items-center gap-2 px-3.5 py-1.5 bg-emerald-50 text-emerald-700 rounded-full text-xs font-bold border border-emerald-200 shadow-2xs">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  Google Connected
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 px-3.5 py-1.5 bg-emerald-50 text-emerald-700 rounded-full text-xs font-bold border border-emerald-200 shadow-2xs">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    Connected
+                  </div>
+                  <button
+                    onClick={handleDisconnect}
+                    className="px-3 py-1.5 bg-gray-100 hover:bg-red-50 text-gray-600 hover:text-red-600 rounded-xl text-xs font-bold transition-all border border-gray-200"
+                  >
+                    Disconnect
+                  </button>
                 </div>
               ) : (
+
                 <button 
                   onClick={handleConnect}
                   disabled={isConnecting}

@@ -26,6 +26,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [leadData, setLeadData] = useState<Record<string, any>>({});
+  const [dynamicFields, setDynamicFields] = useState<Array<{ fieldId: string; label: string; value: string }>>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const [isTyping, setIsTyping] = useState(false);
@@ -37,6 +38,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
   const safeNodes = Array.isArray(nodes) ? nodes : (nodes && typeof nodes === 'object' ? Object.values(nodes) : []);
   const safeEdges = Array.isArray(edges) ? edges : (edges && typeof edges === 'object' ? Object.values(edges) : []);
+
 
   const processBotStep = (node: any, allNodes: any[] = safeNodes, allEdges: any[] = safeEdges) => {
     const nodesList = Array.isArray(allNodes) && allNodes.length > 0 ? allNodes : safeNodes;
@@ -343,22 +345,39 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     setInputValue('');
 
     const currentNode = safeNodes.find((n: any) => n.id === currentNodeId);
-    
-    // Process lead data
-    const newLeadData = { ...leadData };
-    if (currentNode) {
-      const key = currentNode.data?.key || currentNode.data?.leadKey || currentNode.data?.label;
 
-      if (currentNode.type === 'name') newLeadData.name = cleanText;
-      else if (currentNode.type === 'email') newLeadData.email = cleanText;
-      else if (currentNode.type === 'phone') newLeadData.phone = cleanText;
-      else {
-        newLeadData[key || 'user_input'] = cleanText;
+    
+    // Determine field label and key
+    let fieldLabel = 'Field';
+    let fieldKey = 'custom_field';
+
+    if (currentNode) {
+      if (currentNode.type === 'name') {
+        fieldLabel = 'Name';
+        fieldKey = 'name';
+      } else if (currentNode.type === 'email') {
+        fieldLabel = 'Email';
+        fieldKey = 'email';
+      } else if (currentNode.type === 'phone') {
+        fieldLabel = 'Phone Number';
+        fieldKey = 'phone';
+      } else {
+        fieldLabel = currentNode.data?.label || currentNode.data?.key || currentNode.data?.leadKey || 'Field';
+        fieldKey = currentNode.data?.key || currentNode.data?.leadKey || currentNode.data?.label || ('field_' + Date.now());
       }
-    } else {
-      newLeadData['user_message_' + Date.now()] = cleanText;
     }
 
+    const fieldId = currentNode?.id || ('node_' + Date.now());
+
+    // Update dynamic fields array
+    const updatedDynamicFields = [
+      ...dynamicFields.filter(f => f.fieldId !== fieldId),
+      { fieldId, label: fieldLabel, value: cleanText }
+    ];
+    setDynamicFields(updatedDynamicFields);
+
+    // Update legacy leadData map for backwards compatibility
+    const newLeadData = { ...leadData, [fieldKey]: cleanText };
     setLeadData(newLeadData);
 
     if (currentNode) {
@@ -378,7 +397,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       // 2. Check if currentNode has an explicit nextStepId set
       if (!targetNodeId && currentNode.data?.nextStepId) {
         if (currentNode.data.nextStepId === 'END') {
-          await saveLead(newLeadData);
+          await saveLead(newLeadData, updatedDynamicFields);
           setIsTyping(true);
           setTimeout(() => {
             setIsTyping(false);
@@ -429,7 +448,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         const nextNode = safeNodes.find((n: any) => n.id === targetNodeId);
         if (nextNode) {
           if (nextNode.type === 'saveLead') {
-            await saveLead(newLeadData);
+            await saveLead(newLeadData, updatedDynamicFields);
             const nextEdge = safeEdges.find((e: any) => e.source === nextNode.id);
             if (nextEdge) {
               const finalNextNode = safeNodes.find((n: any) => n.id === nextEdge.target);
@@ -448,7 +467,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       }
 
       // End of flow reached - save lead and send completion message
-      await saveLead(newLeadData);
+      await saveLead(newLeadData, updatedDynamicFields);
       setCurrentNodeId(null);
       setIsTyping(true);
       setTimeout(() => {
@@ -461,7 +480,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       }, 600);
     } else {
       // Flow ended previously, user is continuing chat
-      await saveLead(newLeadData);
+      await saveLead(newLeadData, updatedDynamicFields);
       setIsTyping(true);
       setTimeout(() => {
         setIsTyping(false);
@@ -478,11 +497,12 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     handleUserInput(choice);
   };
 
-  const saveLead = async (data: any) => {
+  const saveLead = async (data: any, fieldsList: Array<{ fieldId: string; label: string; value: string }> = dynamicFields) => {
     try {
       let ownerId: string | null = null;
       let ownerData: any = null;
       let botSpreadsheetId: string | null = null;
+      let botWorksheetName: string | null = null;
 
       // 1. Try resolving ownerId from Firestore
       try {
@@ -493,6 +513,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
           const bData = botSnap.data();
           ownerId = bData.createdBy || null;
           botSpreadsheetId = bData.spreadsheetId || null;
+          botWorksheetName = bData.worksheetName || null;
 
           if (ownerId) {
             const ownerRef = doc(db, 'users', ownerId);
@@ -516,18 +537,27 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
             if (found) {
               ownerId = found.createdBy || null;
               if (found.spreadsheetId) botSpreadsheetId = found.spreadsheetId;
+              if (found.worksheetName) botWorksheetName = found.worksheetName;
             }
           }
         } catch {}
       }
 
       const leadRecord = {
+        botId,
         flowId: botId,
+        clientId: ownerId || 'demo_user',
         ownerId: ownerId || 'demo_user',
+        botName: botTitle,
         clientName: botTitle,
+        fields: fieldsList,
         data,
         timestamp: serverTimestamp(),
+        submittedAt: new Date().toISOString(),
         sourceUrl: window.location.href,
+        googleTokens: ownerData?.googleTokens || null,
+        spreadsheetId: botSpreadsheetId || ownerData?.spreadsheetId || null,
+        worksheetName: botWorksheetName || ownerData?.worksheetName || 'Sheet1'
       };
 
       // Write to Firestore leads collection
@@ -535,33 +565,21 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         console.warn('Firestore lead submission warning:', fsErr);
       });
 
-      // Also POST to Express server API for backend storage persistence
+      // Also POST to Express server API for backend storage persistence & Google Sheets auto sync
       try {
         await fetch('/api/leads', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            flowId: botId,
-            ownerId: ownerId || 'demo_user',
-            clientName: botTitle,
-            data,
-            timestamp: new Date().toISOString(),
-            sourceUrl: window.location.href
-          }),
+          body: JSON.stringify(leadRecord),
         });
       } catch (apiErr) {
         console.warn('Server API lead submission warning:', apiErr);
-      }
-
-      // Sync to Google Sheets if configured (prefers bot-specific sheet, falls back to owner default sheet)
-      const targetSpreadsheetId = botSpreadsheetId || ownerData?.spreadsheetId;
-      if (ownerData && ownerData.googleTokens && targetSpreadsheetId) {
-        await syncToGoogleSheets(data, ownerData.googleTokens, targetSpreadsheetId);
       }
     } catch (error) {
       console.error('Error saving lead:', error);
     }
   };
+
 
   const syncToGoogleSheets = async (data: any, tokens: any, spreadsheetId: string) => {
     try {

@@ -166,10 +166,163 @@ async function startServer() {
     return client;
   }
 
-  // Sync Lead to Google Sheets
-  app.post('/api/sync-lead', async (req, res) => {
-    const { tokens, spreadsheetId, leadData } = req.body;
+  // Dynamic Google Sheets Synchronization Engine
+  async function syncLeadToGoogleSheets(
+    tokens: any,
+    spreadsheetId: string,
+    worksheetName: string = 'Sheet1',
+    lead: any
+  ) {
+    if (!tokens || !spreadsheetId) {
+      throw new Error('Missing tokens or spreadsheetId');
+    }
 
+    const auth = createOAuth2Client(tokens);
+    const sheets = google.sheets({ version: 'v4', auth });
+    const targetWorksheet = worksheetName || 'Sheet1';
+    let existingHeaders: string[] = [];
+
+    // Step 1: Read existing header row from target worksheet
+    try {
+      const getRes = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: `'${targetWorksheet}'!1:1`,
+      });
+      if (getRes.data.values && getRes.data.values.length > 0) {
+        existingHeaders = getRes.data.values[0].map((h: any) => String(h).trim());
+      }
+    } catch (err: any) {
+      console.warn(`Header check warning for tab ${targetWorksheet}:`, err?.message || err);
+    }
+
+    // Step 2: Extract standard headers & dynamic field labels
+    const standardHeaders = ['Timestamp', 'Lead ID', 'Bot Name', 'Source URL'];
+    const fieldLabelMap = new Map<string, string>();
+
+    // Dynamic fields array
+    if (Array.isArray(lead.fields)) {
+      lead.fields.forEach((f: any) => {
+        if (f && f.label) {
+          fieldLabelMap.set(String(f.label).trim(), f.value !== undefined ? String(f.value) : '');
+        }
+      });
+    }
+
+    // Dynamic data key-value fallback
+    const rawData = lead.data || lead;
+    if (rawData && typeof rawData === 'object') {
+      Object.entries(rawData).forEach(([key, val]) => {
+        const cleanKey = String(key).trim();
+        if (!['id', 'botId', 'flowId', 'clientId', 'ownerId', 'botName', 'clientName', 'fields', 'sourceUrl', 'submittedAt', 'timestamp', 'googleSheetSyncStatus', 'googleSheetSyncError', 'googleSheetSyncedAt'].includes(cleanKey)) {
+          if (!fieldLabelMap.has(cleanKey)) {
+            fieldLabelMap.set(cleanKey, val !== undefined ? String(val) : '');
+          }
+        }
+      });
+    }
+
+    let headersUpdated = false;
+    let headers = [...existingHeaders];
+
+    if (headers.length === 0) {
+      headers = [...standardHeaders];
+      headersUpdated = true;
+    }
+
+    standardHeaders.forEach(sh => {
+      if (!headers.includes(sh)) {
+        headers.push(sh);
+        headersUpdated = true;
+      }
+    });
+
+    fieldLabelMap.forEach((_, label) => {
+      if (!headers.includes(label)) {
+        headers.push(label);
+        headersUpdated = true;
+      }
+    });
+
+    // Step 3: Write updated header row to Google Sheets if new columns added
+    if (headersUpdated) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `'${targetWorksheet}'!1:1`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: {
+          values: [headers]
+        }
+      });
+    }
+
+    // Step 4: Construct row values aligned to dynamic header indices
+    const rowValues = headers.map(header => {
+      if (header === 'Timestamp') {
+        return lead.submittedAt || lead.timestamp || new Date().toLocaleString();
+      }
+      if (header === 'Lead ID') {
+        return lead.id || '';
+      }
+      if (header === 'Bot Name') {
+        return lead.botName || lead.clientName || lead.flowName || '';
+      }
+      if (header === 'Source URL') {
+        return lead.sourceUrl || '';
+      }
+
+      if (fieldLabelMap.has(header)) {
+        return fieldLabelMap.get(header) || '';
+      }
+
+      for (const [lbl, val] of fieldLabelMap.entries()) {
+        if (lbl.toLowerCase() === header.toLowerCase()) {
+          return val;
+        }
+      }
+
+      return '';
+    });
+
+    // Step 5: Append row to target worksheet
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: `'${targetWorksheet}'`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: {
+        values: [rowValues]
+      }
+    });
+  }
+
+  // Sync Lead to Google Sheets Endpoint
+  app.post('/api/sync-lead', async (req, res) => {
+    const { tokens, spreadsheetId, worksheetName, leadData, leadId } = req.body;
+
+    if (!tokens || !spreadsheetId) {
+      return res.status(400).json({ error: 'Missing tokens or spreadsheetId' });
+    }
+
+    try {
+      const leadObj = {
+        id: leadId || ('lead_' + Date.now()),
+        botName: leadData?.sourceBot || leadData?.clientName || 'Chatbot',
+        fields: leadData?.fields || [],
+        data: leadData,
+        sourceUrl: leadData?.sourceUrl || '',
+        submittedAt: leadData?.submittedAt || new Date().toLocaleString()
+      };
+
+      await syncLeadToGoogleSheets(tokens, spreadsheetId, worksheetName || 'Sheet1', leadObj);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Sheets Sync Error:', error?.message || error);
+      res.status(500).json({ error: error?.message || 'Failed to sync lead to Google Sheets.' });
+    }
+  });
+
+  // Get Worksheets / Tab Titles from Spreadsheet
+  app.post('/api/sheets/worksheets', async (req, res) => {
+    const { tokens, spreadsheetId } = req.body;
     if (!tokens || !spreadsheetId) {
       return res.status(400).json({ error: 'Missing tokens or spreadsheetId' });
     }
@@ -177,60 +330,19 @@ async function startServer() {
     try {
       const auth = createOAuth2Client(tokens);
       const sheets = google.sheets({ version: 'v4', auth });
-
-      // Check if sheet has headers first
-      let range = 'Sheet1!A:E';
-      try {
-        const getRes = await sheets.spreadsheets.values.get({
-          spreadsheetId,
-          range: 'Sheet1!A1:E1',
-        });
-        if (!getRes.data.values || getRes.data.values.length === 0) {
-          // Initialize headers if sheet is blank
-          await sheets.spreadsheets.values.update({
-            spreadsheetId,
-            range: 'Sheet1!A1:E1',
-            valueInputOption: 'USER_ENTERED',
-            requestBody: {
-              values: [['Timestamp', 'Name', 'Email', 'Phone', 'All Captured Fields']]
-            }
-          });
-        }
-      } catch (err) {
-        console.warn('Header check warning (proceeding to append):', err);
-      }
-
-      // Prepare row data
-      const name = leadData.name || leadData.fullName || leadData.full_name || '';
-      const email = leadData.email || leadData.emailAddress || '';
-      const phone = leadData.phone || leadData.phoneNumber || leadData.mobile || '';
-      const formattedDetails = Object.entries(leadData)
-        .map(([k, v]) => `${k}: ${v}`)
-        .join(' | ');
-
-      const values = [
-        [
-          new Date().toLocaleString(),
-          name,
-          email,
-          phone,
-          formattedDetails || JSON.stringify(leadData)
-        ]
-      ];
-
-      await sheets.spreadsheets.values.append({
+      const response = await sheets.spreadsheets.get({
         spreadsheetId,
-        range,
-        valueInputOption: 'USER_ENTERED',
-        requestBody: { values },
+        fields: 'sheets.properties.title',
       });
 
-      res.json({ success: true });
+      const worksheets = (response.data.sheets || []).map(s => s.properties?.title).filter(Boolean);
+      res.json({ success: true, worksheets });
     } catch (error: any) {
-      console.error('Sheets Sync Error:', error?.message || error);
-      res.status(500).json({ error: 'Failed to sync lead to Google Sheets. Please re-authenticate Google account.' });
+      console.error('Error fetching worksheets:', error?.message || error);
+      res.status(400).json({ error: 'Could not fetch worksheets. Check spreadsheet access permissions.' });
     }
   });
+
 
   // List user's Google Sheets from Drive
   app.post('/api/sheets/list', async (req, res) => {
@@ -481,36 +593,147 @@ async function startServer() {
     res.json({ success: true, bots: botsList });
   });
 
-  // Backend Lead Storage & Retrieval
+  // Backend Lead Storage & Retrieval with Dynamic Fields & Google Sheets Auto-Sync
   app.post('/api/leads', async (req, res) => {
-    const leadRecord = req.body;
-    const newLead = {
-      id: 'lead_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-      flowId: leadRecord.flowId || 'default',
-      ownerId: leadRecord.ownerId || 'guest_user',
-      clientName: leadRecord.clientName || leadRecord.botName || '',
+    const leadRecord = req.body || {};
+    const botId = leadRecord.botId || leadRecord.flowId || 'default_bot';
+    const ownerId = leadRecord.clientId || leadRecord.ownerId || 'guest_user';
+    const botName = leadRecord.botName || leadRecord.clientName || 'Chatbot';
+
+    // Parse dynamic fields list if provided, or format from data object
+    let fields: Array<{ fieldId: string; label: string; value: string }> = [];
+    if (Array.isArray(leadRecord.fields)) {
+      fields = leadRecord.fields;
+    } else if (leadRecord.data && typeof leadRecord.data === 'object') {
+      fields = Object.entries(leadRecord.data).map(([key, val]) => ({
+        fieldId: 'field_' + key,
+        label: key,
+        value: String(val)
+      }));
+    }
+
+    const newLead: any = {
+      id: leadRecord.id || ('lead_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6)),
+      botId,
+      flowId: botId,
+      clientId: ownerId,
+      ownerId,
+      botName,
+      clientName: botName,
+      fields,
       data: leadRecord.data || leadRecord,
       timestamp: leadRecord.timestamp || new Date().toISOString(),
-      sourceUrl: leadRecord.sourceUrl || ''
+      submittedAt: leadRecord.submittedAt || new Date().toISOString(),
+      sourceUrl: leadRecord.sourceUrl || '',
+      googleSheetSyncStatus: 'pending'
     };
+
+    // Save lead to application database FIRST (Primary source of truth)
     serverLeadsList.unshift(newLead);
     saveLeadsToFile();
     console.log('Captured & Saved Lead to Backend:', newLead.id);
+
+    // Attempt automatic Google Sheets synchronization if tokens & spreadsheet details provided
+    const googleTokens = leadRecord.googleTokens;
+    const spreadsheetId = leadRecord.spreadsheetId;
+    const worksheetName = leadRecord.worksheetName || 'Sheet1';
+
+    if (googleTokens && spreadsheetId) {
+      try {
+        await syncLeadToGoogleSheets(googleTokens, spreadsheetId, worksheetName, newLead);
+        newLead.googleSheetSyncStatus = 'synced';
+        newLead.googleSheetSyncedAt = new Date().toISOString();
+        saveLeadsToFile();
+      } catch (syncErr: any) {
+        console.warn('Auto Google Sheets sync failed on lead creation (Lead preserved in DB):', syncErr?.message || syncErr);
+        newLead.googleSheetSyncStatus = 'failed';
+        newLead.googleSheetSyncError = syncErr?.message || 'Sync failed';
+        saveLeadsToFile();
+      }
+    }
+
     res.json({ success: true, lead: newLead });
   });
 
+  // Get leads with multi-tenant ownership validation
   app.get('/api/leads', (req, res) => {
     loadLeadsFromFile();
-    const { ownerId, flowId } = req.query;
+    const { ownerId, clientId, botId, flowId } = req.query;
     let filtered = [...serverLeadsList];
-    if (ownerId && typeof ownerId === 'string') {
-      filtered = filtered.filter(l => l.ownerId === ownerId);
+
+    const targetOwner = (ownerId || clientId) as string;
+    if (targetOwner) {
+      filtered = filtered.filter(l => l.ownerId === targetOwner || l.clientId === targetOwner);
     }
-    if (flowId && typeof flowId === 'string') {
-      filtered = filtered.filter(l => l.flowId === flowId);
+
+    const targetBot = (botId || flowId) as string;
+    if (targetBot) {
+      filtered = filtered.filter(l => l.botId === targetBot || l.flowId === targetBot);
     }
+
     res.json({ success: true, leads: filtered });
   });
+
+  // Get leads for a specific bot with ownership validation
+  app.get('/api/bots/:botId/leads', (req, res) => {
+    const { botId } = req.params;
+    const { ownerId, clientId } = req.query;
+    loadLeadsFromFile();
+
+    let filtered = serverLeadsList.filter(l => l.botId === botId || l.flowId === botId);
+
+    const targetOwner = (ownerId || clientId) as string;
+    if (targetOwner) {
+      filtered = filtered.filter(l => l.ownerId === targetOwner || l.clientId === targetOwner);
+    }
+
+    res.json({ success: true, leads: filtered });
+  });
+
+  // Get single lead details
+  app.get('/api/leads/:id', (req, res) => {
+    const { id } = req.params;
+    loadLeadsFromFile();
+    const lead = serverLeadsList.find(l => l.id === id);
+    if (!lead) {
+      return res.status(404).json({ error: 'Lead not found' });
+    }
+    res.json({ success: true, lead });
+  });
+
+  // Retry Google Sheets synchronization for a specific lead
+  app.post('/api/leads/retry-sync', async (req, res) => {
+    const { leadId, googleTokens, spreadsheetId, worksheetName } = req.body;
+    loadLeadsFromFile();
+
+    const leadIndex = serverLeadsList.findIndex(l => l.id === leadId);
+    if (leadIndex === -1) {
+      return res.status(404).json({ error: 'Lead record not found' });
+    }
+
+    const lead = serverLeadsList[leadIndex];
+    if (!googleTokens || !spreadsheetId) {
+      return res.status(400).json({ error: 'Missing Google tokens or Spreadsheet ID for retry.' });
+    }
+
+    try {
+      await syncLeadToGoogleSheets(googleTokens, spreadsheetId, worksheetName || 'Sheet1', lead);
+      lead.googleSheetSyncStatus = 'synced';
+      lead.googleSheetSyncedAt = new Date().toISOString();
+      delete lead.googleSheetSyncError;
+      serverLeadsList[leadIndex] = lead;
+      saveLeadsToFile();
+      res.json({ success: true, lead });
+    } catch (err: any) {
+      console.error('Retry Sync Error:', err?.message || err);
+      lead.googleSheetSyncStatus = 'failed';
+      lead.googleSheetSyncError = err?.message || 'Sync failed';
+      serverLeadsList[leadIndex] = lead;
+      saveLeadsToFile();
+      res.status(500).json({ error: err?.message || 'Failed to sync lead to Google Sheets.' });
+    }
+  });
+
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {
