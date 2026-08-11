@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { db, auth } from '../lib/firebase';
-import { collection, query, orderBy, onSnapshot, doc, getDoc, where } from 'firebase/firestore';
-import { format } from 'date-fns';
+import { collection, query, orderBy, onSnapshot, doc, getDoc, getDocs, where } from 'firebase/firestore'; import { format } from 'date-fns';
 import {
   User, Mail, Calendar, ExternalLink, Bot, Download, Filter, Search,
   CheckCircle2, AlertCircle, Clock, RefreshCw, X, Layers, FileText
@@ -49,8 +48,12 @@ export default function Leads() {
     setTimeout(() => setToast(null), 3500);
   };
 
+  const [isSyncingAll, setIsSyncingAll] = useState(false);
+
   useEffect(() => {
     const targetUserId = effectiveUserId || auth.currentUser?.uid;
+    console.log('[LEADS_PAGE] authenticatedUserId =', targetUserId);
+
     if (!targetUserId && !isAdmin) {
       setLeads([]);
       setLoading(false);
@@ -59,6 +62,7 @@ export default function Leads() {
 
     setLoading(true);
     const isGlobalAdminView = isAdmin && !impersonatedClient;
+    console.log('[LEADS_PAGE] leadQueryStarted (isGlobalAdminView =', isGlobalAdminView, ')');
 
     const q = collection(db, 'leads');
 
@@ -68,16 +72,30 @@ export default function Leads() {
         ...doc.data()
       })) as Lead[];
 
+      // Fetch user's bot configurations to include leads matching user's bot IDs
+      let userBotIds: string[] = [];
+      try {
+        const botSnap = await getDocs(collection(db, 'bot_configurations')).catch(() => null);
+        if (botSnap && !botSnap.empty) {
+          userBotIds = botSnap.docs
+            .filter(d => d.data().createdBy === targetUserId || d.data().clientId === targetUserId || d.data().ownerId === targetUserId)
+            .map(d => d.id || d.data().id);
+        }
+      } catch (e) { }
+
       if (!isGlobalAdminView) {
         firestoreLeads = firestoreLeads.filter(l =>
           l.clientId === targetUserId ||
           l.ownerId === targetUserId ||
+          userBotIds.includes(l.botId || '') ||
+          userBotIds.includes(l.flowId || '') ||
           l.clientId === 'demo_user' ||
-          l.ownerId === 'demo_user'
+          l.ownerId === 'demo_user' ||
+          targetUserId === 'demo_user'
         );
       }
 
-
+      console.log('[LEADS_PAGE] firestoreLeadCount =', firestoreLeads.length);
 
       // Fetch server backend leads
       let serverLeads: Lead[] = [];
@@ -100,8 +118,11 @@ export default function Leads() {
       firestoreLeads.forEach(l => leadMap.set(l.id, l));
 
       const mergedLeads = Array.from(leadMap.values());
+      console.log('[LEADS_PAGE] mergedLeadCount =', mergedLeads.length, 'leadIds =', mergedLeads.map(l => l.id));
+
       setLeads(mergedLeads);
       setLoading(false);
+
 
       // Fetch unique bot names for these leads
       const names: Record<string, string> = { ...botNames };
@@ -277,9 +298,30 @@ export default function Leads() {
         showToast(data.error || 'Retry sync failed.', 'error');
       }
     } catch (err: any) {
-      showToast(`Error: ${err.message}`, 'error');
+      showToast('Retry sync failed: ' + (err.message || 'Unknown error'), 'error');
     } finally {
       setIsRetryingSync(false);
+    }
+  };
+
+  const handleSyncAllExistingLeads = async () => {
+    setIsSyncingAll(true);
+    try {
+      const res = await fetch('/api/leads/sync-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast(`🎉 Processed ${data.processedCount} leads for Google Sheets sync!`);
+        setTimeout(() => window.location.reload(), 1500);
+      } else {
+        showToast(data.error || 'Failed to sync existing leads', 'error');
+      }
+    } catch (err: any) {
+      showToast('Error syncing existing leads: ' + (err.message || err), 'error');
+    } finally {
+      setIsSyncingAll(false);
     }
   };
 
@@ -376,6 +418,17 @@ export default function Leads() {
             <Download className="w-4 h-4" />
             Export CSV
           </button>
+
+          {/* Sync All Existing Leads to Google Sheets Button */}
+          <button
+            onClick={handleSyncAllExistingLeads}
+            disabled={isSyncingAll}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-all shadow-md disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${isSyncingAll ? 'animate-spin' : ''}`} />
+            {isSyncingAll ? 'Syncing...' : 'Sync All to Google Sheet'}
+          </button>
+
         </div>
       </div>
 
