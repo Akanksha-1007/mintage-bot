@@ -178,7 +178,51 @@ export default function Leads() {
       setLoading(false);
     });
 
-    return () => unsubscribeLeads();
+    // Helper to fetch server leads on SSE or window events
+    const refreshServerLeads = async () => {
+      try {
+        const url = isGlobalAdminView ? '/api/leads' : `/api/leads?ownerId=${encodeURIComponent(targetUserId)}`;
+        const res = await fetch(url);
+        if (res.ok) {
+          const sData = await res.json();
+          if (sData.success && Array.isArray(sData.leads)) {
+            setLeads(prev => {
+              const map = new Map<string, Lead>();
+              prev.forEach(l => map.set(l.id, l));
+              sData.leads.forEach((l: Lead) => map.set(l.id, l));
+              return Array.from(map.values());
+            });
+          }
+        }
+      } catch (e) {}
+    };
+
+    // Real-time EventSource SSE Listener
+    let eventSource: EventSource | null = null;
+    try {
+      eventSource = new EventSource('/api/events');
+      eventSource.onmessage = (event) => {
+        if (event.data && !event.data.startsWith(':')) {
+          refreshServerLeads();
+        }
+      };
+    } catch (e) {}
+
+    // Custom intra-tab window listener
+    const handleCustomLead = () => refreshServerLeads();
+    window.addEventListener('mintage_lead_captured', handleCustomLead);
+
+    // Fallback polling interval (every 5 seconds)
+    const pollInterval = setInterval(() => {
+      refreshServerLeads();
+    }, 5000);
+
+    return () => {
+      unsubscribeLeads();
+      if (eventSource) eventSource.close();
+      window.removeEventListener('mintage_lead_captured', handleCustomLead);
+      clearInterval(pollInterval);
+    };
   }, [effectiveUserId, isAdmin, impersonatedClient]);
 
 
@@ -393,7 +437,13 @@ export default function Leads() {
       {/* Header & Controls */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight">Leads Center</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight">Leads Center</h2>
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              Real-Time Live
+            </span>
+          </div>
           <p className="text-gray-500 text-sm mt-1">
             Dynamic lead capture dashboard with real-time Google Sheets synchronization status.
           </p>

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { db, auth } from '../lib/firebase';
-import { collection, query, where, getDocs, limit, orderBy } from 'firebase/firestore';
+import { collection, query, where, getDocs, limit, orderBy, onSnapshot } from 'firebase/firestore';
 import { 
   Users, 
   MessageSquare, 
@@ -36,16 +36,15 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchStats = async () => {
-      const targetUserId = effectiveUserId || auth.currentUser?.uid;
-      const isGlobalAdminView = isAdmin && !impersonatedClient;
+    const targetUserId = effectiveUserId || auth.currentUser?.uid;
+    const isGlobalAdminView = isAdmin && !impersonatedClient;
 
-      setLoading(true);
+    const fetchStats = async () => {
       let botsCount = 0;
       let leadsCount = 0;
       let fetchedLeads: RecentLead[] = [];
 
-      // Local storage fallback reads
+      // 1. Local storage fallback reads
       const localBotsRaw = localStorage.getItem('mintage_bots');
       if (localBotsRaw) {
         try { 
@@ -59,12 +58,31 @@ export default function Dashboard() {
       if (localLeadsRaw) {
         try { 
           const parsed = JSON.parse(localLeadsRaw);
-          const filtered = !isGlobalAdminView && targetUserId ? parsed.filter((l: any) => l.ownerId === targetUserId || !l.ownerId) : parsed;
+          const filtered = !isGlobalAdminView && targetUserId ? parsed.filter((l: any) => l.ownerId === targetUserId || !l.ownerId || targetUserId === 'demo_user') : parsed;
           leadsCount = filtered.length; 
-          fetchedLeads = filtered.slice(0, 4);
+          fetchedLeads = filtered.slice(0, 5);
         } catch {}
       }
 
+      // 2. Fetch API server leads
+      try {
+        const url = isGlobalAdminView ? '/api/leads' : `/api/leads?ownerId=${encodeURIComponent(targetUserId || 'demo_user')}`;
+        const res = await fetch(url);
+        if (res.ok) {
+          const apiData = await res.json();
+          if (apiData.success && Array.isArray(apiData.leads)) {
+            const apiLeads = apiData.leads;
+            leadsCount = Math.max(leadsCount, apiLeads.length);
+            if (apiLeads.length > 0) {
+              fetchedLeads = apiLeads.slice(0, 5);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Backend leads API warning:', e);
+      }
+
+      // 3. Fetch Firestore bots count
       try {
         const botsQuery = isGlobalAdminView
           ? query(collection(db, 'bot_configurations'))
@@ -78,6 +96,7 @@ export default function Dashboard() {
         console.warn('Bots query skipped:', e);
       }
 
+      // 4. Fetch Firestore leads
       try {
         const leadsQuery = isGlobalAdminView
           ? query(collection(db, 'leads'), orderBy('timestamp', 'desc'), limit(5))
@@ -86,18 +105,21 @@ export default function Dashboard() {
         const leadsSnap = await getDocs(leadsQuery).catch(() => null);
         if (leadsSnap) {
           if (isGlobalAdminView) {
-            // Also count all leads
             const allLeadsSnap = await getDocs(collection(db, 'leads')).catch(() => null);
-            leadsCount = allLeadsSnap ? allLeadsSnap.size : leadsSnap.size;
+            leadsCount = Math.max(leadsCount, allLeadsSnap ? allLeadsSnap.size : leadsSnap.size);
           } else {
             leadsCount = Math.max(leadsCount, leadsSnap.size);
           }
 
           if (!leadsSnap.empty) {
-            fetchedLeads = leadsSnap.docs.map(doc => ({
+            const fsLeads = leadsSnap.docs.map(doc => ({
               id: doc.id,
               ...doc.data()
             })) as RecentLead[];
+            const map = new Map<string, RecentLead>();
+            fetchedLeads.forEach(l => map.set(l.id, l));
+            fsLeads.forEach(l => map.set(l.id, l));
+            fetchedLeads = Array.from(map.values()).slice(0, 5);
           }
         }
       } catch (e) {
@@ -114,6 +136,42 @@ export default function Dashboard() {
     };
 
     fetchStats();
+
+    // Real-Time Listener 1: Firestore Realtime Snapshots
+    let unsubscribeLeads: (() => void) | null = null;
+    let unsubscribeBots: (() => void) | null = null;
+    try {
+      unsubscribeLeads = onSnapshot(collection(db, 'leads'), () => fetchStats(), () => {});
+      unsubscribeBots = onSnapshot(collection(db, 'bot_configurations'), () => fetchStats(), () => {});
+    } catch (e) {}
+
+    // Real-Time Listener 2: Server-Sent Events (SSE) Stream from backend
+    let eventSource: EventSource | null = null;
+    try {
+      eventSource = new EventSource('/api/events');
+      eventSource.onmessage = (event) => {
+        if (event.data && !event.data.startsWith(':')) {
+          fetchStats();
+        }
+      };
+    } catch (e) {}
+
+    // Real-Time Listener 3: Custom intra-tab window events
+    const handleCustomLead = () => fetchStats();
+    window.addEventListener('mintage_lead_captured', handleCustomLead);
+
+    // Fallback polling interval (every 4 seconds)
+    const pollInterval = setInterval(() => {
+      fetchStats();
+    }, 4000);
+
+    return () => {
+      if (unsubscribeLeads) unsubscribeLeads();
+      if (unsubscribeBots) unsubscribeBots();
+      if (eventSource) eventSource.close();
+      window.removeEventListener('mintage_lead_captured', handleCustomLead);
+      clearInterval(pollInterval);
+    };
   }, [effectiveUserId, isAdmin, impersonatedClient]);
 
   return (
@@ -123,9 +181,15 @@ export default function Dashboard() {
         <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-xs font-semibold backdrop-blur-md">
-              <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Mintage Client Workspace</span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-xs font-semibold backdrop-blur-md">
+                <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Mintage Client Workspace</span>
+              </div>
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-semibold backdrop-blur-md">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span>Real-Time Live</span>
+              </div>
             </div>
             <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight">
               {impersonatedClient ? `${impersonatedClient.name}'s Dashboard` : (clientUser ? `${clientUser.name}'s Dashboard` : 'Chatbot Command Center')}

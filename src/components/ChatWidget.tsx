@@ -522,6 +522,30 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       const resData = await res.json();
       if (res.ok && resData.success) {
         console.log('[LEAD] submission success:', resData.leadId);
+        
+        // Save local backup to localStorage and dispatch custom event for real-time dashboard listeners
+        const newLeadRecord = {
+          id: resData.leadId || ('lead_' + Date.now()),
+          botId,
+          flowId: botId,
+          fields: fieldsList,
+          data,
+          sourceUrl: window.location.href,
+          submittedAt: new Date().toISOString(),
+          googleSheetSyncStatus: 'synced'
+        };
+
+        try {
+          const existingRaw = localStorage.getItem('mintage_leads');
+          let existingLeads = [];
+          if (existingRaw) existingLeads = JSON.parse(existingRaw);
+          const updatedLeads = [newLeadRecord, ...existingLeads.filter((l: any) => l.id !== newLeadRecord.id)];
+          localStorage.setItem('mintage_leads', JSON.stringify(updatedLeads));
+          window.dispatchEvent(new CustomEvent('mintage_lead_captured', { detail: newLeadRecord }));
+        } catch (e) {
+          console.warn('Local storage lead save notice:', e);
+        }
+
         setIsTyping(true);
         setTimeout(() => {
           setIsTyping(false);

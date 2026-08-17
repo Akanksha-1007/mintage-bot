@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../lib/firebase';
-import { collection, query, getDocs, doc, setDoc, deleteDoc, serverTimestamp, where } from 'firebase/firestore';
+import { collection, query, getDocs, doc, setDoc, deleteDoc, serverTimestamp, where, onSnapshot } from 'firebase/firestore';
 import { useAuth, ImpersonatedClient } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -150,6 +150,38 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     loadClientsAndStats();
+
+    let unsubscribeClients: (() => void) | null = null;
+    let unsubscribeBots: (() => void) | null = null;
+    let unsubscribeLeads: (() => void) | null = null;
+
+    try {
+      unsubscribeClients = onSnapshot(collection(db, 'clients'), () => loadClientsAndStats(), () => {});
+      unsubscribeBots = onSnapshot(collection(db, 'bot_configurations'), () => loadClientsAndStats(), () => {});
+      unsubscribeLeads = onSnapshot(collection(db, 'leads'), () => loadClientsAndStats(), () => {});
+    } catch (e) {}
+
+    let eventSource: EventSource | null = null;
+    try {
+      eventSource = new EventSource('/api/events');
+      eventSource.onmessage = (event) => {
+        if (event.data && !event.data.startsWith(':')) {
+          loadClientsAndStats();
+        }
+      };
+    } catch (e) {}
+
+    const pollInterval = setInterval(() => {
+      loadClientsAndStats();
+    }, 5000);
+
+    return () => {
+      if (unsubscribeClients) unsubscribeClients();
+      if (unsubscribeBots) unsubscribeBots();
+      if (unsubscribeLeads) unsubscribeLeads();
+      if (eventSource) eventSource.close();
+      clearInterval(pollInterval);
+    };
   }, []);
 
   const handleCreateClient = async (e: React.FormEvent) => {

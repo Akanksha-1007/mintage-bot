@@ -91,10 +91,51 @@ async function startServer() {
     res.sendFile(path.join(__dirname, 'public', 'widget.js'));
   });
 
+  // Server-Sent Events (SSE) Real-Time Streaming Engine
+  const sseClients = new Set<express.Response>();
+
+  function broadcastEvent(eventType: string, data: any) {
+    const payload = JSON.stringify({ type: eventType, data, timestamp: new Date().toISOString() });
+    sseClients.forEach(client => {
+      try {
+        client.write(`data: ${payload}\n\n`);
+      } catch (e) {
+        sseClients.delete(client);
+      }
+    });
+  }
+
   // API Routes
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok' });
   });
+
+  // Real-Time Server-Sent Events (SSE) Endpoint for Dashboards
+  app.get('/api/events', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    if (res.flushHeaders) res.flushHeaders();
+
+    sseClients.add(res);
+
+    // Heartbeat every 20 seconds
+    const heartbeat = setInterval(() => {
+      try {
+        res.write(': heartbeat\n\n');
+      } catch (e) {
+        clearInterval(heartbeat);
+        sseClients.delete(res);
+      }
+    }, 20000);
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      sseClients.delete(res);
+    });
+  });
+
 
   // Google OAuth URL
   app.get('/api/auth/google/url', (req, res) => {
@@ -561,6 +602,7 @@ async function startServer() {
 
     serverBotsMap.set(id, botObj);
     saveBotsToFile();
+    broadcastEvent('BOT_SAVED', botObj);
     res.json({ success: true, bot: botObj });
   });
 
@@ -784,7 +826,7 @@ async function startServer() {
 
     const clientId = resolvedBot.clientId;
     const botName = resolvedBot.botName;
-    console.log('[LEAD_OWNER_RESOLUTION]', { botId, resolvedClientId: clientId, botName });
+    console.log('[LEAD_OWNER]', { botId, resolvedClientId: clientId, botName });
 
     let fields: Array<{ fieldId: string; label: string; value: string }> = [];
     if (Array.isArray(leadPayload.fields)) {
@@ -857,8 +899,8 @@ async function startServer() {
       });
     }
 
-    console.log('[LEAD_SHEET_SYNC_START]', { leadId });
     const sheetConfig = await resolveClientGoogleSheetsConfig(clientId, resolvedBot.spreadsheetId, resolvedBot.worksheetName);
+    console.log('[GOOGLE_SYNC]', { leadId, clientId, spreadsheetConfigured: !!(sheetConfig.googleTokens && sheetConfig.spreadsheetId), worksheet: sheetConfig.worksheetName });
 
     if (sheetConfig.googleTokens && sheetConfig.spreadsheetId) {
       try {
@@ -870,9 +912,9 @@ async function startServer() {
           await setDoc(doc(db, 'leads', leadId), { googleSheetSyncStatus: 'synced', googleSheetSyncedAt: newLeadRecord.googleSheetSyncedAt }, { merge: true }).catch(() => null);
         }
         saveLeadsToFile();
-        console.log('[LEAD_SHEET_SYNC_SUCCESS]', { leadId });
+        console.log('[GOOGLE_SYNC_SUCCESS]', { leadId });
       } catch (syncErr: any) {
-        console.error('[LEAD_SHEET_SYNC_FAILURE]', { leadId, error: syncErr?.message || syncErr });
+        console.error('[GOOGLE_SYNC_ERROR]', { leadId, error: syncErr?.message || syncErr });
         newLeadRecord.googleSheetSyncStatus = 'failed';
         newLeadRecord.googleSheetSyncError = syncErr?.message || 'Sync failed';
 
@@ -882,7 +924,7 @@ async function startServer() {
         saveLeadsToFile();
       }
     } else {
-      console.log('[LEAD_SHEET_NOT_CONFIGURED]', { leadId, clientId });
+      console.log('[GOOGLE_SYNC_ERROR]', { leadId, error: 'Google Account or Spreadsheet not connected for client' });
       newLeadRecord.googleSheetSyncStatus = 'not_configured';
       if (db) {
         await setDoc(doc(db, 'leads', leadId), { googleSheetSyncStatus: 'not_configured' }, { merge: true }).catch(() => null);
@@ -890,8 +932,10 @@ async function startServer() {
       saveLeadsToFile();
     }
 
+    broadcastEvent('LEAD_CAPTURED', newLeadRecord);
     return res.json({ success: true, leadId });
   });
+
 
   // Get leads with multi-tenant ownership validation
   app.get('/api/leads', async (req, res) => {
@@ -996,6 +1040,7 @@ async function startServer() {
       if (idx !== -1) serverLeadsList[idx] = lead;
       saveLeadsToFile();
 
+      broadcastEvent('LEAD_SYNCED', lead);
       console.log('[GOOGLE_SHEET_SYNC_SUCCESS]', { leadId });
       res.json({ success: true, lead });
     } catch (err: any) {
