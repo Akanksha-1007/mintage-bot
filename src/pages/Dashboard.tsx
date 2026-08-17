@@ -65,17 +65,14 @@ export default function Dashboard() {
       }
 
       // 2. Fetch API server leads
+      let apiLeadsList: RecentLead[] = [];
       try {
         const url = isGlobalAdminView ? '/api/leads' : `/api/leads?ownerId=${encodeURIComponent(targetUserId || 'demo_user')}`;
         const res = await fetch(url);
         if (res.ok) {
           const apiData = await res.json();
           if (apiData.success && Array.isArray(apiData.leads)) {
-            const apiLeads = apiData.leads;
-            leadsCount = Math.max(leadsCount, apiLeads.length);
-            if (apiLeads.length > 0) {
-              fetchedLeads = apiLeads.slice(0, 5);
-            }
+            apiLeadsList = apiData.leads;
           }
         }
       } catch (e) {
@@ -96,35 +93,28 @@ export default function Dashboard() {
         console.warn('Bots query skipped:', e);
       }
 
-      // 4. Fetch Firestore leads
+      // 4. Fetch Firestore leads & combine all sources
+      const allLeadsMap = new Map<string, RecentLead>();
+      fetchedLeads.forEach(l => allLeadsMap.set(l.id, l));
+      apiLeadsList.forEach(l => allLeadsMap.set(l.id, l));
+
       try {
         const leadsQuery = isGlobalAdminView
           ? query(collection(db, 'leads'), orderBy('timestamp', 'desc'), limit(5))
           : query(collection(db, 'leads'), where('ownerId', '==', targetUserId), orderBy('timestamp', 'desc'), limit(5));
 
         const leadsSnap = await getDocs(leadsQuery).catch(() => null);
-        if (leadsSnap) {
-          if (isGlobalAdminView) {
-            const allLeadsSnap = await getDocs(collection(db, 'leads')).catch(() => null);
-            leadsCount = Math.max(leadsCount, allLeadsSnap ? allLeadsSnap.size : leadsSnap.size);
-          } else {
-            leadsCount = Math.max(leadsCount, leadsSnap.size);
-          }
-
-          if (!leadsSnap.empty) {
-            const fsLeads = leadsSnap.docs.map(doc => ({
-              id: doc.id,
-              ...doc.data()
-            })) as RecentLead[];
-            const map = new Map<string, RecentLead>();
-            fetchedLeads.forEach(l => map.set(l.id, l));
-            fsLeads.forEach(l => map.set(l.id, l));
-            fetchedLeads = Array.from(map.values()).slice(0, 5);
-          }
+        if (leadsSnap && !leadsSnap.empty) {
+          const fsLeads = leadsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as RecentLead[];
+          fsLeads.forEach(l => allLeadsMap.set(l.id, l));
         }
       } catch (e) {
         console.warn('Leads query skipped:', e);
       }
+
+      const combinedLeads = Array.from(allLeadsMap.values());
+      leadsCount = Math.max(leadsCount, combinedLeads.length);
+      fetchedLeads = combinedLeads.slice(0, 5);
 
       setStats({
         bots: botsCount,

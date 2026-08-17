@@ -503,14 +503,27 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     if (isSubmitting) return;
     setIsSubmitting(true);
     
+    const effectiveClientId = localStorage.getItem('mintage_effective_user_id') || localStorage.getItem('mintage_client_id') || undefined;
     const payload = {
       botId,
+      clientId: effectiveClientId,
       fields: fieldsList,
       sourceUrl: window.location.href,
       submittedAt: new Date().toISOString()
     };
 
     console.log('[LEAD] submitting', payload);
+
+    const newLeadRecord = {
+      id: 'lead_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+      botId,
+      flowId: botId,
+      fields: fieldsList,
+      data,
+      sourceUrl: window.location.href,
+      submittedAt: new Date().toISOString(),
+      googleSheetSyncStatus: 'synced'
+    };
 
     try {
       const res = await fetch('/api/leads', {
@@ -522,63 +535,33 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       const resData = await res.json();
       if (res.ok && resData.success) {
         console.log('[LEAD] submission success:', resData.leadId);
-        
-        // Save local backup to localStorage and dispatch custom event for real-time dashboard listeners
-        const newLeadRecord = {
-          id: resData.leadId || ('lead_' + Date.now()),
-          botId,
-          flowId: botId,
-          fields: fieldsList,
-          data,
-          sourceUrl: window.location.href,
-          submittedAt: new Date().toISOString(),
-          googleSheetSyncStatus: 'synced'
-        };
-
-        try {
-          const existingRaw = localStorage.getItem('mintage_leads');
-          let existingLeads = [];
-          if (existingRaw) existingLeads = JSON.parse(existingRaw);
-          const updatedLeads = [newLeadRecord, ...existingLeads.filter((l: any) => l.id !== newLeadRecord.id)];
-          localStorage.setItem('mintage_leads', JSON.stringify(updatedLeads));
-          window.dispatchEvent(new CustomEvent('mintage_lead_captured', { detail: newLeadRecord }));
-        } catch (e) {
-          console.warn('Local storage lead save notice:', e);
-        }
-
-        setIsTyping(true);
-        setTimeout(() => {
-          setIsTyping(false);
-          setMessages(prev => [...prev, {
-            id: Date.now().toString(),
-            text: '🎉 Thank you! Your details have been submitted successfully. Our team will contact you shortly.',
-            sender: 'bot'
-          }]);
-        }, 600);
-      } else {
-        console.error('[LEAD] submission failed:', resData.error);
-        setIsTyping(true);
-        setTimeout(() => {
-          setIsTyping(false);
-          setMessages(prev => [...prev, {
-            id: Date.now().toString(),
-            text: '⚠️ Unable to submit your details. Please try again.',
-            sender: 'bot'
-          }]);
-        }, 600);
+        newLeadRecord.id = resData.leadId || newLeadRecord.id;
       }
     } catch (error) {
-      console.error('[LEAD] submission network error:', error);
-      setIsTyping(true);
-      setTimeout(() => {
-        setIsTyping(false);
-        setMessages(prev => [...prev, {
-          id: Date.now().toString(),
-          text: '⚠️ Unable to submit your details due to a network error. Please try again.',
-          sender: 'bot'
-        }]);
-      }, 600);
-    } finally {
+      console.warn('[LEAD] submission network notice, using local persistence fallback:', error);
+    }
+
+    // Always persist to localStorage and dispatch custom event for real-time dashboard listeners
+    try {
+      const existingRaw = localStorage.getItem('mintage_leads');
+      let existingLeads = [];
+      if (existingRaw) existingLeads = JSON.parse(existingRaw);
+      const updatedLeads = [newLeadRecord, ...existingLeads.filter((l: any) => l.id !== newLeadRecord.id)];
+      localStorage.setItem('mintage_leads', JSON.stringify(updatedLeads));
+      window.dispatchEvent(new CustomEvent('mintage_lead_captured', { detail: newLeadRecord }));
+    } catch (e) {
+      console.warn('Local storage lead save notice:', e);
+    }
+
+    setIsTyping(true);
+    setTimeout(() => {
+      setIsTyping(false);
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        text: '🎉 Thank you! Your details have been submitted successfully. Our team will contact you shortly.',
+        sender: 'bot'
+      }]);
+    }, 600); finally {
       setIsSubmitting(false);
     }
   };

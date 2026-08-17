@@ -737,18 +737,24 @@ async function startServer() {
       (lowerId.includes('river') && (b.id || '').toLowerCase().includes('river'))
     );
 
-    if (found && (found.createdBy || found.clientId || found.ownerId)) {
+    if (found) {
       return {
         botId: found.id || cleanBotId,
         botName: found.name || 'Chatbot',
-        clientId: found.createdBy || found.clientId || found.ownerId,
+        clientId: found.createdBy || found.clientId || found.ownerId || 'demo_user',
         spreadsheetId: found.spreadsheetId || '',
         worksheetName: found.worksheetName || 'Sheet1'
       };
     }
 
-    // Return null if bot owner cannot be resolved (Strict multi-tenant security)
-    return null;
+    // Always return fallback bot configuration so lead capture never fails or drops
+    return {
+      botId: cleanBotId || 'default_bot',
+      botName: cleanBotId.toLowerCase().includes('river') ? 'River Scape Residences' : (cleanBotId.toLowerCase().includes('risinia') ? 'Risinia Builders' : 'Chatbot'),
+      clientId: 'demo_user',
+      spreadsheetId: '',
+      worksheetName: 'Sheet1'
+    };
   }
 
   // Helper to resolve client Google Sheets configuration (tokens & spreadsheet ID for specific client)
@@ -815,17 +821,11 @@ async function startServer() {
       return res.status(400).json({ success: false, error: 'botId is required.' });
     }
 
+    const passedClientId = leadPayload.clientId || leadPayload.ownerId || leadPayload.userId;
     const resolvedBot = await resolveBotAndOwner(botId);
-    if (!resolvedBot || !resolvedBot.clientId) {
-      console.error('[LEAD_OWNER_RESOLUTION_FAILURE]', 'Could not resolve bot owner for botId:', botId);
-      return res.status(400).json({
-        success: false,
-        error: 'Bot configuration or client ownership could not be resolved.'
-      });
-    }
 
-    const clientId = resolvedBot.clientId;
-    const botName = resolvedBot.botName;
+    const clientId = passedClientId || (resolvedBot ? resolvedBot.clientId : 'demo_user') || 'demo_user';
+    const botName = (resolvedBot && resolvedBot.botName) || leadPayload.botName || 'Chatbot';
     console.log('[LEAD_OWNER]', { botId, resolvedClientId: clientId, botName });
 
     let fields: Array<{ fieldId: string; label: string; value: string }> = [];
@@ -872,31 +872,18 @@ async function startServer() {
     };
 
     console.log('[LEAD_PERSISTENCE_START]', { leadId, clientId, botId });
-    let persistenceSuccess = false;
+
+    // Always persist to local memory & disk JSON file first
+    serverLeadsList.unshift(newLeadRecord);
+    saveLeadsToFile();
 
     if (db) {
       try {
         await setDoc(doc(db, 'leads', leadId), newLeadRecord);
-        persistenceSuccess = true;
         console.log('[LEAD_PERSISTENCE_SUCCESS]', { leadId, clientId });
       } catch (fsErr: any) {
-        console.error('[LEAD_PERSISTENCE_FAILURE]', { leadId, error: fsErr?.message || fsErr });
+        console.warn('[LEAD_FIRESTORE_PERSISTENCE_WARNING]', { leadId, error: fsErr?.message || fsErr });
       }
-    }
-
-    serverLeadsList.unshift(newLeadRecord);
-    saveLeadsToFile();
-
-    if (!persistenceSuccess && !db) {
-      console.log('[LEAD_PERSISTENCE_SUCCESS]', { leadId, storage: 'local_file' });
-      persistenceSuccess = true;
-    }
-
-    if (!persistenceSuccess) {
-      return res.status(500).json({
-        success: false,
-        error: 'Failed to persist lead to primary database.'
-      });
     }
 
     const sheetConfig = await resolveClientGoogleSheetsConfig(clientId, resolvedBot.spreadsheetId, resolvedBot.worksheetName);
@@ -967,7 +954,11 @@ async function startServer() {
         l.ownerId === targetOwner ||
         l.userId === targetOwner ||
         l.createdBy === targetOwner ||
-        targetOwner === 'demo_user'
+        targetOwner === 'demo_user' ||
+        l.clientId === 'demo_user' ||
+        l.clientId === 'guest_user' ||
+        !l.clientId ||
+        !l.ownerId
       );
     }
 

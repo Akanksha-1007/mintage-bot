@@ -114,8 +114,19 @@ export default function Leads() {
         console.warn('Backend leads API warning:', err);
       }
 
-      // Merge Firestore + Server API leads without duplication
+      // Local storage backup leads
+      let localLeads: Lead[] = [];
+      const localRaw = localStorage.getItem('mintage_leads');
+      if (localRaw) {
+        try {
+          const parsed = JSON.parse(localRaw);
+          if (Array.isArray(parsed)) localLeads = parsed;
+        } catch (e) {}
+      }
+
+      // Merge Local Storage + Server API + Firestore leads without duplication
       const leadMap = new Map<string, Lead>();
+      localLeads.forEach(l => leadMap.set(l.id, l));
       serverLeads.forEach(l => leadMap.set(l.id, l));
       firestoreLeads.forEach(l => leadMap.set(l.id, l));
 
