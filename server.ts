@@ -876,12 +876,13 @@ async function startServer() {
       return res.status(400).json({ success: false, error: 'botId is required.' });
     }
 
-    const passedClientId = leadPayload.clientId || leadPayload.ownerId || leadPayload.userId;
+    const passedClientId = leadPayload.clientId || leadPayload.ownerId;
     const resolvedBot = await resolveBotAndOwner(botId);
 
     const clientId = passedClientId || (resolvedBot ? resolvedBot.clientId : 'demo_user') || 'demo_user';
     const botName = (resolvedBot && resolvedBot.botName) || leadPayload.botName || 'Chatbot';
-    console.log('[LEAD_OWNER]', { botId, resolvedClientId: clientId, botName });
+    const userId = leadPayload.userId || leadPayload.chatUserId || '';
+    const conversationId = leadPayload.conversationId || '';
 
     let fields: Array<{ fieldId: string; label: string; value: string }> = [];
     if (Array.isArray(leadPayload.fields)) {
@@ -895,46 +896,94 @@ async function startServer() {
     }
 
     const flattenedData: Record<string, any> = {};
+    let extractedName = '';
+    let extractedEmail = '';
+    let extractedPhone = '';
+
     fields.forEach(f => {
       if (f.label) {
         flattenedData[f.label] = f.value;
+        const lblLower = f.label.toLowerCase();
+        if (lblLower.includes('name')) extractedName = f.value;
+        if (lblLower.includes('email')) extractedEmail = f.value;
+        if (lblLower.includes('phone') || lblLower.includes('mobile') || lblLower.includes('contact')) extractedPhone = f.value;
       }
     });
 
-    const leadId = leadPayload.id || ('lead_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6));
-
     loadLeadsFromFile();
-    const existingById = serverLeadsList.find(l => l.id === leadId);
-    if (existingById) {
-      console.log('[LEAD_DUPLICATE_SKIPPED]', leadId);
-      return res.json({ success: true, leadId: existingById.id, duplicate: true });
+
+    // Deduplication check: check by explicit ID, or (userId + conversationId), or (userId + botId)
+    let existingLead: any = null;
+    let leadId = leadPayload.id;
+
+    if (leadId) {
+      existingLead = serverLeadsList.find(l => l.id === leadId);
+    }
+    if (!existingLead && conversationId) {
+      existingLead = serverLeadsList.find(l => l.conversationId === conversationId);
+    }
+    if (!existingLead && userId && botId) {
+      existingLead = serverLeadsList.find(l => l.userId === userId && l.botId === botId);
+    }
+    if (!existingLead && db && conversationId) {
+      try {
+        const q = query(collection(db, 'leads'), where('conversationId', '==', conversationId));
+        const qSnap = await getDocs(q).catch(() => null);
+        if (qSnap && !qSnap.empty) {
+          existingLead = { id: qSnap.docs[0].id, ...qSnap.docs[0].data() };
+        }
+      } catch (e) {}
     }
 
-    const newLeadRecord: any = {
+    const nowIso = new Date().toISOString();
+    const isUpdate = !!existingLead;
+
+    if (existingLead) {
+      leadId = existingLead.id;
+    } else if (!leadId) {
+      leadId = (conversationId ? `lead_${botId}_${conversationId}` : `lead_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`);
+    }
+
+    const leadRecord: any = {
       id: leadId,
       botId,
       flowId: botId,
       clientId,
       ownerId: clientId,
+      userId: userId || existingLead?.userId || '',
+      conversationId: conversationId || existingLead?.conversationId || '',
       botName,
       clientName: botName,
+      name: extractedName || leadPayload.name || existingLead?.name || '',
+      email: extractedEmail || leadPayload.email || existingLead?.email || '',
+      phone: extractedPhone || leadPayload.phone || existingLead?.phone || '',
+      status: existingLead?.status || leadPayload.status || 'New',
       fields,
       data: flattenedData,
-      sourceUrl: leadPayload.sourceUrl || '',
-      submittedAt: leadPayload.submittedAt || new Date().toISOString(),
-      createdAt: new Date().toISOString(),
-      googleSheetSyncStatus: 'pending'
+      sourceUrl: leadPayload.sourceUrl || existingLead?.sourceUrl || '',
+      source: leadPayload.source || existingLead?.source || 'Website Widget',
+      referrer: leadPayload.referrer || existingLead?.referrer || '',
+      submittedAt: leadPayload.submittedAt || existingLead?.submittedAt || nowIso,
+      createdAt: existingLead?.createdAt || nowIso,
+      updatedAt: nowIso,
+      updatedBy: 'system',
+      googleSheetSyncStatus: existingLead?.googleSheetSyncStatus || 'pending'
     };
 
-    console.log('[LEAD_PERSISTENCE_START]', { leadId, clientId, botId });
+    console.log('[LEAD_PERSISTENCE_START]', { leadId, clientId, botId, isUpdate });
 
     // Always persist to local memory & disk JSON file first
-    serverLeadsList.unshift(newLeadRecord);
+    const idx = serverLeadsList.findIndex(l => l.id === leadId);
+    if (idx !== -1) {
+      serverLeadsList[idx] = leadRecord;
+    } else {
+      serverLeadsList.unshift(leadRecord);
+    }
     saveLeadsToFile();
 
     if (db) {
       try {
-        await setDoc(doc(db, 'leads', leadId), newLeadRecord);
+        await setDoc(doc(db, 'leads', leadId), leadRecord, { merge: true });
         console.log('[LEAD_PERSISTENCE_SUCCESS]', { leadId, clientId });
       } catch (fsErr: any) {
         console.warn('[LEAD_FIRESTORE_PERSISTENCE_WARNING]', { leadId, error: fsErr?.message || fsErr });
@@ -946,36 +995,176 @@ async function startServer() {
 
     if (sheetConfig.googleTokens && sheetConfig.spreadsheetId) {
       try {
-        await syncLeadToGoogleSheets(sheetConfig.googleTokens, sheetConfig.spreadsheetId, sheetConfig.worksheetName, newLeadRecord);
-        newLeadRecord.googleSheetSyncStatus = 'synced';
-        newLeadRecord.googleSheetSyncedAt = new Date().toISOString();
+        await syncLeadToGoogleSheets(sheetConfig.googleTokens, sheetConfig.spreadsheetId, sheetConfig.worksheetName, leadRecord);
+        leadRecord.googleSheetSyncStatus = 'synced';
+        leadRecord.googleSheetSyncedAt = new Date().toISOString();
 
         if (db) {
-          await setDoc(doc(db, 'leads', leadId), { googleSheetSyncStatus: 'synced', googleSheetSyncedAt: newLeadRecord.googleSheetSyncedAt }, { merge: true }).catch(() => null);
+          await setDoc(doc(db, 'leads', leadId), { googleSheetSyncStatus: 'synced', googleSheetSyncedAt: leadRecord.googleSheetSyncedAt }, { merge: true }).catch(() => null);
         }
         saveLeadsToFile();
         console.log('[GOOGLE_SYNC_SUCCESS]', { leadId });
       } catch (syncErr: any) {
         console.error('[GOOGLE_SYNC_ERROR]', { leadId, error: syncErr?.message || syncErr });
-        newLeadRecord.googleSheetSyncStatus = 'failed';
-        newLeadRecord.googleSheetSyncError = syncErr?.message || 'Sync failed';
+        leadRecord.googleSheetSyncStatus = 'failed';
+        leadRecord.googleSheetSyncError = syncErr?.message || 'Sync failed';
 
         if (db) {
-          await setDoc(doc(db, 'leads', leadId), { googleSheetSyncStatus: 'failed', googleSheetSyncError: newLeadRecord.googleSheetSyncError }, { merge: true }).catch(() => null);
+          await setDoc(doc(db, 'leads', leadId), { googleSheetSyncStatus: 'failed', googleSheetSyncError: leadRecord.googleSheetSyncError }, { merge: true }).catch(() => null);
         }
         saveLeadsToFile();
       }
     } else {
       console.log('[GOOGLE_SYNC_ERROR]', { leadId, error: 'Google Account or Spreadsheet not connected for client' });
-      newLeadRecord.googleSheetSyncStatus = 'not_configured';
+      leadRecord.googleSheetSyncStatus = 'not_configured';
       if (db) {
         await setDoc(doc(db, 'leads', leadId), { googleSheetSyncStatus: 'not_configured' }, { merge: true }).catch(() => null);
       }
       saveLeadsToFile();
     }
 
-    broadcastEvent('LEAD_CAPTURED', newLeadRecord);
-    return res.json({ success: true, leadId });
+    broadcastEvent(isUpdate ? 'LEAD_UPDATED' : 'LEAD_CAPTURED', leadRecord);
+    return res.json({ success: true, leadId, isUpdate });
+  });
+
+  // Update Lead Status Endpoint
+  app.post('/api/leads/status', async (req, res) => {
+    const { leadId, id, status, updatedBy } = req.body || {};
+    const targetId = leadId || id;
+    const cleanStatus = (status || '').trim();
+
+    if (!targetId || !cleanStatus) {
+      return res.status(400).json({ success: false, error: 'leadId and status are required.' });
+    }
+
+    const validStatuses = ['New', 'Contacted', 'Qualified', 'Converted', 'Lost'];
+    if (!validStatuses.includes(cleanStatus)) {
+      return res.status(400).json({ success: false, error: 'Invalid status. Must be one of: ' + validStatuses.join(', ') });
+    }
+
+    loadLeadsFromFile();
+    const nowIso = new Date().toISOString();
+    let lead: any = serverLeadsList.find(l => l.id === targetId || l.docId === targetId);
+
+    if (!lead && db) {
+      try {
+        const lSnap = await getDoc(doc(db, 'leads', targetId));
+        if (lSnap.exists()) {
+          lead = { id: lSnap.id, ...lSnap.data() };
+        }
+      } catch (e) {}
+    }
+
+    if (!lead) {
+      return res.status(404).json({ success: false, error: 'Lead not found.' });
+    }
+
+    lead.status = cleanStatus;
+    lead.updatedAt = nowIso;
+    lead.updatedBy = updatedBy || 'user';
+
+    const idx = serverLeadsList.findIndex(l => l.id === targetId || l.docId === targetId);
+    if (idx !== -1) {
+      serverLeadsList[idx] = lead;
+    } else {
+      serverLeadsList.unshift(lead);
+    }
+    saveLeadsToFile();
+
+    if (db) {
+      try {
+        await setDoc(doc(db, 'leads', targetId), {
+          status: cleanStatus,
+          updatedAt: nowIso,
+          updatedBy: lead.updatedBy
+        }, { merge: true });
+      } catch (fsErr) {
+        console.warn('[LEAD_STATUS_UPDATE] Firestore warning:', fsErr);
+      }
+    }
+
+    broadcastEvent('LEAD_UPDATED', lead);
+    return res.json({ success: true, lead });
+  });
+
+  app.patch('/api/leads/:id/status', async (req, res) => {
+    const { id } = req.params;
+    const { status, updatedBy } = req.body || {};
+    const cleanStatus = (status || '').trim();
+
+    if (!id || !cleanStatus) {
+      return res.status(400).json({ success: false, error: 'id and status are required.' });
+    }
+
+    const validStatuses = ['New', 'Contacted', 'Qualified', 'Converted', 'Lost'];
+    if (!validStatuses.includes(cleanStatus)) {
+      return res.status(400).json({ success: false, error: 'Invalid status. Must be one of: ' + validStatuses.join(', ') });
+    }
+
+    loadLeadsFromFile();
+    const nowIso = new Date().toISOString();
+    let lead: any = serverLeadsList.find(l => l.id === id || l.docId === id);
+
+    if (!lead && db) {
+      try {
+        const lSnap = await getDoc(doc(db, 'leads', id));
+        if (lSnap.exists()) lead = { id: lSnap.id, ...lSnap.data() };
+      } catch (e) {}
+    }
+
+    if (!lead) return res.status(404).json({ success: false, error: 'Lead not found.' });
+
+    lead.status = cleanStatus;
+    lead.updatedAt = nowIso;
+    lead.updatedBy = updatedBy || 'user';
+
+    const idx = serverLeadsList.findIndex(l => l.id === id || l.docId === id);
+    if (idx !== -1) serverLeadsList[idx] = lead;
+    else serverLeadsList.unshift(lead);
+    saveLeadsToFile();
+
+    if (db) {
+      await setDoc(doc(db, 'leads', id), { status: cleanStatus, updatedAt: nowIso, updatedBy: lead.updatedBy }, { merge: true }).catch(() => null);
+    }
+    broadcastEvent('LEAD_UPDATED', lead);
+    return res.json({ success: true, lead });
+  });
+
+  // Alias endpoint for fetching lead conversation transcript
+  app.get('/api/leads/conversation/:conversationId', async (req, res) => {
+    const { conversationId } = req.params;
+    loadChatbotStoreFromFile();
+
+    let conversation = serverConversationsMap.get(conversationId);
+    let messages = serverMessagesMap.get(conversationId) || [];
+
+    if (db) {
+      try {
+        if (!conversation) {
+          const cSnap = await getDoc(doc(db, 'conversations', conversationId)).catch(() => null);
+          if (cSnap && cSnap.exists()) {
+            conversation = { id: cSnap.id, ...cSnap.data() };
+          }
+        }
+        const mSnap = await getDocs(collection(db, 'conversations', conversationId, 'messages')).catch(() => null);
+        if (mSnap && !mSnap.empty) {
+          const fsMsgs = mSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+          const mSet = new Map<string, any>();
+          messages.forEach(m => mSet.set(m.id, m));
+          fsMsgs.forEach(m => mSet.set(m.id, m));
+          messages = Array.from(mSet.values());
+        }
+      } catch (e) {}
+    }
+
+    messages.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+    return res.json({
+      success: true,
+      conversationId,
+      conversation,
+      messages
+    });
   });
 
 

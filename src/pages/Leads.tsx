@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { db, auth } from '../lib/firebase';
-import { collection, query, orderBy, onSnapshot, doc, getDoc, getDocs, where, deleteDoc } from 'firebase/firestore'; import { format } from 'date-fns';
+import { collection, onSnapshot, doc, getDoc, getDocs, deleteDoc } from 'firebase/firestore';
+import { format } from 'date-fns';
 import {
-  User, Mail, Calendar, ExternalLink, Bot, Download, Filter, Search,
+  ExternalLink, Bot, Download, Search,
   CheckCircle2, AlertCircle, Clock, RefreshCw, X, Layers, FileText,
-  Trash2, AlertTriangle, Loader2
+  Trash2, AlertTriangle, Loader2, MessageSquare, Tag
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import ConversationViewModal from '../components/ConversationViewModal';
 
 interface DynamicField {
   fieldId?: string;
@@ -23,6 +25,9 @@ interface Lead {
   botName?: string;
   flowName?: string;
   clientName?: string;
+  name?: string;
+  status?: string;
+  conversationId?: string;
   fields?: DynamicField[];
   data: Record<string, any>;
   timestamp: any;
@@ -79,7 +84,7 @@ export default function Leads() {
       const deletedIdsRaw = localStorage.getItem('mintage_deleted_lead_ids');
       let deletedIds: string[] = [];
       if (deletedIdsRaw) {
-        try { deletedIds = JSON.parse(deletedIdsRaw); } catch {}
+        try { deletedIds = JSON.parse(deletedIdsRaw); } catch { }
       }
       if (!deletedIds.includes(targetId)) {
         deletedIds.push(targetId);
@@ -95,7 +100,7 @@ export default function Leads() {
             const filtered = parsed.filter((l: any) => l && l.id !== targetId);
             localStorage.setItem('mintage_leads', JSON.stringify(filtered));
           }
-        } catch {}
+        } catch { }
       }
 
       // 5. Update local state
@@ -182,14 +187,14 @@ export default function Leads() {
         try {
           const parsed = JSON.parse(localRaw);
           if (Array.isArray(parsed)) localLeads = parsed;
-        } catch (e) {}
+        } catch (e) { }
       }
 
       // Read deleted lead IDs blacklist
       const deletedIdsRaw = localStorage.getItem('mintage_deleted_lead_ids');
       let deletedIds: string[] = [];
       if (deletedIdsRaw) {
-        try { deletedIds = JSON.parse(deletedIdsRaw); } catch {}
+        try { deletedIds = JSON.parse(deletedIdsRaw); } catch { }
       }
 
       // Merge Local Storage + Server API + Firestore leads without duplication
@@ -263,7 +268,7 @@ export default function Leads() {
         const deletedIdsRaw = localStorage.getItem('mintage_deleted_lead_ids');
         let deletedIds: string[] = [];
         if (deletedIdsRaw) {
-          try { deletedIds = JSON.parse(deletedIdsRaw); } catch {}
+          try { deletedIds = JSON.parse(deletedIdsRaw); } catch { }
         }
         const url = isGlobalAdminView ? '/api/leads' : `/api/leads?ownerId=${encodeURIComponent(targetUserId)}`;
         const res = await fetch(url);
@@ -278,7 +283,7 @@ export default function Leads() {
             });
           }
         }
-      } catch (e) {}
+      } catch (e) { }
     };
 
     // Real-time EventSource SSE Listener
@@ -290,7 +295,7 @@ export default function Leads() {
           refreshServerLeads();
         }
       };
-    } catch (e) {}
+    } catch (e) { }
 
     // Custom intra-tab window listener
     const handleCustomLead = () => refreshServerLeads();
@@ -343,10 +348,48 @@ export default function Leads() {
     return Array.from(map.entries()).map(([label, value]) => ({ label, value }));
   };
 
-  // Filter leads based on selected bot and search query
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>('ALL');
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+
+  const handleUpdateStatus = async (leadId: string, newStatus: string) => {
+    try {
+      const res = await fetch('/api/leads/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leadId, status: newStatus, updatedBy: auth.currentUser?.email || 'client' })
+      });
+      if (res.ok) {
+        setLeads(prev => prev.map(l => l.id === leadId ? { ...l, status: newStatus } : l));
+        if (selectedLead && selectedLead.id === leadId) {
+          setSelectedLead({ ...selectedLead, status: newStatus });
+        }
+        showToast(`Lead status updated to "${newStatus}"`);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        showToast(errData.error || 'Failed to update status', 'error');
+      }
+    } catch (err: any) {
+      showToast('Error updating status: ' + (err.message || 'Unknown error'), 'error');
+    }
+  };
+
+  const leadStats = {
+    total: leads.length,
+    new: leads.filter(l => (l.status || 'New') === 'New').length,
+    contacted: leads.filter(l => l.status === 'Contacted').length,
+    qualified: leads.filter(l => l.status === 'Qualified').length,
+    converted: leads.filter(l => l.status === 'Converted').length,
+    lost: leads.filter(l => l.status === 'Lost').length,
+  };
+
+  // Filter leads based on selected bot, status filter, and search query
   const filteredLeads = leads.filter(lead => {
     const bId = lead.botId || lead.flowId;
     if (selectedBotFilter !== 'ALL' && bId !== selectedBotFilter) {
+      return false;
+    }
+    const currentStatus = lead.status || 'New';
+    if (selectedStatusFilter !== 'ALL' && currentStatus !== selectedStatusFilter) {
       return false;
     }
     if (searchQuery.trim()) {
@@ -357,7 +400,8 @@ export default function Leads() {
       );
       const urlMatch = (lead.sourceUrl || '').toLowerCase().includes(q);
       const idMatch = (lead.id || '').toLowerCase().includes(q);
-      return bName.includes(q) || fieldMatch || urlMatch || idMatch;
+      const statusMatch = currentStatus.toLowerCase().includes(q);
+      return bName.includes(q) || fieldMatch || urlMatch || idMatch || statusMatch;
     }
     return true;
   });
@@ -536,7 +580,7 @@ export default function Leads() {
         <div className="flex flex-wrap items-center gap-3">
           {/* Bot Filter Dropdown */}
           <div className="flex items-center gap-2 bg-white px-3.5 py-2 border border-gray-200 rounded-xl shadow-2xs">
-            <Filter className="w-4 h-4 text-indigo-600" />
+            <Bot className="w-4 h-4 text-indigo-600" />
             <select
               value={selectedBotFilter}
               onChange={(e) => setSelectedBotFilter(e.target.value)}
@@ -546,6 +590,23 @@ export default function Leads() {
               {uniqueBotsList.map(b => (
                 <option key={b.id} value={b.id}>{b.name}</option>
               ))}
+            </select>
+          </div>
+
+          {/* Status Filter Dropdown */}
+          <div className="flex items-center gap-2 bg-white px-3.5 py-2 border border-gray-200 rounded-xl shadow-2xs">
+            <Tag className="w-4 h-4 text-indigo-600" />
+            <select
+              value={selectedStatusFilter}
+              onChange={(e) => setSelectedStatusFilter(e.target.value)}
+              className="bg-transparent text-xs font-bold text-gray-800 outline-none cursor-pointer"
+            >
+              <option value="ALL">All Statuses ({leads.length})</option>
+              <option value="New">New ({leadStats.new})</option>
+              <option value="Contacted">Contacted ({leadStats.contacted})</option>
+              <option value="Qualified">Qualified ({leadStats.qualified})</option>
+              <option value="Converted">Converted ({leadStats.converted})</option>
+              <option value="Lost">Lost ({leadStats.lost})</option>
             </select>
           </div>
 
@@ -579,9 +640,42 @@ export default function Leads() {
             <RefreshCw className={`w-4 h-4 ${isSyncingAll ? 'animate-spin' : ''}`} />
             {isSyncingAll ? 'Syncing...' : 'Sync All to Google Sheet'}
           </button>
-
         </div>
       </div>
+
+      {/* KPI Analytics Stat Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+        <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-2xs space-y-1">
+          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Total Leads</span>
+          <span className="text-2xl font-black text-slate-900">{leadStats.total}</span>
+        </div>
+
+        <div className="bg-blue-50/70 p-4 rounded-2xl border border-blue-100 shadow-2xs space-y-1">
+          <span className="text-[10px] font-bold text-blue-700 uppercase tracking-widest block">New</span>
+          <span className="text-2xl font-black text-blue-900">{leadStats.new}</span>
+        </div>
+
+        <div className="bg-amber-50/70 p-4 rounded-2xl border border-amber-100 shadow-2xs space-y-1">
+          <span className="text-[10px] font-bold text-amber-700 uppercase tracking-widest block">Contacted</span>
+          <span className="text-2xl font-black text-amber-900">{leadStats.contacted}</span>
+        </div>
+
+        <div className="bg-indigo-50/70 p-4 rounded-2xl border border-indigo-100 shadow-2xs space-y-1">
+          <span className="text-[10px] font-bold text-indigo-700 uppercase tracking-widest block">Qualified</span>
+          <span className="text-2xl font-black text-indigo-900">{leadStats.qualified}</span>
+        </div>
+
+        <div className="bg-emerald-50/70 p-4 rounded-2xl border border-emerald-100 shadow-2xs space-y-1">
+          <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-widest block">Converted</span>
+          <span className="text-2xl font-black text-emerald-900">{leadStats.converted}</span>
+        </div>
+
+        <div className="bg-rose-50/70 p-4 rounded-2xl border border-rose-100 shadow-2xs space-y-1">
+          <span className="text-[10px] font-bold text-rose-700 uppercase tracking-widest block">Lost</span>
+          <span className="text-2xl font-black text-rose-900">{leadStats.lost}</span>
+        </div>
+      </div>
+
 
       {loadError && (
         <div className="p-4 bg-red-50 border border-red-200 rounded-2xl flex items-center gap-3 text-red-800 text-xs font-bold">
@@ -848,6 +942,29 @@ export default function Leads() {
               </div>
             </div>
 
+            {/* Customer Conversation History Trigger */}
+            {selectedLead.conversationId && (
+              <div className="p-4 bg-indigo-50/70 border border-indigo-100 rounded-2xl flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-indigo-600 text-white rounded-xl flex items-center justify-center font-bold">
+                    <MessageSquare className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-indigo-950">Customer Conversation History</h4>
+                    <p className="text-[11px] text-indigo-700">View exact messages exchanged by visitor before lead capture.</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveConversationId(selectedLead.conversationId || selectedLead.id)}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition-all shadow-sm flex items-center gap-1.5"
+                >
+                  <MessageSquare className="w-3.5 h-3.5" />
+                  <span>View Full Transcript</span>
+                </button>
+              </div>
+            )}
+
             {/* Google Sheets Synchronization Status & Retry */}
             <div className="p-5 rounded-2xl border space-y-3 bg-slate-900 text-white">
               <div className="flex items-center justify-between">
@@ -950,6 +1067,15 @@ export default function Leads() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* CONVERSATION TRANSCRIPT MODAL VIEWER */}
+      {activeConversationId && (
+        <ConversationViewModal
+          conversationId={activeConversationId}
+          onClose={() => setActiveConversationId(null)}
+          userName={selectedLead?.name || selectedLead?.id}
+        />
       )}
     </div>
   );

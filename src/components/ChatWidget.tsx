@@ -607,8 +607,11 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     const payload = {
       botId,
       clientId: effectiveClientId,
+      userId: chatUserId,
+      conversationId: conversationId,
       fields: fieldsList,
       sourceUrl: window.location.href,
+      referrer: document.referrer || '',
       submittedAt: new Date().toISOString()
     };
 
