@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { db, auth } from '../lib/firebase';
-import { collection, query, orderBy, onSnapshot, doc, getDoc, getDocs, where } from 'firebase/firestore'; import { format } from 'date-fns';
+import { collection, query, orderBy, onSnapshot, doc, getDoc, getDocs, where, deleteDoc } from 'firebase/firestore'; import { format } from 'date-fns';
 import {
   User, Mail, Calendar, ExternalLink, Bot, Download, Filter, Search,
-  CheckCircle2, AlertCircle, Clock, RefreshCw, X, Layers, FileText
+  CheckCircle2, AlertCircle, Clock, RefreshCw, X, Layers, FileText,
+  Trash2, AlertTriangle, Loader2
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -41,9 +42,10 @@ export default function Leads() {
   const [selectedBotFilter, setSelectedBotFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [deletingLead, setDeletingLead] = useState<Lead | null>(null);
+  const [isDeletingLead, setIsDeletingLead] = useState<boolean>(false);
   const [isRetryingSync, setIsRetryingSync] = useState<boolean>(false);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
-
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
@@ -51,6 +53,65 @@ export default function Leads() {
   };
 
   const [isSyncingAll, setIsSyncingAll] = useState(false);
+
+  const confirmDeleteLead = async () => {
+    if (!deletingLead) return;
+    setIsDeletingLead(true);
+    const targetId = deletingLead.id;
+
+    try {
+      // 1. Delete from Server Backend API
+      try {
+        await fetch(`/api/leads/${encodeURIComponent(targetId)}`, { method: 'DELETE' });
+        await fetch('/api/leads/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: targetId })
+        });
+      } catch (apiErr) {
+        console.warn('Server lead delete API error:', apiErr);
+      }
+
+      // 2. Delete from Firestore
+      await deleteDoc(doc(db, 'leads', targetId)).catch(() => null);
+
+      // 3. Blacklist lead ID in localStorage
+      const deletedIdsRaw = localStorage.getItem('mintage_deleted_lead_ids');
+      let deletedIds: string[] = [];
+      if (deletedIdsRaw) {
+        try { deletedIds = JSON.parse(deletedIdsRaw); } catch {}
+      }
+      if (!deletedIds.includes(targetId)) {
+        deletedIds.push(targetId);
+        localStorage.setItem('mintage_deleted_lead_ids', JSON.stringify(deletedIds));
+      }
+
+      // 4. Clean up localStorage cache
+      const localRaw = localStorage.getItem('mintage_leads');
+      if (localRaw) {
+        try {
+          const parsed = JSON.parse(localRaw);
+          if (Array.isArray(parsed)) {
+            const filtered = parsed.filter((l: any) => l && l.id !== targetId);
+            localStorage.setItem('mintage_leads', JSON.stringify(filtered));
+          }
+        } catch {}
+      }
+
+      // 5. Update local state
+      setLeads(prev => prev.filter(l => l.id !== targetId));
+      if (selectedLead && selectedLead.id === targetId) {
+        setSelectedLead(null);
+      }
+      setDeletingLead(null);
+      showToast('Lead deleted permanently');
+    } catch (err: any) {
+      console.error('Error deleting lead:', err);
+      showToast('Failed to delete lead: ' + (err.message || 'Unknown error'), 'error');
+    } finally {
+      setIsDeletingLead(false);
+    }
+  };
 
   useEffect(() => {
     const targetUserId = effectiveUserId || auth.currentUser?.uid;
@@ -124,11 +185,18 @@ export default function Leads() {
         } catch (e) {}
       }
 
+      // Read deleted lead IDs blacklist
+      const deletedIdsRaw = localStorage.getItem('mintage_deleted_lead_ids');
+      let deletedIds: string[] = [];
+      if (deletedIdsRaw) {
+        try { deletedIds = JSON.parse(deletedIdsRaw); } catch {}
+      }
+
       // Merge Local Storage + Server API + Firestore leads without duplication
       const leadMap = new Map<string, Lead>();
-      localLeads.forEach(l => leadMap.set(l.id, l));
-      serverLeads.forEach(l => leadMap.set(l.id, l));
-      firestoreLeads.forEach(l => leadMap.set(l.id, l));
+      localLeads.forEach(l => { if (l && l.id && !deletedIds.includes(l.id)) leadMap.set(l.id, l); });
+      serverLeads.forEach(l => { if (l && l.id && !deletedIds.includes(l.id)) leadMap.set(l.id, l); });
+      firestoreLeads.forEach(l => { if (l && l.id && !deletedIds.includes(l.id)) leadMap.set(l.id, l); });
 
       const mergedLeads = Array.from(leadMap.values());
       console.log('[LEAD_DASHBOARD]', { effectiveClientId: targetUserId, leadCount: mergedLeads.length });
@@ -136,8 +204,6 @@ export default function Leads() {
 
       setLeads(mergedLeads);
       setLoading(false);
-
-
 
       // Fetch unique bot names for these leads
       const names: Record<string, string> = { ...botNames };
@@ -169,12 +235,14 @@ export default function Leads() {
     }, async (error) => {
       console.error('[LEADS_PAGE] Firestore snapshot error, attempting server API fallback:', error);
       try {
+        const deletedIdsRaw = localStorage.getItem('mintage_deleted_lead_ids');
+        const deletedIds: string[] = deletedIdsRaw ? JSON.parse(deletedIdsRaw) : [];
         const url = isGlobalAdminView ? '/api/leads' : `/api/leads?ownerId=${encodeURIComponent(targetUserId)}`;
         const res = await fetch(url);
         if (res.ok) {
           const sData = await res.json();
           if (sData.success && Array.isArray(sData.leads)) {
-            setLeads(sData.leads);
+            setLeads(sData.leads.filter((l: Lead) => l && l.id && !deletedIds.includes(l.id)));
             setLoadError(null);
           } else {
             setLoadError('Unable to load leads from server.');
@@ -192,6 +260,11 @@ export default function Leads() {
     // Helper to fetch server leads on SSE or window events
     const refreshServerLeads = async () => {
       try {
+        const deletedIdsRaw = localStorage.getItem('mintage_deleted_lead_ids');
+        let deletedIds: string[] = [];
+        if (deletedIdsRaw) {
+          try { deletedIds = JSON.parse(deletedIdsRaw); } catch {}
+        }
         const url = isGlobalAdminView ? '/api/leads' : `/api/leads?ownerId=${encodeURIComponent(targetUserId)}`;
         const res = await fetch(url);
         if (res.ok) {
@@ -199,8 +272,8 @@ export default function Leads() {
           if (sData.success && Array.isArray(sData.leads)) {
             setLeads(prev => {
               const map = new Map<string, Lead>();
-              prev.forEach(l => map.set(l.id, l));
-              sData.leads.forEach((l: Lead) => map.set(l.id, l));
+              prev.forEach(l => { if (l && l.id && !deletedIds.includes(l.id)) map.set(l.id, l); });
+              sData.leads.forEach((l: Lead) => { if (l && l.id && !deletedIds.includes(l.id)) map.set(l.id, l); });
               return Array.from(map.values());
             });
           }
@@ -667,15 +740,21 @@ export default function Leads() {
 
                       {/* Actions */}
                       <td className="px-6 py-4 whitespace-nowrap text-right text-xs">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedLead(lead);
-                          }}
-                          className="px-3 py-1.5 bg-gray-100 hover:bg-indigo-600 hover:text-white text-gray-700 rounded-xl text-xs font-bold transition-all"
-                        >
-                          Details
-                        </button>
+                        <div className="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={() => setSelectedLead(lead)}
+                            className="px-3 py-1.5 bg-gray-100 hover:bg-indigo-600 hover:text-white text-gray-700 rounded-xl text-xs font-bold transition-all"
+                          >
+                            Details
+                          </button>
+                          <button
+                            onClick={() => setDeletingLead(lead)}
+                            className="p-1.5 bg-red-50 hover:bg-red-600 text-red-600 hover:text-white rounded-xl transition-all"
+                            title="Delete Lead"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -804,6 +883,70 @@ export default function Leads() {
                   Error: {selectedLead.googleSheetSyncError}
                 </p>
               )}
+            </div>
+
+            {/* Modal Footer with Delete Button */}
+            <div className="flex justify-between items-center pt-2 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => {
+                  const leadToDelete = selectedLead;
+                  setSelectedLead(null);
+                  setDeletingLead(leadToDelete);
+                }}
+                className="px-4 py-2 bg-red-50 hover:bg-red-600 text-red-600 hover:text-white font-bold text-xs rounded-xl transition-all flex items-center gap-1.5"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Delete Lead Record</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedLead(null)}
+                className="px-6 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-xl transition-all"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE LEAD CONFIRMATION MODAL */}
+      {deletingLead && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-[100] p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-md w-full p-8 shadow-2xl border border-gray-100 text-center space-y-6">
+            <div className="w-16 h-16 bg-red-50 text-red-600 rounded-3xl flex items-center justify-center mx-auto shrink-0">
+              <AlertTriangle className="w-8 h-8" />
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="text-xl font-bold text-gray-900">Delete Lead Record?</h3>
+              <p className="text-xs text-gray-500 leading-relaxed">
+                Are you sure you want to delete lead <strong className="text-gray-800 font-mono">"{deletingLead.id}"</strong>? This will permanently remove the lead entry from your dashboard and server storage.
+              </p>
+              <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 p-3 rounded-xl font-medium mt-2">
+                Warning: This action is permanent and cannot be undone.
+              </p>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeletingLead(null)}
+                disabled={isDeletingLead}
+                className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-xl transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteLead}
+                disabled={isDeletingLead}
+                className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl transition-all shadow-lg shadow-red-100 flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {isDeletingLead ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                <span>{isDeletingLead ? 'Deleting...' : 'Delete Permanently'}</span>
+              </button>
             </div>
           </div>
         </div>

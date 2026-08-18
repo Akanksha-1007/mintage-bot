@@ -1027,6 +1027,61 @@ async function startServer() {
     res.json({ success: true, leads: allLeads });
   });
 
+  // Permanently Delete Lead Record on Server & Firestore
+  async function deleteLeadPermanently(leadId: string) {
+    const cleanId = (leadId || '').trim();
+    if (!cleanId) return false;
+
+    // 1. Remove from server in-memory list
+    loadLeadsFromFile();
+    let removed = false;
+    for (let i = serverLeadsList.length - 1; i >= 0; i--) {
+      if (serverLeadsList[i] && (serverLeadsList[i].id === cleanId || serverLeadsList[i].docId === cleanId)) {
+        serverLeadsList.splice(i, 1);
+        removed = true;
+      }
+    }
+
+    // 2. Persist updated leads to leads.json file
+    saveLeadsToFile();
+
+    // 3. Delete from Cloud Firestore
+    if (db) {
+      try {
+        await deleteDoc(doc(db, 'leads', cleanId)).catch(() => null);
+        const q = query(collection(db, 'leads'), where('id', '==', cleanId));
+        const qSnap = await getDocs(q).catch(() => null);
+        if (qSnap && !qSnap.empty) {
+          for (const d of qSnap.docs) {
+            await deleteDoc(doc(db, 'leads', d.id)).catch(() => null);
+          }
+        }
+      } catch (err) {
+        console.warn('[LEAD_DELETE_WARNING] Firestore deletion warning:', err);
+      }
+    }
+
+    // 4. Broadcast SSE Event so connected dashboards update instantly
+    broadcastEvent('LEAD_DELETED', { leadId: cleanId });
+    return true;
+  }
+
+  app.delete('/api/leads/:id', async (req, res) => {
+    const { id } = req.params;
+    await deleteLeadPermanently(id);
+    res.json({ success: true, deletedId: id });
+  });
+
+  app.post('/api/leads/delete', async (req, res) => {
+    const { id, leadId } = req.body || {};
+    const targetId = id || leadId;
+    if (!targetId) {
+      return res.status(400).json({ error: 'Lead ID is required' });
+    }
+    await deleteLeadPermanently(targetId);
+    res.json({ success: true, deletedId: targetId });
+  });
+
 
   // Retry Google Sheets synchronization for a specific lead
   app.post('/api/leads/retry-sync', async (req, res) => {
