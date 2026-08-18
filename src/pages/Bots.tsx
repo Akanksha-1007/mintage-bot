@@ -81,8 +81,15 @@ export default function Bots() {
         });
       }
 
+      // Read deleted bot IDs blacklist
+      const deletedIdsRaw = localStorage.getItem('mintage_deleted_bot_ids');
+      let deletedIds: string[] = [];
+      if (deletedIdsRaw) {
+        try { deletedIds = JSON.parse(deletedIdsRaw); } catch {}
+      }
+
       // Merge with local storage cached flows so saved flows are always visible
-      const localBotsRaw = localStorage.getItem('mintage_bots');
+      const localBotsRaw = localStorage.getItem('mintage_bots') || localStorage.getItem('botflow_local_bots');
       let localBots: BotConfig[] = [];
       if (localBotsRaw) {
         try { 
@@ -94,9 +101,9 @@ export default function Bots() {
       }
 
       const botMap = new Map<string, BotConfig>();
-      localBots.forEach(b => botMap.set(b.id, b));
-      serverBots.forEach(b => botMap.set(b.id, b));
-      firestoreBots.forEach(b => botMap.set(b.id, b));
+      localBots.forEach(b => { if (b && b.id && !deletedIds.includes(b.id)) botMap.set(b.id, b); });
+      serverBots.forEach(b => { if (b && b.id && !deletedIds.includes(b.id)) botMap.set(b.id, b); });
+      firestoreBots.forEach(b => { if (b && b.id && !deletedIds.includes(b.id)) botMap.set(b.id, b); });
 
       const mergedBots = Array.from(botMap.values());
       
@@ -108,10 +115,13 @@ export default function Bots() {
       setLoading(false);
     }, (error) => {
       console.warn('Snapshot listener error on bots, relying on local cache:', error);
-      const localBotsRaw = localStorage.getItem('mintage_bots');
+      const localBotsRaw = localStorage.getItem('mintage_bots') || localStorage.getItem('botflow_local_bots');
       if (localBotsRaw) {
         try {
-          setBots(JSON.parse(localBotsRaw));
+          const parsed = JSON.parse(localBotsRaw);
+          const deletedIdsRaw = localStorage.getItem('mintage_deleted_bot_ids');
+          const deletedIds: string[] = deletedIdsRaw ? JSON.parse(deletedIdsRaw) : [];
+          setBots(parsed.filter((b: any) => b && b.id && !deletedIds.includes(b.id)));
         } catch {}
       }
       setLoading(false);
@@ -123,19 +133,50 @@ export default function Bots() {
   const confirmDeleteBot = async () => {
     if (!deletingBot) return;
     setIsDeleting(true);
+    const targetId = deletingBot.id;
+
     try {
-      await deleteDoc(doc(db, 'bot_configurations', deletingBot.id)).catch(() => null);
-      
-      // Update local storage cache
-      const localBotsRaw = localStorage.getItem('mintage_bots');
-      if (localBotsRaw) {
-        try {
-          const localBots = JSON.parse(localBotsRaw).filter((b: any) => b.id !== deletingBot.id);
-          localStorage.setItem('mintage_bots', JSON.stringify(localBots));
-        } catch {}
+      // 1. Delete from Server API backend
+      try {
+        await fetch(`/api/bots/${encodeURIComponent(targetId)}`, { method: 'DELETE' });
+        await fetch('/api/bots/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: targetId })
+        });
+      } catch (apiErr) {
+        console.warn('Server bot delete API error:', apiErr);
       }
 
-      setBots(prev => prev.filter(b => b.id !== deletingBot.id));
+      // 2. Delete from Firestore
+      await deleteDoc(doc(db, 'bot_configurations', targetId)).catch(() => null);
+      
+      // 3. Update localStorage blacklist
+      const deletedIdsRaw = localStorage.getItem('mintage_deleted_bot_ids');
+      let deletedIds: string[] = [];
+      if (deletedIdsRaw) {
+        try { deletedIds = JSON.parse(deletedIdsRaw); } catch {}
+      }
+      if (!deletedIds.includes(targetId)) {
+        deletedIds.push(targetId);
+        localStorage.setItem('mintage_deleted_bot_ids', JSON.stringify(deletedIds));
+      }
+
+      // 4. Clean up all localStorage bot caches
+      ['mintage_bots', 'botflow_local_bots', 'mintage_bot_configurations'].forEach(key => {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              const filtered = parsed.filter((b: any) => b && b.id !== targetId);
+              localStorage.setItem(key, JSON.stringify(filtered));
+            }
+          } catch {}
+        }
+      });
+
+      setBots(prev => prev.filter(b => b.id !== targetId));
       setDeletingBot(null);
     } catch (error) {
       console.error('Error deleting bot:', error);

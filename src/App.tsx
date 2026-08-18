@@ -24,12 +24,18 @@ function BotSync() {
   useEffect(() => {
     const syncLocalBots = async () => {
       try {
+        const deletedIdsRaw = localStorage.getItem('mintage_deleted_bot_ids');
+        let deletedIds: string[] = [];
+        if (deletedIdsRaw) {
+          try { deletedIds = JSON.parse(deletedIdsRaw); } catch {}
+        }
+
         const localBotsRaw = localStorage.getItem('mintage_bots') || localStorage.getItem('botflow_local_bots');
         if (!localBotsRaw) return;
         const parsed = JSON.parse(localBotsRaw);
         const botsList = Array.isArray(parsed) ? parsed : Object.values(parsed);
         for (const bot of botsList) {
-          if (bot && bot.id && bot.nodes) {
+          if (bot && bot.id && bot.nodes && !deletedIds.includes(bot.id)) {
             // Sync to express server
             try {
               await fetch('/api/bots/save', {

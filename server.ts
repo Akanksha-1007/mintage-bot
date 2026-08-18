@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import { google } from 'googleapis';
 import dotenv from 'dotenv';
 import { initializeApp } from 'firebase/app';
-import { getFirestore, doc, getDoc, setDoc, getDocs, collection, query, where, orderBy, limit, addDoc, updateDoc } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, setDoc, getDocs, collection, query, where, orderBy, limit, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 
 dotenv.config();
 
@@ -644,6 +644,61 @@ async function startServer() {
     loadBotsFromFile();
     const botsList = Array.from(serverBotsMap.values());
     res.json({ success: true, bots: botsList });
+  });
+
+  // Permanently Delete Bot Configuration on Server & Firestore
+  async function deleteBotPermanently(botId: string) {
+    const cleanId = (botId || '').trim();
+    if (!cleanId) return false;
+
+    // 1. Remove from server in-memory map
+    serverBotsMap.delete(cleanId);
+
+    const lowerId = cleanId.toLowerCase();
+    for (const [key, value] of serverBotsMap.entries()) {
+      if (key.toLowerCase() === lowerId || (value && value.id && value.id.toLowerCase() === lowerId)) {
+        serverBotsMap.delete(key);
+      }
+    }
+
+    // 2. Persist updated bots list to public/bots.json
+    saveBotsToFile();
+
+    // 3. Delete from Firestore if db is active
+    if (db) {
+      try {
+        await deleteDoc(doc(db, 'bot_configurations', cleanId)).catch(() => null);
+        const q = query(collection(db, 'bot_configurations'), where('id', '==', cleanId));
+        const qSnap = await getDocs(q).catch(() => null);
+        if (qSnap && !qSnap.empty) {
+          for (const d of qSnap.docs) {
+            await deleteDoc(doc(db, 'bot_configurations', d.id)).catch(() => null);
+          }
+        }
+      } catch (err) {
+        console.warn('[BOT_DELETE_WARNING] Firestore deletion warning:', err);
+      }
+    }
+
+    // 4. Broadcast SSE Event so dashboards update live
+    broadcastEvent('BOT_DELETED', { botId: cleanId });
+    return true;
+  }
+
+  app.delete('/api/bots/:id', async (req, res) => {
+    const { id } = req.params;
+    await deleteBotPermanently(id);
+    res.json({ success: true, deletedId: id });
+  });
+
+  app.post('/api/bots/delete', async (req, res) => {
+    const { id, botId } = req.body || {};
+    const targetId = id || botId;
+    if (!targetId) {
+      return res.status(400).json({ error: 'Bot ID is required' });
+    }
+    await deleteBotPermanently(targetId);
+    res.json({ success: true, deletedId: targetId });
   });
 
   // 6-Tier Helper to resolve bot & client owner securely server-side

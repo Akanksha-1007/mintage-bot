@@ -46,7 +46,43 @@ function BuilderContent() {
     if (!id) return;
     setIsDeletingBot(true);
     try {
-      await deleteDoc(doc(db, 'bot_configurations', id));
+      // 1. Delete from Server API
+      try {
+        await fetch(`/api/bots/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        await fetch('/api/bots/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id })
+        });
+      } catch (e) {}
+
+      // 2. Delete from Firestore
+      await deleteDoc(doc(db, 'bot_configurations', id)).catch(() => null);
+
+      // 3. Blacklist in localStorage
+      const deletedIdsRaw = localStorage.getItem('mintage_deleted_bot_ids');
+      let deletedIds: string[] = [];
+      if (deletedIdsRaw) {
+        try { deletedIds = JSON.parse(deletedIdsRaw); } catch {}
+      }
+      if (!deletedIds.includes(id)) {
+        deletedIds.push(id);
+        localStorage.setItem('mintage_deleted_bot_ids', JSON.stringify(deletedIds));
+      }
+
+      // 4. Remove from all local caches
+      ['mintage_bots', 'botflow_local_bots', 'mintage_bot_configurations'].forEach(key => {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              localStorage.setItem(key, JSON.stringify(parsed.filter((b: any) => b && b.id !== id)));
+            }
+          } catch {}
+        }
+      });
+
       navigate('/bots');
     } catch (error) {
       console.error('Error deleting bot:', error);
