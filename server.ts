@@ -211,6 +211,8 @@ async function startServer() {
       });
     }
 
+    console.log('[GOOGLE_OAUTH_RECONNECT]', { started: true });
+
     const client = createOAuth2Client(undefined, req);
 
     const url = client.generateAuthUrl({
@@ -234,6 +236,8 @@ async function startServer() {
     try {
       const client = createOAuth2Client(undefined, req);
       const { tokens } = await client.getToken(code as string);
+
+      console.log('[GOOGLE_OAUTH_RECONNECT]', { tokenReceived: true });
 
       res.send(`
         <html>
@@ -259,6 +263,84 @@ async function startServer() {
     }
   });
 
+  // Endpoint to clear / disconnect stored Google OAuth credentials
+  app.post('/api/auth/google/disconnect', async (req, res) => {
+    const { userId } = req.body || {};
+    const targetUserId = userId || 'demo_user';
+
+    console.log('[GOOGLE_OAUTH_DISCONNECT]', { userId: targetUserId });
+
+    userTokens.delete(targetUserId);
+    userTokens.clear();
+
+    if (db && targetUserId) {
+      try {
+        await setDoc(doc(db, 'users', targetUserId), {
+          googleTokens: null,
+          updatedAt: new Date().toISOString()
+        }, { merge: true }).catch(() => null);
+      } catch (e) {}
+    }
+
+    res.json({ success: true, message: 'Google Account disconnected.' });
+  });
+
+  // Endpoint to store new Google OAuth tokens
+  app.post('/api/auth/google/tokens', async (req, res) => {
+    const { userId, tokens } = req.body || {};
+    const targetUserId = userId || 'demo_user';
+
+    console.log('[GOOGLE_OAUTH_RECONNECT]', { tokenReceived: true });
+
+    if (tokens) {
+      userTokens.set(targetUserId, tokens);
+      if (db && targetUserId) {
+        try {
+          await setDoc(doc(db, 'users', targetUserId), {
+            googleTokens: tokens,
+            updatedAt: new Date().toISOString()
+          }, { merge: true }).catch(() => null);
+        } catch (e) {}
+      }
+    }
+
+    res.json({ success: true });
+  });
+
+  // Classification helper for OAuth errors
+  function classifyOAuthError(err: any): { code: string; message: string } {
+    const errStr = String(err?.message || err || '').toLowerCase();
+
+    if (errStr.includes('unauthorized_client')) {
+      return {
+        code: 'unauthorized_client',
+        message: 'unauthorized_client: Google OAuth credentials or refresh token invalid/expired. Reconnect required.'
+      };
+    }
+    if (errStr.includes('invalid_grant')) {
+      return {
+        code: 'invalid_grant',
+        message: 'invalid_grant: Refresh token revoked, expired, or invalid. Reconnect required.'
+      };
+    }
+    if (errStr.includes('invalid_client')) {
+      return {
+        code: 'invalid_client',
+        message: 'invalid_client: GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET mismatch. Verify environment variables.'
+      };
+    }
+    if (errStr.includes('redirect_uri_mismatch')) {
+      return {
+        code: 'redirect_uri_mismatch',
+        message: 'redirect_uri_mismatch: Redirect URI setting does not match Google Console settings.'
+      };
+    }
+    return {
+      code: 'oauth_error',
+      message: err?.message || String(err)
+    };
+  }
+
   // Dynamic Google Sheets Synchronization Engine with Duplicate Protection & Header Management
   async function syncLeadToGoogleSheets(
     tokens: any,
@@ -269,6 +351,11 @@ async function startServer() {
     if (!tokens || !spreadsheetId) {
       throw new Error('Missing tokens or spreadsheetId');
     }
+
+    console.log('[GOOGLE_SHEETS_AUTH]', {
+      clientConfigured: !!process.env.GOOGLE_CLIENT_ID,
+      refreshTokenConfigured: !!(tokens && (tokens.refresh_token || tokens.access_token))
+    });
 
     const auth = createOAuth2Client(tokens);
     const sheets = google.sheets({ version: 'v4', auth });

@@ -224,6 +224,16 @@ export default function Integrations() {
               googleTokens: tokens,
               updatedAt: serverTimestamp(),
             }, { merge: true });
+
+            await fetch('/api/auth/google/tokens', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                userId: auth.currentUser.uid,
+                tokens
+              })
+            }).catch(() => null);
+
             setIsConnected(true);
             setGoogleTokens(tokens);
             fetchUserSheets(tokens);
@@ -262,11 +272,17 @@ export default function Integrations() {
   const handleDisconnect = async () => {
     if (auth.currentUser) {
       try {
+        await fetch('/api/auth/google/disconnect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: auth.currentUser.uid })
+        }).catch(() => null);
+
         await setDoc(doc(db, 'users', auth.currentUser.uid), {
           googleTokens: null,
-          spreadsheetId: '',
           updatedAt: serverTimestamp(),
         }, { merge: true });
+
         setIsConnected(false);
         setGoogleTokens(null);
         setUserSheets([]);
