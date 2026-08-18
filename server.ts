@@ -760,12 +760,12 @@ async function startServer() {
         const botSnap = await getDoc(botRef).catch(() => null);
         if (botSnap && botSnap.exists()) {
           const data = botSnap.data();
-          if (data && (data.createdBy || data.clientId || data.ownerId)) {
+          if (data) {
             return {
               botId: cleanBotId,
               botName: data.name || data.botName || 'Chatbot',
-              clientId: data.createdBy || data.clientId || data.ownerId,
-              spreadsheetId: data.spreadsheetId || '',
+              clientId: data.createdBy || data.clientId || data.ownerId || 'demo_user',
+              spreadsheetId: data.spreadsheetId || data.spreadsheet_id || '',
               worksheetName: data.worksheetName || 'Sheet1'
             };
           }
@@ -779,12 +779,12 @@ async function startServer() {
         const qSnap = await getDocs(q).catch(() => null);
         if (qSnap && !qSnap.empty) {
           const docData = qSnap.docs[0].data();
-          if (docData && (docData.createdBy || docData.clientId || docData.ownerId)) {
+          if (docData) {
             return {
               botId: cleanBotId,
               botName: docData.name || docData.botName || 'Chatbot',
-              clientId: docData.createdBy || docData.clientId || docData.ownerId,
-              spreadsheetId: docData.spreadsheetId || '',
+              clientId: docData.createdBy || docData.clientId || docData.ownerId || 'demo_user',
+              spreadsheetId: docData.spreadsheetId || docData.spreadsheet_id || '',
               worksheetName: docData.worksheetName || 'Sheet1'
             };
           }
@@ -799,16 +799,13 @@ async function startServer() {
           for (const d of allSnap.docs) {
             const data = d.data();
             if (d.id === cleanBotId || data.id === cleanBotId || (data.name && cleanBotId.toLowerCase().includes((data.name).toLowerCase()))) {
-              const resolvedOwner = data.createdBy || data.clientId || data.ownerId;
-              if (resolvedOwner) {
-                return {
-                  botId: data.id || cleanBotId,
-                  botName: data.name || 'Chatbot',
-                  clientId: resolvedOwner,
-                  spreadsheetId: data.spreadsheetId || '',
-                  worksheetName: data.worksheetName || 'Sheet1'
-                };
-              }
+              return {
+                botId: data.id || cleanBotId,
+                botName: data.name || 'Chatbot',
+                clientId: data.createdBy || data.clientId || data.ownerId || 'demo_user',
+                spreadsheetId: data.spreadsheetId || data.spreadsheet_id || '',
+                worksheetName: data.worksheetName || 'Sheet1'
+              };
             }
           }
         }
@@ -820,12 +817,12 @@ async function startServer() {
     loadBotsFromFile();
     if (serverBotsMap.has(cleanBotId)) {
       const b = serverBotsMap.get(cleanBotId);
-      if (b && (b.createdBy || b.clientId || b.ownerId)) {
+      if (b) {
         return {
           botId: cleanBotId,
           botName: b.name || 'Chatbot',
-          clientId: b.createdBy || b.clientId || b.ownerId,
-          spreadsheetId: b.spreadsheetId || '',
+          clientId: b.createdBy || b.clientId || b.ownerId || 'demo_user',
+          spreadsheetId: b.spreadsheetId || b.spreadsheet_id || '',
           worksheetName: b.worksheetName || 'Sheet1'
         };
       }
@@ -845,7 +842,7 @@ async function startServer() {
         botId: found.id || cleanBotId,
         botName: found.name || 'Chatbot',
         clientId: found.createdBy || found.clientId || found.ownerId || 'demo_user',
-        spreadsheetId: found.spreadsheetId || '',
+        spreadsheetId: found.spreadsheetId || found.spreadsheet_id || '',
         worksheetName: found.worksheetName || 'Sheet1'
       };
     }
@@ -863,33 +860,31 @@ async function startServer() {
   // Helper to resolve client Google Sheets configuration (tokens & bot-specific spreadsheet ID)
   async function resolveClientGoogleSheetsConfig(clientId: string, botSpreadsheetId?: string, botWorksheetName?: string) {
     let googleTokens: any = null;
-    const spreadsheetId: string = botSpreadsheetId || '';
-    const worksheetName: string = botWorksheetName || 'Sheet1';
+    let spreadsheetId: string = botSpreadsheetId || '';
+    let worksheetName: string = botWorksheetName || 'Sheet1';
 
-    if (clientId && db) {
-      try {
-        const userRef = doc(db, 'users', clientId);
-        const userSnap = await getDoc(userRef).catch(() => null);
-        if (userSnap && userSnap.exists()) {
-          const uData = userSnap.data();
-          if (uData.googleTokens) {
-            googleTokens = uData.googleTokens;
-          }
-        }
-      } catch (err) {
-        console.warn('[USER_LOOKUP_WARNING] Could not fetch user doc for client:', clientId, err);
-      }
-    }
-
-    if (!googleTokens && db) {
+    if (db) {
       try {
         const usersSnap = await getDocs(collection(db, 'users')).catch(() => null);
         if (usersSnap && !usersSnap.empty) {
           for (const uDoc of usersSnap.docs) {
             const data = uDoc.data();
-            if (data.googleTokens && (uDoc.id === clientId || (data.email && data.email.toLowerCase() === clientId.toLowerCase()) || clientId === 'demo_user')) {
-              googleTokens = data.googleTokens;
-              break;
+            if (data.googleTokens) {
+              if (!googleTokens) {
+                googleTokens = data.googleTokens;
+              }
+              if (uDoc.id === clientId || (data.email && data.email.toLowerCase() === clientId.toLowerCase()) || clientId === 'demo_user') {
+                googleTokens = data.googleTokens;
+                if (!spreadsheetId && data.spreadsheetId) {
+                  spreadsheetId = data.spreadsheetId;
+                }
+                if (!botWorksheetName && data.worksheetName) {
+                  worksheetName = data.worksheetName;
+                }
+                break;
+              } else if (!spreadsheetId && data.spreadsheetId) {
+                spreadsheetId = data.spreadsheetId;
+              }
             }
           }
         }
@@ -898,6 +893,9 @@ async function startServer() {
 
     if (!googleTokens && userTokens.has(clientId)) {
       googleTokens = userTokens.get(clientId);
+    }
+    if (!googleTokens && userTokens.size > 0) {
+      googleTokens = Array.from(userTokens.values())[0];
     }
 
     return { googleTokens, spreadsheetId, worksheetName };
