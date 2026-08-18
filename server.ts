@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import { google } from 'googleapis';
 import dotenv from 'dotenv';
 import { initializeApp } from 'firebase/app';
-import { getFirestore, doc, getDoc, setDoc, getDocs, collection, query, where } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, setDoc, getDocs, collection, query, where, orderBy, limit, addDoc, updateDoc } from 'firebase/firestore';
 
 dotenv.config();
 
@@ -1228,6 +1228,567 @@ async function startServer() {
       leads,
       users,
       botConfigs
+    });
+  });
+
+  // ==========================================
+  // Chatbot User & Conversation Tracking Engine
+  // ==========================================
+
+  const CHATBOT_USERS_FILE = path.join(process.cwd(), 'public', 'chatbot_users.json');
+  const CONVERSATIONS_FILE = path.join(process.cwd(), 'public', 'conversations.json');
+  const MESSAGES_FILE = path.join(process.cwd(), 'public', 'messages.json');
+
+  const serverChatbotUsersMap = new Map<string, any>();
+  const serverConversationsMap = new Map<string, any>();
+  const serverMessagesMap = new Map<string, any[]>(); // conversationId -> messages array
+
+  function loadChatbotStoreFromFile() {
+    try {
+      if (fs.existsSync(CHATBOT_USERS_FILE)) {
+        const parsed = JSON.parse(fs.readFileSync(CHATBOT_USERS_FILE, 'utf-8'));
+        if (Array.isArray(parsed)) parsed.forEach(u => u && u.id && serverChatbotUsersMap.set(u.id, u));
+      }
+      if (fs.existsSync(CONVERSATIONS_FILE)) {
+        const parsed = JSON.parse(fs.readFileSync(CONVERSATIONS_FILE, 'utf-8'));
+        if (Array.isArray(parsed)) parsed.forEach(c => c && c.id && serverConversationsMap.set(c.id, c));
+      }
+      if (fs.existsSync(MESSAGES_FILE)) {
+        const parsed = JSON.parse(fs.readFileSync(MESSAGES_FILE, 'utf-8'));
+        if (parsed && typeof parsed === 'object') {
+          Object.entries(parsed).forEach(([cId, msgs]) => {
+            if (Array.isArray(msgs)) serverMessagesMap.set(cId, msgs);
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('[CHATBOT_STORE] Load file warning:', e);
+    }
+  }
+
+  loadChatbotStoreFromFile();
+
+  function saveChatbotStoreToFile() {
+    try {
+      const publicDir = path.join(process.cwd(), 'public');
+      if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir, { recursive: true });
+
+      const usersArr = Array.from(serverChatbotUsersMap.values());
+      fs.writeFileSync(CHATBOT_USERS_FILE, JSON.stringify(usersArr, null, 2), 'utf-8');
+
+      const convArr = Array.from(serverConversationsMap.values());
+      fs.writeFileSync(CONVERSATIONS_FILE, JSON.stringify(convArr, null, 2), 'utf-8');
+
+      const msgsObj: Record<string, any[]> = {};
+      serverMessagesMap.forEach((v, k) => { msgsObj[k] = v; });
+      fs.writeFileSync(MESSAGES_FILE, JSON.stringify(msgsObj, null, 2), 'utf-8');
+    } catch (e) {
+      console.warn('[CHATBOT_STORE] Save file warning:', e);
+    }
+  }
+
+  // Data Validation Helpers
+  function isValidEmail(email?: string): boolean {
+    if (!email) return false;
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  }
+
+  function isValidPhone(phone?: string): boolean {
+    if (!phone) return false;
+    return /^[+\d\s\-()]{7,20}$/.test(phone.trim());
+  }
+
+  function cleanString(str?: string, maxLen: number = 5000): string {
+    if (!str) return '';
+    return String(str).trim().substring(0, maxLen);
+  }
+
+  // 1. Session / Identify User & Conversation Endpoint
+  app.post('/api/chatbot/session', async (req, res) => {
+    const { userId: providedUserId, botId, name, email, phone, source, consent } = req.body || {};
+    const cleanBotId = cleanString(botId || 'default_bot', 100);
+    const cleanName = cleanString(name, 200);
+    const cleanEmail = isValidEmail(email) ? email!.trim().toLowerCase() : (email ? cleanString(email, 200) : '');
+    const cleanPhone = isValidPhone(phone) ? phone!.trim() : (phone ? cleanString(phone, 50) : '');
+    const cleanSource = cleanString(source || (req.headers.referer || 'Direct Widget'), 500);
+
+    let targetUserId = providedUserId ? cleanString(providedUserId, 100) : '';
+
+    loadChatbotStoreFromFile();
+    const nowIso = new Date().toISOString();
+
+    let userRecord: any = null;
+
+    // Search existing user by ID or Email/Phone if available to prevent duplicates
+    if (targetUserId && serverChatbotUsersMap.has(targetUserId)) {
+      userRecord = serverChatbotUsersMap.get(targetUserId);
+    } else if (cleanEmail || cleanPhone) {
+      for (const u of serverChatbotUsersMap.values()) {
+        if ((cleanEmail && u.email && u.email.toLowerCase() === cleanEmail) ||
+            (cleanPhone && u.phone && u.phone === cleanPhone)) {
+          userRecord = u;
+          targetUserId = u.id;
+          break;
+        }
+      }
+    }
+
+    // Try Firestore lookup if not found in memory
+    if (!userRecord && db) {
+      try {
+        if (targetUserId) {
+          const uSnap = await getDoc(doc(db, 'chatbot_users', targetUserId)).catch(() => null);
+          if (uSnap && uSnap.exists()) {
+            userRecord = { id: uSnap.id, ...uSnap.data() };
+          }
+        }
+        if (!userRecord && (cleanEmail || cleanPhone)) {
+          const qSnap = await getDocs(collection(db, 'chatbot_users')).catch(() => null);
+          if (qSnap && !qSnap.empty) {
+            const matched = qSnap.docs.find(d => {
+              const dData = d.data();
+              return (cleanEmail && dData.email && dData.email.toLowerCase() === cleanEmail) ||
+                     (cleanPhone && dData.phone && dData.phone === cleanPhone);
+            });
+            if (matched) {
+              userRecord = { id: matched.id, ...matched.data() };
+              targetUserId = matched.id;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[CHATBOT_SESSION] Firestore lookup error:', e);
+      }
+    }
+
+    let isNewUser = false;
+    if (!userRecord) {
+      isNewUser = true;
+      if (!targetUserId) {
+        targetUserId = 'cb_user_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+      }
+      userRecord = {
+        id: targetUserId,
+        name: cleanName || 'Anonymous Visitor',
+        email: cleanEmail || '',
+        phone: cleanPhone || '',
+        createdAt: nowIso,
+        lastActiveAt: nowIso,
+        status: 'active',
+        totalConversations: 1,
+        totalMessages: 0,
+        source: cleanSource,
+        consent: consent !== undefined ? Boolean(consent) : true,
+        metadata: {}
+      };
+    } else {
+      userRecord.lastActiveAt = nowIso;
+      if (cleanName && (!userRecord.name || userRecord.name === 'Anonymous Visitor')) userRecord.name = cleanName;
+      if (cleanEmail && !userRecord.email) userRecord.email = cleanEmail;
+      if (cleanPhone && !userRecord.phone) userRecord.phone = cleanPhone;
+    }
+
+    // Persist User
+    serverChatbotUsersMap.set(targetUserId, userRecord);
+    if (db) {
+      await setDoc(doc(db, 'chatbot_users', targetUserId), userRecord, { merge: true }).catch(() => null);
+      // Also update standard users collection for unified admin view
+      await setDoc(doc(db, 'users', targetUserId), {
+        displayName: userRecord.name,
+        email: userRecord.email,
+        phone: userRecord.phone,
+        lastActiveAt: nowIso,
+        role: 'user',
+        isChatbotUser: true
+      }, { merge: true }).catch(() => null);
+    }
+
+    // Create or find active conversation for user
+    let activeConvId = '';
+    const userConvs = Array.from(serverConversationsMap.values()).filter(c => c.userId === targetUserId && c.botId === cleanBotId);
+    if (userConvs.length > 0) {
+      const sorted = userConvs.sort((a, b) => new Date(b.lastMessageAt || b.startedAt).getTime() - new Date(a.lastMessageAt || a.startedAt).getTime());
+      const mostRecent = sorted[0];
+      const timeDiffMs = new Date().getTime() - new Date(mostRecent.lastMessageAt || mostRecent.startedAt).getTime();
+      // Resume conversation if active within last 2 hours
+      if (timeDiffMs < 2 * 60 * 60 * 1000) {
+        activeConvId = mostRecent.id;
+      }
+    }
+
+    if (!activeConvId) {
+      activeConvId = 'conv_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+      const convRecord = {
+        id: activeConvId,
+        userId: targetUserId,
+        botId: cleanBotId,
+        startedAt: nowIso,
+        lastMessageAt: nowIso,
+        status: 'active',
+        messageCount: 0
+      };
+      serverConversationsMap.set(activeConvId, convRecord);
+      if (db) {
+        await setDoc(doc(db, 'conversations', activeConvId), convRecord).catch(() => null);
+      }
+      if (!isNewUser) {
+        userRecord.totalConversations = (userRecord.totalConversations || 0) + 1;
+        serverChatbotUsersMap.set(targetUserId, userRecord);
+        if (db) {
+          await setDoc(doc(db, 'chatbot_users', targetUserId), { totalConversations: userRecord.totalConversations }, { merge: true }).catch(() => null);
+        }
+      }
+    }
+
+    saveChatbotStoreToFile();
+    broadcastEvent('CHATBOT_USER_UPDATED', userRecord);
+
+    return res.json({
+      success: true,
+      userId: targetUserId,
+      conversationId: activeConvId,
+      user: userRecord,
+      isNewUser
+    });
+  });
+
+  // 2. Post Chatbot Message Endpoint (Stores both user & bot messages)
+  app.post('/api/chatbot/message', async (req, res) => {
+    const { userId, conversationId, botId, sender, message, messageType, metadata, userProfileUpdate } = req.body || {};
+
+    if (!userId || !conversationId) {
+      return res.status(400).json({ success: false, error: 'userId and conversationId are required.' });
+    }
+
+    const cleanSender = sender === 'bot' ? 'bot' : (sender === 'system' ? 'system' : 'user');
+    const cleanMsg = cleanString(message, 5000);
+    const cleanMsgType = cleanString(messageType || 'text', 50);
+    const nowIso = new Date().toISOString();
+    const msgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+
+    loadChatbotStoreFromFile();
+
+    // 1. Record Message object
+    const msgRecord = {
+      id: msgId,
+      conversationId,
+      userId,
+      botId: cleanString(botId || 'default_bot', 100),
+      sender: cleanSender,
+      message: cleanMsg,
+      timestamp: nowIso,
+      messageType: cleanMsgType,
+      metadata: metadata || {}
+    };
+
+    let convMsgs = serverMessagesMap.get(conversationId) || [];
+    convMsgs.push(msgRecord);
+    serverMessagesMap.set(conversationId, convMsgs);
+
+    // 2. Update Conversation Summary Record
+    let convRecord = serverConversationsMap.get(conversationId) || {
+      id: conversationId,
+      userId,
+      botId: cleanString(botId || 'default_bot', 100),
+      startedAt: nowIso,
+      lastMessageAt: nowIso,
+      status: 'active',
+      messageCount: 0
+    };
+
+    convRecord.lastMessageAt = nowIso;
+    convRecord.messageCount = (convRecord.messageCount || 0) + 1;
+    serverConversationsMap.set(conversationId, convRecord);
+
+    // 3. Update User Record & Counters
+    let userRecord = serverChatbotUsersMap.get(userId) || {
+      id: userId,
+      name: 'Anonymous Visitor',
+      email: '',
+      phone: '',
+      createdAt: nowIso,
+      lastActiveAt: nowIso,
+      status: 'active',
+      totalConversations: 1,
+      totalMessages: 0,
+      source: 'Chat Widget',
+      consent: true
+    };
+
+    userRecord.lastActiveAt = nowIso;
+    userRecord.totalMessages = (userRecord.totalMessages || 0) + 1;
+
+    if (userProfileUpdate && typeof userProfileUpdate === 'object') {
+      if (userProfileUpdate.name) userRecord.name = cleanString(userProfileUpdate.name, 200);
+      if (isValidEmail(userProfileUpdate.email)) userRecord.email = userProfileUpdate.email.trim().toLowerCase();
+      if (isValidPhone(userProfileUpdate.phone)) userRecord.phone = userProfileUpdate.phone.trim();
+    }
+
+    serverChatbotUsersMap.set(userId, userRecord);
+    saveChatbotStoreToFile();
+
+    // 4. Firestore Persistence
+    if (db) {
+      try {
+        await setDoc(doc(db, 'conversations', conversationId, 'messages', msgId), msgRecord).catch(() => null);
+        await setDoc(doc(db, 'conversations', conversationId), convRecord, { merge: true }).catch(() => null);
+        await setDoc(doc(db, 'chatbot_users', userId), userRecord, { merge: true }).catch(() => null);
+      } catch (fsErr) {
+        console.warn('[CHATBOT_MSG] Firestore persistence warning:', fsErr);
+      }
+    }
+
+    // 5. Broadcast SSE Event for Instant Dashboard Live Update
+    broadcastEvent('CHATBOT_MESSAGE_ADDED', { message: msgRecord, conversation: convRecord, user: userRecord });
+
+    return res.json({
+      success: true,
+      messageId: msgId,
+      timestamp: nowIso,
+      user: userRecord,
+      conversation: convRecord
+    });
+  });
+
+  // 3. Get Chatbot Users Directory Endpoint
+  app.get('/api/chatbot/users', async (req, res) => {
+    const { search, status, sortBy = 'lastActiveAt', sortOrder = 'desc', page = '1', limit = '20' } = req.query;
+
+    loadChatbotStoreFromFile();
+    let firestoreUsers: any[] = [];
+
+    if (db) {
+      try {
+        const uSnap = await getDocs(collection(db, 'chatbot_users')).catch(() => null);
+        if (uSnap && !uSnap.empty) {
+          firestoreUsers = uSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        }
+      } catch (e) {
+        console.warn('[CHATBOT_USERS_FETCH] Firestore fetch warning:', e);
+      }
+    }
+
+    // Merge memory file store with Firestore
+    const userMap = new Map<string, any>();
+    serverChatbotUsersMap.forEach(u => userMap.set(u.id, u));
+    firestoreUsers.forEach(u => userMap.set(u.id, u));
+
+    let allUsers = Array.from(userMap.values());
+
+    // Search filter
+    if (search && typeof search === 'string' && search.trim()) {
+      const q = search.toLowerCase().trim();
+      allUsers = allUsers.filter(u =>
+        (u.name || '').toLowerCase().includes(q) ||
+        (u.email || '').toLowerCase().includes(q) ||
+        (u.phone || '').toLowerCase().includes(q) ||
+        (u.id || '').toLowerCase().includes(q) ||
+        (u.source || '').toLowerCase().includes(q)
+      );
+    }
+
+    // Status filter
+    if (status && status !== 'ALL' && typeof status === 'string') {
+      allUsers = allUsers.filter(u => u.status === status);
+    }
+
+    // Sorting
+    allUsers.sort((a, b) => {
+      let valA = a[sortBy as string] || '';
+      let valB = b[sortBy as string] || '';
+      if (sortBy === 'totalMessages' || sortBy === 'totalConversations') {
+        valA = Number(valA) || 0;
+        valB = Number(valB) || 0;
+        return sortOrder === 'asc' ? valA - valB : valB - valA;
+      }
+      valA = String(valA).toLowerCase();
+      valB = String(valB).toLowerCase();
+      if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
+      if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    // Pagination
+    const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
+    const limitNum = Math.max(1, parseInt(limit as string, 10) || 20);
+    const total = allUsers.length;
+    const totalPages = Math.ceil(total / limitNum) || 1;
+    const paginatedUsers = allUsers.slice((pageNum - 1) * limitNum, pageNum * limitNum);
+
+    return res.json({
+      success: true,
+      users: paginatedUsers,
+      total,
+      page: pageNum,
+      totalPages,
+      limit: limitNum
+    });
+  });
+
+  // 4. Get User Profile & Conversations Endpoint
+  app.get('/api/chatbot/users/:userId', async (req, res) => {
+    const { userId } = req.params;
+    loadChatbotStoreFromFile();
+
+    let userRecord = serverChatbotUsersMap.get(userId);
+
+    if (!userRecord && db) {
+      try {
+        const uSnap = await getDoc(doc(db, 'chatbot_users', userId)).catch(() => null);
+        if (uSnap && uSnap.exists()) {
+          userRecord = { id: uSnap.id, ...uSnap.data() };
+        }
+      } catch (e) {}
+    }
+
+    if (!userRecord) {
+      return res.status(404).json({ success: false, error: 'User record not found.' });
+    }
+
+    // Fetch user conversations
+    let userConvs = Array.from(serverConversationsMap.values()).filter(c => c.userId === userId);
+
+    if (db) {
+      try {
+        const q = query(collection(db, 'conversations'), where('userId', '==', userId));
+        const cSnap = await getDocs(q).catch(() => null);
+        if (cSnap && !cSnap.empty) {
+          const fsConvs = cSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+          const cMap = new Map<string, any>();
+          userConvs.forEach(c => cMap.set(c.id, c));
+          fsConvs.forEach(c => cMap.set(c.id, c));
+          userConvs = Array.from(cMap.values());
+        }
+      } catch (e) {}
+    }
+
+    userConvs.sort((a, b) => new Date(b.lastMessageAt || b.startedAt).getTime() - new Date(a.lastMessageAt || a.startedAt).getTime());
+
+    return res.json({
+      success: true,
+      user: userRecord,
+      conversations: userConvs
+    });
+  });
+
+  // 5. Get Full Conversation Messages Transcript Endpoint
+  app.get('/api/chatbot/conversations/:conversationId', async (req, res) => {
+    const { conversationId } = req.params;
+    loadChatbotStoreFromFile();
+
+    let conversation = serverConversationsMap.get(conversationId);
+    let messages = serverMessagesMap.get(conversationId) || [];
+
+    if (db) {
+      try {
+        if (!conversation) {
+          const cSnap = await getDoc(doc(db, 'conversations', conversationId)).catch(() => null);
+          if (cSnap && cSnap.exists()) {
+            conversation = { id: cSnap.id, ...cSnap.data() };
+          }
+        }
+        const mSnap = await getDocs(collection(db, 'conversations', conversationId, 'messages')).catch(() => null);
+        if (mSnap && !mSnap.empty) {
+          const fsMsgs = mSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+          const msgMap = new Map<string, any>();
+          messages.forEach(m => msgMap.set(m.id, m));
+          fsMsgs.forEach(m => msgMap.set(m.id, m));
+          messages = Array.from(msgMap.values());
+        }
+      } catch (e) {}
+    }
+
+    if (!conversation && messages.length === 0) {
+      return res.status(404).json({ success: false, error: 'Conversation record not found.' });
+    }
+
+    messages.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+    return res.json({
+      success: true,
+      conversation: conversation || { id: conversationId, messageCount: messages.length },
+      messages
+    });
+  });
+
+  // 6. Chatbot Analytics Overview Stats & Trends Endpoint
+  app.get('/api/chatbot/stats', async (req, res) => {
+    loadChatbotStoreFromFile();
+
+    let firestoreUsers: any[] = [];
+    let firestoreConvs: any[] = [];
+
+    if (db) {
+      try {
+        const uSnap = await getDocs(collection(db, 'chatbot_users')).catch(() => null);
+        if (uSnap && !uSnap.empty) firestoreUsers = uSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+        const cSnap = await getDocs(collection(db, 'conversations')).catch(() => null);
+        if (cSnap && !cSnap.empty) firestoreConvs = cSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      } catch (e) {}
+    }
+
+    const uMap = new Map<string, any>();
+    serverChatbotUsersMap.forEach(u => uMap.set(u.id, u));
+    firestoreUsers.forEach(u => uMap.set(u.id, u));
+    const allUsers = Array.from(uMap.values());
+
+    const cMap = new Map<string, any>();
+    serverConversationsMap.forEach(c => cMap.set(c.id, c));
+    firestoreConvs.forEach(c => cMap.set(c.id, c));
+    const allConvs = Array.from(cMap.values());
+
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const sevenDaysAgo = now.getTime() - (7 * 24 * 60 * 60 * 1000);
+    const thirtyDaysAgo = now.getTime() - (30 * 24 * 60 * 60 * 1000);
+
+    const totalUsers = allUsers.length;
+    const activeUsers = allUsers.filter(u => u.lastActiveAt && new Date(u.lastActiveAt).getTime() >= thirtyDaysAgo).length;
+    const newUsersToday = allUsers.filter(u => u.createdAt && new Date(u.createdAt).getTime() >= todayStart).length;
+    const newUsersThisWeek = allUsers.filter(u => u.createdAt && new Date(u.createdAt).getTime() >= sevenDaysAgo).length;
+
+    const totalConversations = allConvs.length;
+    let totalMessages = allConvs.reduce((acc, c) => acc + (c.messageCount || 0), 0);
+    if (totalMessages === 0) {
+      totalMessages = allUsers.reduce((acc, u) => acc + (u.totalMessages || 0), 0);
+    }
+
+    const avgMessagesPerConversation = totalConversations > 0
+      ? Math.round((totalMessages / totalConversations) * 10) / 10
+      : 0;
+
+    // Daily growth trend (Last 7 Days)
+    const dailyTrend = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+      const dayEnd = dayStart + (24 * 60 * 60 * 1000);
+      const dayLabel = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+
+      const dayUsers = allUsers.filter(u => u.createdAt && new Date(u.createdAt).getTime() >= dayStart && new Date(u.createdAt).getTime() < dayEnd).length;
+      const dayConvs = allConvs.filter(c => c.startedAt && new Date(c.startedAt).getTime() >= dayStart && new Date(c.startedAt).getTime() < dayEnd).length;
+
+      dailyTrend.push({
+        date: dayLabel,
+        users: dayUsers,
+        conversations: dayConvs
+      });
+    }
+
+    return res.json({
+      success: true,
+      stats: {
+        totalUsers,
+        activeUsers,
+        newUsersToday,
+        newUsersThisWeek,
+        totalConversations,
+        totalMessages,
+        avgMessagesPerConversation,
+        dailyTrend
+      }
     });
   });
 

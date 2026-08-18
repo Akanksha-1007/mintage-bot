@@ -26,8 +26,16 @@ import {
   ShieldCheck,
   Zap,
   RefreshCw,
-  AlertTriangle
+  AlertTriangle,
+  MessageSquare,
+  Activity,
+  TrendingUp,
+  BarChart3,
+  UserCheck
 } from 'lucide-react';
+import ChatbotUsersTable from '../components/ChatbotUsersTable';
+import UserDetailModal from '../components/UserDetailModal';
+import ConversationViewModal from '../components/ConversationViewModal';
 
 interface ClientRecord {
   id: string;
@@ -45,6 +53,7 @@ export default function AdminDashboard() {
   const { isAdmin, setImpersonatedClient, impersonatedClient, clearImpersonation } = useAuth();
   const navigate = useNavigate();
 
+  const [activeTab, setActiveTab] = useState<'users' | 'clients'>('users');
   const [clients, setClients] = useState<ClientRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -52,6 +61,36 @@ export default function AdminDashboard() {
   const [createdCredentialsCard, setCreatedCredentialsCard] = useState<ClientRecord | null>(null);
   const [clientToDelete, setClientToDelete] = useState<ClientRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Chatbot Users & Conversations Detail Modals
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
+
+  // Chatbot Analytics Stats State
+  const [chatbotStats, setChatbotStats] = useState({
+    totalUsers: 0,
+    activeUsers: 0,
+    newUsersToday: 0,
+    newUsersThisWeek: 0,
+    totalConversations: 0,
+    totalMessages: 0,
+    avgMessagesPerConversation: 0,
+    dailyTrend: [] as Array<{ date: string; users: number; conversations: number }>
+  });
+
+  const loadChatbotStats = async () => {
+    try {
+      const res = await fetch('/api/chatbot/stats');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.stats) {
+          setChatbotStats(data.stats);
+        }
+      }
+    } catch (e) {
+      console.warn('API fetch chatbot stats notice:', e);
+    }
+  };
 
   // Form State for New Client
   const [clientName, setClientName] = useState('');
@@ -150,15 +189,18 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     loadClientsAndStats();
+    loadChatbotStats();
 
     let unsubscribeClients: (() => void) | null = null;
     let unsubscribeBots: (() => void) | null = null;
     let unsubscribeLeads: (() => void) | null = null;
+    let unsubscribeChatbotUsers: (() => void) | null = null;
 
     try {
       unsubscribeClients = onSnapshot(collection(db, 'clients'), () => loadClientsAndStats(), () => {});
       unsubscribeBots = onSnapshot(collection(db, 'bot_configurations'), () => loadClientsAndStats(), () => {});
       unsubscribeLeads = onSnapshot(collection(db, 'leads'), () => loadClientsAndStats(), () => {});
+      unsubscribeChatbotUsers = onSnapshot(collection(db, 'chatbot_users'), () => loadChatbotStats(), () => {});
     } catch (e) {}
 
     let eventSource: EventSource | null = null;
@@ -167,18 +209,21 @@ export default function AdminDashboard() {
       eventSource.onmessage = (event) => {
         if (event.data && !event.data.startsWith(':')) {
           loadClientsAndStats();
+          loadChatbotStats();
         }
       };
     } catch (e) {}
 
     const pollInterval = setInterval(() => {
       loadClientsAndStats();
+      loadChatbotStats();
     }, 5000);
 
     return () => {
       if (unsubscribeClients) unsubscribeClients();
       if (unsubscribeBots) unsubscribeBots();
       if (unsubscribeLeads) unsubscribeLeads();
+      if (unsubscribeChatbotUsers) unsubscribeChatbotUsers();
       if (eventSource) eventSource.close();
       clearInterval(pollInterval);
     };
@@ -335,258 +380,446 @@ export default function AdminDashboard() {
               </span>
             )}
           </div>
-          <h2 className="text-3xl font-extrabold text-gray-900 mt-2">Mintage Client Portal & Credentials</h2>
+          <h2 className="text-3xl font-extrabold text-gray-900 mt-2">
+            {activeTab === 'users' ? 'Chatbot Activity & Users Intelligence' : 'Mintage Client Portal & Credentials'}
+          </h2>
           <p className="text-gray-500 text-sm mt-1">
-            Generate client credentials and jump into any client dashboard with 1-click access.
+            {activeTab === 'users'
+              ? 'Real-time overview of chatbot visitors, message history, user profiles, and engagement analytics.'
+              : 'Generate client credentials and jump into any client dashboard with 1-click access.'}
           </p>
         </div>
 
         <div className="flex items-center gap-3">
           <button
-            onClick={loadClientsAndStats}
+            onClick={() => {
+              loadClientsAndStats();
+              loadChatbotStats();
+            }}
             className="p-3 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-all border border-gray-200 bg-white"
-            title="Refresh Client Data"
+            title="Refresh All Admin Data"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
-          <button
-            onClick={() => {
-              generatePassword();
-              setShowCreateModal(true);
-            }}
-            className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm rounded-xl transition-all shadow-lg shadow-indigo-100 flex items-center gap-2"
-          >
-            <UserPlus className="w-4 h-4" />
-            <span>+ Create Client Credentials</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Stats Bar */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center shrink-0">
-            <Users className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Total Clients</p>
-            <p className="text-2xl font-black text-gray-900 mt-0.5">{clients.length}</p>
-          </div>
-        </div>
-
-        <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center shrink-0">
-            <Bot className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Active Client Bots</p>
-            <p className="text-2xl font-black text-gray-900 mt-0.5">{totalBots}</p>
-          </div>
-        </div>
-
-        <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center shrink-0">
-            <Database className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Client Leads Captured</p>
-            <p className="text-2xl font-black text-gray-900 mt-0.5">{totalLeads}</p>
-          </div>
-        </div>
-
-        <div className={`p-6 rounded-3xl border flex items-center justify-between gap-4 transition-all ${
-          impersonatedClient 
-            ? 'bg-gradient-to-br from-indigo-900 to-slate-900 text-white border-indigo-800 shadow-xl' 
-            : 'bg-white border-gray-100 shadow-sm text-gray-900'
-        }`}>
-          <div>
-            <p className={`text-xs font-bold uppercase tracking-wider ${impersonatedClient ? 'text-indigo-200' : 'text-gray-400'}`}>
-              Impersonation Mode
-            </p>
-            <p className="text-sm font-bold truncate max-w-[150px] mt-0.5">
-              {impersonatedClient ? impersonatedClient.name : 'Viewing as Admin'}
-            </p>
-          </div>
-          {impersonatedClient ? (
-            <button
-              onClick={() => {
-                clearImpersonation();
-                loadClientsAndStats();
-              }}
-              className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-200 border border-red-400/30 rounded-xl text-xs font-bold transition-all shrink-0"
-            >
-              Exit Client View
-            </button>
-          ) : (
-            <span className="text-[10px] bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full font-bold">Standard</span>
-          )}
-        </div>
-      </div>
-
-      {/* Main Directory Table */}
-      <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden space-y-4 p-6">
-        <div className="flex flex-col sm:flex-row justify-between items-center gap-4 pb-4 border-b border-gray-100">
-          <div className="relative w-full sm:w-96">
-            <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search clients by name, company, or email..."
-              className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-            />
-          </div>
-          <p className="text-xs text-gray-400 font-medium">
-            Showing <strong className="text-gray-700">{filteredClients.length}</strong> registered clients
-          </p>
-        </div>
-
-        {loading ? (
-          <div className="p-16 text-center">
-            <Loader2 className="w-8 h-8 text-indigo-600 animate-spin mx-auto mb-2" />
-            <p className="text-xs text-gray-500 font-medium">Fetching client list and bot metrics...</p>
-          </div>
-        ) : filteredClients.length === 0 ? (
-          <div className="p-16 text-center bg-gray-50/50 rounded-2xl border border-dashed border-gray-200">
-            <Users className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-            <h4 className="text-sm font-bold text-gray-700">No client credentials created yet</h4>
-            <p className="text-xs text-gray-400 max-w-md mx-auto mt-1 mb-4">
-              Create your first client account above to assign custom login credentials and manage their chatbot workspace.
-            </p>
+          {activeTab === 'clients' && (
             <button
               onClick={() => {
                 generatePassword();
                 setShowCreateModal(true);
               }}
-              className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-md shadow-indigo-100"
+              className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm rounded-xl transition-all shadow-lg shadow-indigo-100 flex items-center gap-2"
             >
-              + Create First Client
+              <UserPlus className="w-4 h-4" />
+              <span>+ Create Client Credentials</span>
             </button>
+          )}
+        </div>
+      </div>
+
+      {/* Main Tab Navigation Header */}
+      <div className="flex border-b border-slate-200 space-x-8">
+        <button
+          onClick={() => setActiveTab('users')}
+          className={`pb-4 text-sm font-extrabold border-b-2 transition-all flex items-center gap-2 ${
+            activeTab === 'users' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          <Users className="w-4.5 h-4.5" />
+          <span>Chatbot Users & Conversations</span>
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-indigo-100 text-indigo-800">
+            {chatbotStats.totalUsers}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('clients')}
+          className={`pb-4 text-sm font-extrabold border-b-2 transition-all flex items-center gap-2 ${
+            activeTab === 'clients' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          <Building2 className="w-4.5 h-4.5" />
+          <span>Client Credentials & Access</span>
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-slate-100 text-slate-700">
+            {clients.length}
+          </span>
+        </button>
+      </div>
+
+      {/* TAB 1: Chatbot Activity & Users */}
+      {activeTab === 'users' && (
+        <div className="space-y-8 animate-in fade-in duration-300">
+          {/* Chatbot Overview KPI Stats Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {/* Total Users */}
+            <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex items-center justify-between">
+              <div className="space-y-1">
+                <p className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">Total Chatbot Users</p>
+                <p className="text-3xl font-black text-slate-900">{chatbotStats.totalUsers}</p>
+                <div className="flex items-center gap-1 text-[11px] font-bold text-emerald-600">
+                  <UserCheck className="w-3.5 h-3.5" />
+                  <span>{chatbotStats.activeUsers} Active Recently</span>
+                </div>
+              </div>
+              <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center shrink-0">
+                <Users className="w-6 h-6" />
+              </div>
+            </div>
+
+            {/* New Users Today / This Week */}
+            <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex items-center justify-between">
+              <div className="space-y-1">
+                <p className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">New Users Today</p>
+                <p className="text-3xl font-black text-slate-900">{chatbotStats.newUsersToday}</p>
+                <div className="flex items-center gap-1 text-[11px] font-bold text-indigo-600">
+                  <span>+{chatbotStats.newUsersThisWeek} this week</span>
+                </div>
+              </div>
+              <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center shrink-0">
+                <TrendingUp className="w-6 h-6" />
+              </div>
+            </div>
+
+            {/* Total Conversations */}
+            <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex items-center justify-between">
+              <div className="space-y-1">
+                <p className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">Total Conversations</p>
+                <p className="text-3xl font-black text-slate-900">{chatbotStats.totalConversations}</p>
+                <div className="flex items-center gap-1 text-[11px] font-bold text-slate-500">
+                  <MessageSquare className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Across all widgets</span>
+                </div>
+              </div>
+              <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center shrink-0">
+                <MessageSquare className="w-6 h-6" />
+              </div>
+            </div>
+
+            {/* Total Messages & Avg Length */}
+            <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex items-center justify-between">
+              <div className="space-y-1">
+                <p className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">Total Messages</p>
+                <p className="text-3xl font-black text-slate-900">{chatbotStats.totalMessages}</p>
+                <div className="flex items-center gap-1 text-[11px] font-bold text-violet-600">
+                  <span>Avg {chatbotStats.avgMessagesPerConversation} msgs / conv</span>
+                </div>
+              </div>
+              <div className="w-12 h-12 bg-violet-50 text-violet-600 rounded-2xl flex items-center justify-center shrink-0">
+                <BarChart3 className="w-6 h-6" />
+              </div>
+            </div>
           </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-100">
-              <thead>
-                <tr className="bg-gray-50/50 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-left">
-                  <th className="px-6 py-4">Client / Company</th>
-                  <th className="px-6 py-4">Login Credentials</th>
-                  <th className="px-6 py-4">Chatbots</th>
-                  <th className="px-6 py-4">Leads Captured</th>
-                  <th className="px-6 py-4 text-right">Instant Dashboard Access</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {filteredClients.map((client) => {
-                  const isPassVisible = !!visiblePasswords[client.id];
-                  const isCurrentImpersonated = impersonatedClient?.id === client.id;
+
+          {/* Daily Activity Growth Chart Card */}
+          {chatbotStats.dailyTrend && chatbotStats.dailyTrend.length > 0 && (
+            <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-6 rounded-3xl shadow-xl border border-slate-800 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-indigo-400" />
+                    <h3 className="text-sm font-extrabold uppercase tracking-wider text-indigo-300">7-Day Chatbot Activity & Growth Trend</h3>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">Daily breakdown of newly identified users and active chatbot sessions.</p>
+                </div>
+                <div className="flex items-center gap-4 text-xs font-bold">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 bg-indigo-500 rounded-xs" />
+                    <span className="text-slate-300">New Users</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 bg-emerald-400 rounded-xs" />
+                    <span className="text-slate-300">Conversations</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bar Chart Visualization */}
+              <div className="grid grid-cols-7 gap-3 pt-4 items-end h-40">
+                {chatbotStats.dailyTrend.map((item, idx) => {
+                  const maxVal = Math.max(
+                    ...chatbotStats.dailyTrend.flatMap(t => [t.users, t.conversations]),
+                    5
+                  );
+                  const userHeightPct = Math.max(10, Math.round((item.users / maxVal) * 100));
+                  const convHeightPct = Math.max(10, Math.round((item.conversations / maxVal) * 100));
 
                   return (
-                    <tr 
-                      key={client.id}
-                      className={`hover:bg-indigo-50/30 transition-colors ${isCurrentImpersonated ? 'bg-indigo-50/60' : ''}`}
-                    >
-                      {/* Client Info */}
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-indigo-100/70 text-indigo-700 rounded-2xl flex items-center justify-center font-bold text-sm shrink-0">
-                            {client.name.substring(0, 2).toUpperCase()}
-                          </div>
-                          <div>
-                            <div className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
-                              <span>{client.name}</span>
-                              {isCurrentImpersonated && (
-                                <span className="px-2 py-0.5 bg-indigo-600 text-white text-[9px] font-bold rounded-full uppercase tracking-wider">
-                                  Active
-                                </span>
-                              )}
-                            </div>
-                            {client.company && (
-                              <div className="text-[11px] text-gray-500 flex items-center gap-1 mt-0.5">
-                                <Building2 className="w-3 h-3 text-gray-400" />
-                                <span>{client.company}</span>
-                              </div>
-                            )}
-                          </div>
+                    <div key={idx} className="flex flex-col items-center gap-2 h-full justify-end">
+                      <div className="flex items-end gap-1.5 w-full justify-center h-28">
+                        <div
+                          style={{ height: `${userHeightPct}%` }}
+                          className="w-4 bg-indigo-500 hover:bg-indigo-400 rounded-t-md transition-all relative group"
+                          title={`Users: ${item.users}`}
+                        >
+                          <span className="opacity-0 group-hover:opacity-100 transition-opacity absolute -top-6 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-xs">
+                            {item.users}
+                          </span>
                         </div>
-                      </td>
-
-                      {/* Credentials */}
-                      <td className="px-6 py-4">
-                        <div className="space-y-1">
-                          <div className="text-xs text-gray-800 font-medium flex items-center gap-1">
-                            <Mail className="w-3 h-3 text-gray-400" />
-                            <span className="font-mono text-[11px]">{client.email}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <div className="text-xs font-mono bg-gray-50 border border-gray-200 px-2 py-0.5 rounded text-gray-700 flex items-center gap-1">
-                              <Key className="w-3 h-3 text-amber-500" />
-                              <span>{isPassVisible ? (client.password || 'Client123!') : '••••••••'}</span>
-                            </div>
-                            <button
-                              onClick={() => togglePasswordVisibility(client.id)}
-                              className="text-gray-400 hover:text-gray-600 p-1"
-                              title={isPassVisible ? 'Hide Password' : 'Show Password'}
-                            >
-                              {isPassVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                            </button>
-                            <button
-                              onClick={() => copyToClipboard(`Email: ${client.email}\nPassword: ${client.password || 'Client123!'}`, client.id)}
-                              className="text-gray-400 hover:text-indigo-600 p-1"
-                              title="Copy Credentials"
-                            >
-                              {copiedId === client.id ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                            </button>
-                          </div>
+                        <div
+                          style={{ height: `${convHeightPct}%` }}
+                          className="w-4 bg-emerald-400 hover:bg-emerald-300 rounded-t-md transition-all relative group"
+                          title={`Conversations: ${item.conversations}`}
+                        >
+                          <span className="opacity-0 group-hover:opacity-100 transition-opacity absolute -top-6 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-xs">
+                            {item.conversations}
+                          </span>
                         </div>
-                      </td>
-
-                      {/* Chatbots Count */}
-                      <td className="px-6 py-4">
-                        <span className="px-3 py-1 bg-indigo-50 text-indigo-700 rounded-lg text-xs font-bold">
-                          {client.botsCount} Bots
-                        </span>
-                      </td>
-
-                      {/* Leads Count */}
-                      <td className="px-6 py-4">
-                        <span className="px-3 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-bold">
-                          {client.leadsCount} Leads
-                        </span>
-                      </td>
-
-                      {/* 1-Click Access Button */}
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => handleAccessClientDashboard(client)}
-                            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5 shrink-0 ${
-                              isCurrentImpersonated
-                                ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-100'
-                                : 'bg-gray-900 text-white hover:bg-black shadow-gray-200'
-                            }`}
-                          >
-                            <Zap className="w-3.5 h-3.5 text-amber-400" />
-                            <span>{isCurrentImpersonated ? 'Viewing Dashboard' : 'Access Client Dashboard'}</span>
-                            <ArrowRight className="w-3.5 h-3.5 ml-0.5" />
-                          </button>
-
-                          <button
-                            onClick={() => setClientToDelete(client)}
-                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
-                            title="Delete Client Credentials"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                      </div>
+                      <span className="text-[10px] font-bold text-slate-400 truncate">{item.date}</span>
+                    </div>
                   );
                 })}
-              </tbody>
-            </table>
+              </div>
+            </div>
+          )}
+
+          {/* Chatbot Users Table Section */}
+          <ChatbotUsersTable onSelectUser={(uId) => setSelectedUserId(uId)} />
+        </div>
+      )}
+
+      {/* TAB 2: Client Portal Credentials (Original Access Control) */}
+      {activeTab === 'clients' && (
+        <div className="space-y-8 animate-in fade-in duration-300">
+          {/* Stats Bar */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex items-center gap-4">
+              <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center shrink-0">
+                <Users className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Total Clients</p>
+                <p className="text-2xl font-black text-gray-900 mt-0.5">{clients.length}</p>
+              </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex items-center gap-4">
+              <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center shrink-0">
+                <Bot className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Active Client Bots</p>
+                <p className="text-2xl font-black text-gray-900 mt-0.5">{totalBots}</p>
+              </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex items-center gap-4">
+              <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center shrink-0">
+                <Database className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Client Leads Captured</p>
+                <p className="text-2xl font-black text-gray-900 mt-0.5">{totalLeads}</p>
+              </div>
+            </div>
+
+            <div className={`p-6 rounded-3xl border flex items-center justify-between gap-4 transition-all ${
+              impersonatedClient 
+                ? 'bg-gradient-to-br from-indigo-900 to-slate-900 text-white border-indigo-800 shadow-xl' 
+                : 'bg-white border-gray-100 shadow-sm text-gray-900'
+            }`}>
+              <div>
+                <p className={`text-xs font-bold uppercase tracking-wider ${impersonatedClient ? 'text-indigo-200' : 'text-gray-400'}`}>
+                  Impersonation Mode
+                </p>
+                <p className="text-sm font-bold truncate max-w-[150px] mt-0.5">
+                  {impersonatedClient ? impersonatedClient.name : 'Viewing as Admin'}
+                </p>
+              </div>
+              {impersonatedClient ? (
+                <button
+                  onClick={() => {
+                    clearImpersonation();
+                    loadClientsAndStats();
+                  }}
+                  className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-200 border border-red-400/30 rounded-xl text-xs font-bold transition-all shrink-0"
+                >
+                  Exit Client View
+                </button>
+              ) : (
+                <span className="text-[10px] bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full font-bold">Standard</span>
+              )}
+            </div>
           </div>
-        )}
-      </div>
+
+          {/* Main Directory Table */}
+          <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden space-y-4 p-6">
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-4 pb-4 border-b border-gray-100">
+              <div className="relative w-full sm:w-96">
+                <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search clients by name, company, or email..."
+                  className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                />
+              </div>
+              <p className="text-xs text-gray-400 font-medium">
+                Showing <strong className="text-gray-700">{filteredClients.length}</strong> registered clients
+              </p>
+            </div>
+
+            {loading ? (
+              <div className="p-16 text-center">
+                <Loader2 className="w-8 h-8 text-indigo-600 animate-spin mx-auto mb-2" />
+                <p className="text-xs text-gray-500 font-medium">Fetching client list and bot metrics...</p>
+              </div>
+            ) : filteredClients.length === 0 ? (
+              <div className="p-16 text-center bg-gray-50/50 rounded-2xl border border-dashed border-gray-200">
+                <Users className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+                <h4 className="text-sm font-bold text-gray-700">No client credentials created yet</h4>
+                <p className="text-xs text-gray-400 max-w-md mx-auto mt-1 mb-4">
+                  Create your first client account above to assign custom login credentials and manage their chatbot workspace.
+                </p>
+                <button
+                  onClick={() => {
+                    generatePassword();
+                    setShowCreateModal(true);
+                  }}
+                  className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-md shadow-indigo-100"
+                >
+                  + Create First Client
+                </button>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-100">
+                  <thead>
+                    <tr className="bg-gray-50/50 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-left">
+                      <th className="px-6 py-4">Client / Company</th>
+                      <th className="px-6 py-4">Login Credentials</th>
+                      <th className="px-6 py-4">Chatbots</th>
+                      <th className="px-6 py-4">Leads Captured</th>
+                      <th className="px-6 py-4 text-right">Instant Dashboard Access</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {filteredClients.map((client) => {
+                      const isPassVisible = !!visiblePasswords[client.id];
+                      const isCurrentImpersonated = impersonatedClient?.id === client.id;
+
+                      return (
+                        <tr 
+                          key={client.id}
+                          className={`hover:bg-indigo-50/30 transition-colors ${isCurrentImpersonated ? 'bg-indigo-50/60' : ''}`}
+                        >
+                          {/* Client Info */}
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-indigo-100/70 text-indigo-700 rounded-2xl flex items-center justify-center font-bold text-sm shrink-0">
+                                {client.name.substring(0, 2).toUpperCase()}
+                              </div>
+                              <div>
+                                <div className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
+                                  <span>{client.name}</span>
+                                  {isCurrentImpersonated && (
+                                    <span className="px-2 py-0.5 bg-indigo-600 text-white text-[9px] font-bold rounded-full uppercase tracking-wider">
+                                      Active
+                                    </span>
+                                  )}
+                                </div>
+                                {client.company && (
+                                  <div className="text-[11px] text-gray-500 flex items-center gap-1 mt-0.5">
+                                    <Building2 className="w-3 h-3 text-gray-400" />
+                                    <span>{client.company}</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Credentials */}
+                          <td className="px-6 py-4">
+                            <div className="space-y-1">
+                              <div className="text-xs text-gray-800 font-medium flex items-center gap-1">
+                                <Mail className="w-3 h-3 text-gray-400" />
+                                <span className="font-mono text-[11px]">{client.email}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <div className="text-xs font-mono bg-gray-50 border border-gray-200 px-2 py-0.5 rounded text-gray-700 flex items-center gap-1">
+                                  <Key className="w-3 h-3 text-amber-500" />
+                                  <span>{isPassVisible ? (client.password || 'Client123!') : '••••••••'}</span>
+                                </div>
+                                <button
+                                  onClick={() => togglePasswordVisibility(client.id)}
+                                  className="text-gray-400 hover:text-gray-600 p-1"
+                                  title={isPassVisible ? 'Hide Password' : 'Show Password'}
+                                >
+                                  {isPassVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                </button>
+                                <button
+                                  onClick={() => copyToClipboard(`Email: ${client.email}\nPassword: ${client.password || 'Client123!'}`, client.id)}
+                                  className="text-gray-400 hover:text-indigo-600 p-1"
+                                  title="Copy Credentials"
+                                >
+                                  {copiedId === client.id ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                                </button>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Chatbots Count */}
+                          <td className="px-6 py-4">
+                            <span className="px-3 py-1 bg-indigo-50 text-indigo-700 rounded-lg text-xs font-bold">
+                              {client.botsCount} Bots
+                            </span>
+                          </td>
+
+                          {/* Leads Count */}
+                          <td className="px-6 py-4">
+                            <span className="px-3 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-bold">
+                              {client.leadsCount} Leads
+                            </span>
+                          </td>
+
+                          {/* 1-Click Access Button */}
+                          <td className="px-6 py-4 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                onClick={() => handleAccessClientDashboard(client)}
+                                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5 shrink-0 ${
+                                  isCurrentImpersonated
+                                    ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-100'
+                                    : 'bg-gray-900 text-white hover:bg-black shadow-gray-200'
+                                }`}
+                              >
+                                <Zap className="w-3.5 h-3.5 text-amber-400" />
+                                <span>{isCurrentImpersonated ? 'Viewing Dashboard' : 'Access Client Dashboard'}</span>
+                                <ArrowRight className="w-3.5 h-3.5 ml-0.5" />
+                              </button>
+
+                              <button
+                                onClick={() => setClientToDelete(client)}
+                                className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                                title="Delete Client Credentials"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* User Details Modal Component */}
+      <UserDetailModal
+        userId={selectedUserId}
+        onClose={() => setSelectedUserId(null)}
+        onSelectConversation={(convId) => setSelectedConversationId(convId)}
+      />
+
+      {/* Conversation View Transcript Modal Component */}
+      <ConversationViewModal
+        conversationId={selectedConversationId}
+        onClose={() => setSelectedConversationId(null)}
+      />
 
       {/* Modal 1: Create Client Credentials */}
       {showCreateModal && (

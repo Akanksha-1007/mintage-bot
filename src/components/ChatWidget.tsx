@@ -32,13 +32,102 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   const [isTyping, setIsTyping] = useState(false);
   const [botTitle, setBotTitle] = useState('BotFlow Assistant');
 
+  // Real-time Chatbot User Identification & Session Tracking
+  const [chatUserId, setChatUserId] = useState<string>(() => {
+    let stored = localStorage.getItem('mintage_chatbot_user_id');
+    if (!stored) {
+      stored = 'cb_user_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+      localStorage.setItem('mintage_chatbot_user_id', stored);
+    }
+    return stored;
+  });
+  const [conversationId, setConversationId] = useState<string | null>(null);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
+  // Initialize or restore session with backend API
+  useEffect(() => {
+    const initSession = async () => {
+      try {
+        const res = await fetch('/api/chatbot/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: chatUserId,
+            botId: botId || 'default_bot',
+            source: window.location.href,
+            consent: true
+          })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success) {
+            if (data.userId) {
+              setChatUserId(data.userId);
+              localStorage.setItem('mintage_chatbot_user_id', data.userId);
+            }
+            if (data.conversationId) {
+              setConversationId(data.conversationId);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[SESSION_INIT_NOTICE]', err);
+      }
+    };
+
+    initSession();
+  }, [botId]);
+
+  // Helper to persist every message & response through backend API to Firebase
+  const trackMessageToBackend = async (
+    sender: 'bot' | 'user' | 'system',
+    text: string,
+    messageType: string = 'text',
+    profileUpdate?: { name?: string; email?: string; phone?: string }
+  ) => {
+    if (!chatUserId) return;
+    try {
+      let activeConvId = conversationId;
+      if (!activeConvId) {
+        const sessRes = await fetch('/api/chatbot/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: chatUserId, botId: botId || 'default_bot', source: window.location.href })
+        });
+        if (sessRes.ok) {
+          const sessData = await sessRes.json();
+          if (sessData.conversationId) {
+            activeConvId = sessData.conversationId;
+            setConversationId(activeConvId);
+          }
+        }
+      }
+
+      if (!activeConvId) return;
+
+      await fetch('/api/chatbot/message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: chatUserId,
+          conversationId: activeConvId,
+          botId: botId || 'default_bot',
+          sender,
+          message: text,
+          messageType,
+          userProfileUpdate: profileUpdate
+        })
+      });
+    } catch (err) {
+      console.warn('[MESSAGE_TRACKING_NOTICE]', err);
+    }
+  };
+
   const safeNodes = Array.isArray(nodes) ? nodes : (nodes && typeof nodes === 'object' ? Object.values(nodes) : []);
   const safeEdges = Array.isArray(edges) ? edges : (edges && typeof edges === 'object' ? Object.values(edges) : []);
-
 
   const processBotStep = (node: any, allNodes: any[] = safeNodes, allEdges: any[] = safeEdges) => {
     const nodesList = Array.isArray(allNodes) && allNodes.length > 0 ? allNodes : safeNodes;
@@ -56,6 +145,11 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         imageUrl: node.data?.imageUrl || node.data?.url,
       };
       setMessages(prev => [...prev, newMessage]);
+
+      // Track bot response in Firebase / Backend
+      if (newMessage.text) {
+        trackMessageToBackend('bot', newMessage.text, node.type || 'text');
+      }
 
       // Check if this node is non-interactive (does not require user input)
       const isInteractive = ['name', 'email', 'phone', 'textQuestion', 'singleChoice', 'multipleChoice'].includes(node.type);
@@ -208,7 +302,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
                 if (botData) break;
               }
             }
-          } catch (e) {}
+          } catch (e) { }
         }
       }
 
@@ -217,10 +311,10 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         const refUrl = (document.referrer || window.location.href || '').toLowerCase();
         const isRiver = lowerBotId.includes('river') || refUrl.includes('river') || refUrl.includes('riverscape');
         const isRisinia = lowerBotId.includes('risinia') || refUrl.includes('risinia');
-        const clientName = isRiver 
-          ? 'River Scape Residences' 
+        const clientName = isRiver
+          ? 'River Scape Residences'
           : (isRisinia ? 'Risinia Builders' : 'BotFlow Assistant');
-        
+
         botData = {
           id: cleanBotId || 'default_bot',
           name: clientName,
@@ -228,10 +322,10 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
             {
               id: 'node_welcome',
               type: 'message',
-              data: { 
-                label: isRiver 
-                  ? '🌿 Welcome to River Scape Residences!\n\nExperience serene waterfront luxury homes with breathtaking views and modern lifestyle amenities.' 
-                  : (isRisinia 
+              data: {
+                label: isRiver
+                  ? '🌿 Welcome to River Scape Residences!\n\nExperience serene waterfront luxury homes with breathtaking views and modern lifestyle amenities.'
+                  : (isRisinia
                     ? '👋 Welcome to Risinia Builders!\n\nDiscover thoughtfully designed 2 & 3 BHK Premium Apartments where luxury, comfort, and modern living come together.'
                     : '👋 Welcome! How can we assist you today?')
               },
@@ -346,26 +440,32 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
     const currentNode = safeNodes.find((n: any) => n.id === currentNodeId);
 
-    
     // Determine field label and key
     let fieldLabel = 'Field';
     let fieldKey = 'custom_field';
+    let profileUpdate: { name?: string; email?: string; phone?: string } | undefined = undefined;
 
     if (currentNode) {
       if (currentNode.type === 'name') {
         fieldLabel = 'Name';
         fieldKey = 'name';
+        profileUpdate = { name: cleanText };
       } else if (currentNode.type === 'email') {
         fieldLabel = 'Email';
         fieldKey = 'email';
+        profileUpdate = { email: cleanText };
       } else if (currentNode.type === 'phone') {
         fieldLabel = 'Phone Number';
         fieldKey = 'phone';
+        profileUpdate = { phone: cleanText };
       } else {
         fieldLabel = currentNode.data?.label || currentNode.data?.key || currentNode.data?.leadKey || 'Field';
         fieldKey = currentNode.data?.key || currentNode.data?.leadKey || currentNode.data?.label || ('field_' + Date.now());
       }
     }
+
+    // Track user message in Backend / Firebase
+    trackMessageToBackend('user', cleanText, currentNode?.type || 'text', profileUpdate);
 
     const fieldId = currentNode?.id || ('node_' + Date.now());
 
@@ -414,11 +514,11 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
       // 3. Check if an edge explicitly matches this choice text
       if (!targetNodeId) {
-        const choiceEdge = safeEdges.find((e: any) => 
-          e.source === currentNodeId && 
-          ((e.label && e.label.toLowerCase().trim() === cleanText.toLowerCase()) || 
-           (e.sourceHandle && e.sourceHandle.toLowerCase().trim() === cleanText.toLowerCase()) || 
-           (e.choice && e.choice.toLowerCase().trim() === cleanText.toLowerCase()))
+        const choiceEdge = safeEdges.find((e: any) =>
+          e.source === currentNodeId &&
+          ((e.label && e.label.toLowerCase().trim() === cleanText.toLowerCase()) ||
+            (e.sourceHandle && e.sourceHandle.toLowerCase().trim() === cleanText.toLowerCase()) ||
+            (e.choice && e.choice.toLowerCase().trim() === cleanText.toLowerCase()))
         );
         if (choiceEdge) {
           targetNodeId = choiceEdge.target;
@@ -502,7 +602,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   const saveLead = async (data: any, fieldsList: Array<{ fieldId: string; label: string; value: string }> = dynamicFields) => {
     if (isSubmitting) return;
     setIsSubmitting(true);
-    
+
     const effectiveClientId = localStorage.getItem('mintage_effective_user_id') || localStorage.getItem('mintage_client_id') || undefined;
     const payload = {
       botId,
@@ -561,9 +661,10 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         text: '🎉 Thank you! Your details have been submitted successfully. Our team will contact you shortly.',
         sender: 'bot'
       }]);
-    }, 600); finally {
-      setIsSubmitting(false);
-    }
+    }, 600);
+
+    // Reset submission state after the lead has been persisted.
+    setIsSubmitting(false);
   };
 
 
@@ -638,8 +739,8 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
               className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
             >
               <div className={`max-w-[80%] p-3 rounded-2xl text-sm shadow-sm ${msg.sender === 'user'
-                  ? 'bg-indigo-600 text-white rounded-tr-none'
-                  : 'bg-white text-gray-800 border border-gray-100 rounded-tl-none'
+                ? 'bg-indigo-600 text-white rounded-tr-none'
+                : 'bg-white text-gray-800 border border-gray-100 rounded-tl-none'
                 }`}>
                 {msg.imageUrl && (
                   <img
@@ -696,9 +797,9 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
             onChange={(e) => setInputValue(e.target.value)}
             placeholder={
               currentNode?.type === 'name' ? 'Type your full name...' :
-              currentNode?.type === 'phone' ? 'Type your phone number...' :
-              currentNode?.type === 'email' ? 'Type your email address...' :
-              'Type your response...'
+                currentNode?.type === 'phone' ? 'Type your phone number...' :
+                  currentNode?.type === 'email' ? 'Type your email address...' :
+                    'Type your response...'
             }
             className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-xs font-medium text-gray-800 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
           />

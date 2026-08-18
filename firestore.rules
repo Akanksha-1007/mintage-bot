@@ -1,16 +1,87 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /users/{userId} {
-      allow read, write: if true;
+
+    // ==========================================
+    // Security Helper Functions
+    // ==========================================
+
+    // Check if the request comes from an authenticated user
+    function isAuthenticated() {
+      return request.auth != null;
     }
+
+    // Check if the authenticated user matches the document owner
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Check if the user is an authenticated administrator
+    function isAdmin() {
+      return isAuthenticated() &&
+        (request.auth.token.email in [
+          'admin@mintagemarkcomm.com',
+          'admin@mintagemarkcomm',
+          'akanksha@mintagemarkcomm.com',
+          'admin@mintage.com'
+        ] ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
+    }
+
+    // ==========================================
+    // Document Match Rules
+    // ==========================================
+
+    // 1. User Profiles Collection
+    // Users can read/write their own profile; Admins have full access.
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create, update: if isOwner(userId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // 2. Chatbot Users Collection (Identified visitors)
+    // Read restricted to owner or admin. Widget can register visitor sessions.
+    match /chatbot_users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create, update: if true;
+      allow delete: if isAdmin();
+    }
+
+    // 3. Conversations & Messages Subcollection
+    // Only admins or the conversation owner can read transcripts.
+    match /conversations/{conversationId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create, update: if true;
+      allow delete: if isAdmin();
+
+      match /messages/{messageId} {
+        allow read: if isAdmin() || (isAuthenticated() && get(/databases/$(database)/documents/conversations/$(conversationId)).data.userId == request.auth.uid);
+        allow create, update: if true;
+        allow delete: if isAdmin();
+      }
+    }
+
+    // 4. Admin Clients Collection
+    // Admin-only management of client credentials and impersonation accounts.
+    match /clients/{clientId} {
+      allow read, write: if isAdmin();
+    }
+
+    // 5. Captured Leads Collection
+    // Public creation for chatbot lead capture; read/update restricted to owner client or admin.
+    match /leads/{leadId} {
+      allow read: if isAdmin() || (isAuthenticated() && (resource.data.ownerId == request.auth.uid || resource.data.clientId == request.auth.uid));
+      allow create: if true;
+      allow update, delete: if isAdmin() || (isAuthenticated() && (resource.data.ownerId == request.auth.uid || resource.data.clientId == request.auth.uid));
+    }
+
+    // 6. Bot Configurations Collection
+    // Public read so widget can load bot flow nodes; write restricted to owner or admin.
     match /bot_configurations/{botId} {
       allow read: if true;
-      allow write: if true;
-    }
-    match /leads/{leadId} {
-      allow read, create, update: if true;
-      allow delete: if request.auth != null;
+      allow write: if isAdmin() || (isAuthenticated() && (resource.data.createdBy == request.auth.uid || resource.data.clientId == request.auth.uid));
     }
   }
 }
