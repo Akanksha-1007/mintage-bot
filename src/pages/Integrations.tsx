@@ -369,12 +369,28 @@ export default function Integrations() {
     try {
       // Update in Firestore
       try {
-        await updateDoc(doc(db, 'bot_configurations', botId), {
+        await setDoc(doc(db, 'bot_configurations', botId), {
           spreadsheetId: cleanId,
           updatedAt: serverTimestamp()
-        });
+        }, { merge: true });
       } catch (e) {
         console.warn('Firestore update warning, persisting locally:', e);
+      }
+
+      // Update in Server API
+      try {
+        const existingBot = bots.find(b => b.id === botId);
+        await fetch('/api/bots/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: botId,
+            name: existingBot?.name || 'Chatbot',
+            spreadsheetId: cleanId
+          })
+        });
+      } catch (e) {
+        console.warn('Server bot save error:', e);
       }
 
       // Update in Local Storage
@@ -422,12 +438,27 @@ export default function Integrations() {
 
         // Save to bot in Firestore
         try {
-          await updateDoc(doc(db, 'bot_configurations', botId), {
+          await setDoc(doc(db, 'bot_configurations', botId), {
             spreadsheetId: newSheetId,
             updatedAt: serverTimestamp()
-          });
+          }, { merge: true });
         } catch (e) {
           console.warn('Firestore update warning:', e);
+        }
+
+        // Save to Server API
+        try {
+          await fetch('/api/bots/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: botId,
+              name: botName,
+              spreadsheetId: newSheetId
+            })
+          });
+        } catch (e) {
+          console.warn('Server bot save error:', e);
         }
 
         // Save to Local Storage
@@ -461,9 +492,22 @@ export default function Integrations() {
     setBotLoading(prev => ({ ...prev, [botId]: true }));
     try {
       try {
-        await updateDoc(doc(db, 'bot_configurations', botId), {
+        await setDoc(doc(db, 'bot_configurations', botId), {
           spreadsheetId: '',
           updatedAt: serverTimestamp()
+        }, { merge: true });
+      } catch (e) {}
+
+      try {
+        const existingBot = bots.find(b => b.id === botId);
+        await fetch('/api/bots/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: botId,
+            name: existingBot?.name || 'Chatbot',
+            spreadsheetId: ''
+          })
         });
       } catch (e) {}
 

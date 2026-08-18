@@ -421,51 +421,14 @@ export default function Leads() {
     name: botNames[bId] || bId
   }));
 
-  // Retry Google Sheets sync
+  // Retry Google Sheets sync securely through backend API
   const handleRetrySync = async (lead: Lead) => {
     setIsRetryingSync(true);
     try {
-      let googleTokens: any = null;
-      let spreadsheetId: string | null = null;
-      let worksheetName: string = 'Sheet1';
-
-      if (auth.currentUser) {
-        const userDocRef = doc(db, 'users', auth.currentUser.uid);
-        const docSnap = await getDoc(userDocRef);
-        if (docSnap.exists()) {
-          const uData = docSnap.data();
-          googleTokens = uData.googleTokens;
-          spreadsheetId = uData.spreadsheetId;
-        }
-      }
-
-      // Check if bot has dedicated spreadsheetId
-      const bId = lead.botId || lead.flowId;
-      if (bId) {
-        try {
-          const botDoc = await getDoc(doc(db, 'bot_configurations', bId));
-          if (botDoc.exists() && botDoc.data().spreadsheetId) {
-            spreadsheetId = botDoc.data().spreadsheetId;
-            if (botDoc.data().worksheetName) worksheetName = botDoc.data().worksheetName;
-          }
-        } catch { }
-      }
-
-      if (!googleTokens || !spreadsheetId) {
-        showToast('Please connect Google Account and link a Google Sheet in Integrations first.', 'error');
-        setIsRetryingSync(false);
-        return;
-      }
-
       const res = await fetch('/api/leads/retry-sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          leadId: lead.id,
-          googleTokens,
-          spreadsheetId,
-          worksheetName
-        }),
+        body: JSON.stringify({ leadId: lead.id }),
       });
 
       const data = await res.json();
@@ -479,9 +442,16 @@ export default function Leads() {
           });
         }
         // Refresh local leads list
-        setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, googleSheetSyncStatus: 'synced' } : l));
+        setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, googleSheetSyncStatus: 'synced', googleSheetSyncError: undefined } : l));
       } else {
         showToast(data.error || 'Retry sync failed.', 'error');
+        if (selectedLead && selectedLead.id === lead.id) {
+          setSelectedLead({
+            ...selectedLead,
+            googleSheetSyncStatus: 'failed',
+            googleSheetSyncError: data.error
+          });
+        }
       }
     } catch (err: any) {
       showToast('Retry sync failed: ' + (err.message || 'Unknown error'), 'error');
