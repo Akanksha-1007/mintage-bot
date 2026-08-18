@@ -44,6 +44,53 @@ async function startServer() {
 
   app.use(express.json());
 
+  // Safe Google OAuth Startup Diagnostics
+  const gClientId = process.env.GOOGLE_CLIENT_ID || '';
+  const gClientSecret = process.env.GOOGLE_CLIENT_SECRET || '';
+  const gAppUrl = (process.env.APP_URL || 'http://localhost:3000').replace(/\/$/, '');
+  const gRedirectUri = `${gAppUrl}/auth/callback`;
+  const gClientIdPrefix = gClientId ? (gClientId.length > 12 ? gClientId.substring(0, 12) + '...' : gClientId) : 'NONE';
+
+  console.log('[GOOGLE_OAUTH_CONFIG]', {
+    clientConfigured: !!gClientId,
+    secretConfigured: !!gClientSecret,
+    appUrl: gAppUrl,
+    redirectUri: gRedirectUri,
+    clientIdPrefix: gClientIdPrefix
+  });
+
+  // Helper to compute redirect URI consistently
+  function getRedirectUri(req?: express.Request): string {
+    const rawAppUrl = process.env.APP_URL;
+    let baseUrl = rawAppUrl;
+    if (!baseUrl && req) {
+      baseUrl = `${req.protocol}://${req.get('host')}`;
+    }
+    if (!baseUrl) {
+      baseUrl = 'http://localhost:3000';
+    }
+    const cleanBaseUrl = baseUrl.replace(/\/$/, '');
+    return `${cleanBaseUrl}/auth/callback`;
+  }
+
+  // Helper to create OAuth2 client with client credentials consistently
+  function createOAuth2Client(tokens?: any, req?: express.Request) {
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    const redirectUri = getRedirectUri(req);
+
+    const client = new google.auth.OAuth2(
+      clientId,
+      clientSecret,
+      redirectUri
+    );
+
+    if (tokens) {
+      client.setCredentials(tokens);
+    }
+    return client;
+  }
+
   // Allow framing and CORS globally for all routes so widget and iframes load on external sites
   app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -110,6 +157,23 @@ async function startServer() {
     res.json({ status: 'ok' });
   });
 
+  // Safe Google OAuth Diagnostics Endpoint
+  app.get('/api/auth/google/diagnostics', (req, res) => {
+    const clientId = process.env.GOOGLE_CLIENT_ID || '';
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET || '';
+    const redirectUri = getRedirectUri(req);
+    const clientIdPrefix = clientId ? (clientId.length > 12 ? clientId.substring(0, 12) + '...' : clientId) : 'NONE';
+
+    res.json({
+      success: true,
+      clientConfigured: !!clientId,
+      secretConfigured: !!clientSecret,
+      appUrl: (process.env.APP_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, ''),
+      redirectUri,
+      clientIdPrefix
+    });
+  });
+
   // Real-Time Server-Sent Events (SSE) Endpoint for Dashboards
   app.get('/api/events', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
@@ -136,14 +200,10 @@ async function startServer() {
     });
   });
 
-
   // Google OAuth URL
   app.get('/api/auth/google/url', (req, res) => {
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-
-    const cleanBaseUrl = (process.env.APP_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
-    const finalRedirectUri = `${cleanBaseUrl}/auth/callback`;
 
     if (!clientId || !clientSecret) {
       return res.status(400).json({
@@ -151,7 +211,7 @@ async function startServer() {
       });
     }
 
-    const client = new google.auth.OAuth2(clientId, clientSecret, finalRedirectUri);
+    const client = createOAuth2Client(undefined, req);
 
     const url = client.generateAuthUrl({
       access_type: 'offline',
@@ -172,15 +232,7 @@ async function startServer() {
     if (!code) return res.redirect('/dashboard');
 
     try {
-      const cleanBaseUrl = (process.env.APP_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
-      const finalRedirectUri = `${cleanBaseUrl}/auth/callback`;
-
-      const client = new google.auth.OAuth2(
-        process.env.GOOGLE_CLIENT_ID,
-        process.env.GOOGLE_CLIENT_SECRET,
-        finalRedirectUri
-      );
-
+      const client = createOAuth2Client(undefined, req);
       const { tokens } = await client.getToken(code as string);
 
       res.send(`
@@ -201,23 +253,11 @@ async function startServer() {
           </body>
         </html>
       `);
-    } catch (error) {
-      console.error('OAuth Error:', error);
-      res.status(500).send('Authentication failed');
+    } catch (error: any) {
+      console.error('[GOOGLE_OAUTH_CALLBACK_ERROR]', error?.message || error);
+      res.status(500).send('Authentication failed: ' + (error?.message || error));
     }
   });
-
-  // Helper to create OAuth2 client with client credentials
-  function createOAuth2Client(tokens?: any) {
-    const client = new google.auth.OAuth2(
-      process.env.GOOGLE_CLIENT_ID,
-      process.env.GOOGLE_CLIENT_SECRET
-    );
-    if (tokens) {
-      client.setCredentials(tokens);
-    }
-    return client;
-  }
 
   // Dynamic Google Sheets Synchronization Engine with Duplicate Protection & Header Management
   async function syncLeadToGoogleSheets(
@@ -252,6 +292,19 @@ async function startServer() {
         existingRows = getRes.data.values;
       }
     } catch (err: any) {
+      const errStr = String(err?.message || err).toLowerCase();
+      if (errStr.includes('unauthorized_client') || errStr.includes('invalid_grant') || errStr.includes('invalid_client')) {
+        console.error('[GOOGLE_SHEET_SYNC_FAILED]', {
+          leadId: lead.id,
+          botId: lead.botId || lead.flowId,
+          spreadsheetId,
+          error: 'unauthorized_client: Google OAuth credentials or refresh token invalid/expired. Reconnect required.'
+        });
+        const oauthErr: any = new Error('Google Account connection expired (unauthorized_client). Please click Connect Google Account in Integrations to re-authorize.');
+        oauthErr.code = 'unauthorized_client';
+        oauthErr.reconnectRequired = true;
+        throw oauthErr;
+      }
       console.warn(`Worksheet read warning for tab ${targetWorksheet}:`, err?.message || err);
     }
 
@@ -323,78 +376,95 @@ async function startServer() {
       }
     });
 
-    // Step 4: Write updated header row to Google Sheets if new columns added
-    if (headersUpdated) {
-      await sheets.spreadsheets.values.update({
+    try {
+      // Step 4: Write updated header row to Google Sheets if new columns added
+      if (headersUpdated) {
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: `'${targetWorksheet}'!1:1`,
+          valueInputOption: 'USER_ENTERED',
+          requestBody: {
+            values: [headers]
+          }
+        });
+      }
+
+      // Step 5: Construct row values aligned to dynamic header indices
+      const rowValues = headers.map(header => {
+        const hLower = header.toLowerCase();
+        if (hLower === 'timestamp' || hLower === 'date') {
+          return lead.submittedAt || lead.timestamp || new Date().toLocaleString();
+        }
+        if (hLower === 'lead id' || hLower === 'lead_id') {
+          return lead.id || '';
+        }
+        if (hLower === 'bot id' || hLower === 'bot_id') {
+          return lead.botId || lead.flowId || '';
+        }
+        if (hLower === 'bot name' || hLower === 'bot') {
+          return lead.botName || lead.clientName || lead.flowName || '';
+        }
+        if (hLower === 'name' || hLower === 'full name') {
+          return lead.name || fieldLabelMap.get('Name') || fieldLabelMap.get('full_name') || fieldLabelMap.get('Full Name') || '';
+        }
+        if (hLower === 'phone' || hLower === 'phone number' || hLower === 'mobile') {
+          return lead.phone || fieldLabelMap.get('Phone') || fieldLabelMap.get('Phone Number') || fieldLabelMap.get('mobile') || '';
+        }
+        if (hLower === 'email' || hLower === 'email address') {
+          return lead.email || fieldLabelMap.get('Email') || fieldLabelMap.get('Email Address') || '';
+        }
+        if (hLower === 'status') {
+          return lead.status || 'New';
+        }
+        if (hLower === 'source url' || hLower === 'source') {
+          return lead.sourceUrl || '';
+        }
+        if (hLower === 'conversation id') {
+          return lead.conversationId || '';
+        }
+        if (hLower === 'user id') {
+          return lead.userId || '';
+        }
+
+        if (fieldLabelMap.has(header)) {
+          return fieldLabelMap.get(header) || '';
+        }
+
+        for (const [lbl, val] of fieldLabelMap.entries()) {
+          if (lbl.toLowerCase() === hLower) {
+            return val;
+          }
+        }
+
+        return '';
+      });
+
+      // Step 6: Append row to target worksheet
+      await sheets.spreadsheets.values.append({
         spreadsheetId,
-        range: `'${targetWorksheet}'!1:1`,
+        range: `'${targetWorksheet}'`,
         valueInputOption: 'USER_ENTERED',
+        insertDataOption: 'INSERT_ROWS',
         requestBody: {
-          values: [headers]
+          values: [rowValues]
         }
       });
+    } catch (err: any) {
+      const errStr = String(err?.message || err).toLowerCase();
+      if (errStr.includes('unauthorized_client') || errStr.includes('invalid_grant') || errStr.includes('invalid_client')) {
+        console.error('[GOOGLE_SHEET_SYNC_FAILED]', {
+          leadId: lead.id,
+          botId: lead.botId || lead.flowId,
+          spreadsheetId,
+          error: 'unauthorized_client: Google OAuth credentials or refresh token invalid/expired. Reconnect required.'
+        });
+        const oauthErr: any = new Error('Google Account connection expired (unauthorized_client). Please click Connect Google Account in Integrations to re-authorize.');
+        oauthErr.code = 'unauthorized_client';
+        oauthErr.reconnectRequired = true;
+        throw oauthErr;
+      }
+      throw err;
     }
-
-    // Step 5: Construct row values aligned to dynamic header indices
-    const rowValues = headers.map(header => {
-      const hLower = header.toLowerCase();
-      if (hLower === 'timestamp' || hLower === 'date') {
-        return lead.submittedAt || lead.timestamp || new Date().toLocaleString();
-      }
-      if (hLower === 'lead id' || hLower === 'lead_id') {
-        return lead.id || '';
-      }
-      if (hLower === 'bot id' || hLower === 'bot_id') {
-        return lead.botId || lead.flowId || '';
-      }
-      if (hLower === 'bot name' || hLower === 'bot') {
-        return lead.botName || lead.clientName || lead.flowName || '';
-      }
-      if (hLower === 'name' || hLower === 'full name') {
-        return lead.name || fieldLabelMap.get('Name') || fieldLabelMap.get('full_name') || fieldLabelMap.get('Full Name') || '';
-      }
-      if (hLower === 'phone' || hLower === 'phone number' || hLower === 'mobile') {
-        return lead.phone || fieldLabelMap.get('Phone') || fieldLabelMap.get('Phone Number') || fieldLabelMap.get('mobile') || '';
-      }
-      if (hLower === 'email' || hLower === 'email address') {
-        return lead.email || fieldLabelMap.get('Email') || fieldLabelMap.get('Email Address') || '';
-      }
-      if (hLower === 'status') {
-        return lead.status || 'New';
-      }
-      if (hLower === 'source url' || hLower === 'source') {
-        return lead.sourceUrl || '';
-      }
-      if (hLower === 'conversation id') {
-        return lead.conversationId || '';
-      }
-      if (hLower === 'user id') {
-        return lead.userId || '';
-      }
-
-      if (fieldLabelMap.has(header)) {
-        return fieldLabelMap.get(header) || '';
-      }
-
-      for (const [lbl, val] of fieldLabelMap.entries()) {
-        if (lbl.toLowerCase() === hLower) {
-          return val;
-        }
-      }
-
-      return '';
-    });
-
-    // Step 6: Append row to target worksheet
-    await sheets.spreadsheets.values.append({
-      spreadsheetId,
-      range: `'${targetWorksheet}'`,
-      valueInputOption: 'USER_ENTERED',
-      insertDataOption: 'INSERT_ROWS',
-      requestBody: {
-        values: [rowValues]
-      }
-    });
 
     console.log('[GOOGLE_SHEET_SYNC_SUCCESS]', { leadId: lead.id, botId: lead.botId || lead.flowId, spreadsheetId, worksheet: targetWorksheet });
     return { success: true, alreadySynced: false };
