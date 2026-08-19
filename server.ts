@@ -314,13 +314,13 @@ async function startServer() {
     if (errStr.includes('unauthorized_client')) {
       return {
         code: 'unauthorized_client',
-        message: 'unauthorized_client: Google OAuth credentials or refresh token invalid/expired. Reconnect required.'
+        message: 'Google Account authorization expired. Please re-authorize your Google account.'
       };
     }
     if (errStr.includes('invalid_grant')) {
       return {
         code: 'invalid_grant',
-        message: 'invalid_grant: Refresh token revoked, expired, or invalid. Reconnect required.'
+        message: 'Google Account authorization expired. Please re-authorize your Google account.'
       };
     }
     if (errStr.includes('invalid_client')) {
@@ -385,9 +385,9 @@ async function startServer() {
           leadId: lead.id,
           botId: lead.botId || lead.flowId,
           spreadsheetId,
-          error: 'unauthorized_client: Google OAuth credentials or refresh token invalid/expired. Reconnect required.'
+          error: 'Google Account authorization expired. Please re-authorize your Google account.'
         });
-        const oauthErr: any = new Error('Google Account connection expired (unauthorized_client). Please click Connect Google Account in Integrations to re-authorize.');
+        const oauthErr: any = new Error('Google Account authorization expired. Please re-authorize your Google account.');
         oauthErr.code = 'unauthorized_client';
         oauthErr.reconnectRequired = true;
         throw oauthErr;
@@ -543,9 +543,9 @@ async function startServer() {
           leadId: lead.id,
           botId: lead.botId || lead.flowId,
           spreadsheetId,
-          error: 'unauthorized_client: Google OAuth credentials or refresh token invalid/expired. Reconnect required.'
+          error: 'Google Account authorization expired. Please re-authorize your Google account.'
         });
-        const oauthErr: any = new Error('Google Account connection expired (unauthorized_client). Please click Connect Google Account in Integrations to re-authorize.');
+        const oauthErr: any = new Error('Google Account authorization expired. Please re-authorize your Google account.');
         oauthErr.code = 'unauthorized_client';
         oauthErr.reconnectRequired = true;
         throw oauthErr;

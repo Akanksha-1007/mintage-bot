@@ -935,11 +935,20 @@ export default function Integrations() {
                 </div>
               </div>
               {isConnected ? (
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <div className="flex items-center gap-2 px-3.5 py-1.5 bg-emerald-50 text-emerald-700 rounded-full text-xs font-bold border border-emerald-200 shadow-2xs">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                     Connected
                   </div>
+                  <button
+                    onClick={handleConnect}
+                    disabled={isConnecting}
+                    className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 disabled:opacity-50"
+                    title="Re-authorize existing Google Account connection"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isConnecting ? 'animate-spin' : ''}`} />
+                    <span>{isConnecting ? 'Re-authorizing...' : 'Re-authorize Google Account'}</span>
+                  </button>
                   <button
                     onClick={handleDisconnect}
                     className="px-3 py-1.5 bg-gray-100 hover:bg-red-50 text-gray-600 hover:text-red-600 rounded-xl text-xs font-bold transition-all border border-gray-200"

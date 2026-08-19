@@ -8,6 +8,7 @@ import {
   Trash2, AlertTriangle, Loader2, MessageSquare, Tag
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { Link } from 'react-router-dom';
 import ConversationViewModal from '../components/ConversationViewModal';
 
 interface DynamicField {
@@ -966,9 +967,23 @@ export default function Leads() {
               </div>
 
               {selectedLead.googleSheetSyncError && (
-                <p className="text-xs text-red-300 bg-red-950/60 p-3 rounded-xl border border-red-800 font-mono">
-                  Error: {selectedLead.googleSheetSyncError}
-                </p>
+                <div className="p-3.5 bg-red-950/60 rounded-xl border border-red-800 space-y-2">
+                  <p className="text-xs text-red-300 font-mono">
+                    Error: {selectedLead.googleSheetSyncError}
+                  </p>
+                  {(selectedLead.googleSheetSyncError.toLowerCase().includes('expired') ||
+                    selectedLead.googleSheetSyncError.toLowerCase().includes('re-authorize') ||
+                    selectedLead.googleSheetSyncError.toLowerCase().includes('unauthorized') ||
+                    selectedLead.googleSheetSyncError.toLowerCase().includes('invalid_grant')) && (
+                    <Link
+                      to="/integrations"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Re-authorize Google Account in Integrations</span>
+                    </Link>
+                  )}
+                </div>
               )}
             </div>
 
