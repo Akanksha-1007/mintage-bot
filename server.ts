@@ -29,14 +29,56 @@ try {
   console.warn('[FIREBASE_INIT_WARNING] Could not initialize Firebase on server:', err);
 }
 
-const oauth2Client = new google.auth.OAuth2(
-  process.env.GOOGLE_CLIENT_ID,
-  process.env.GOOGLE_CLIENT_SECRET,
-  `${process.env.APP_URL || 'http://localhost:3000'}/auth/callback`
-);
+
 
 // In-memory store for tokens (In production, use Firestore)
 const userTokens = new Map<string, any>();
+// ============================================================
+// GOOGLE OAUTH CONFIGURATION
+// ============================================================
+
+function getGoogleAppUrl(): string {
+  const appUrl =
+    process.env.APP_URL?.trim() ||
+    'http://localhost:3000';
+
+  return appUrl.replace(/\/+$/, '');
+}
+
+function getGoogleRedirectUri(): string {
+  return `${getGoogleAppUrl()}/auth/callback`;
+}
+
+function createOAuth2Client(tokens?: any) {
+  const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
+  const redirectUri = getGoogleRedirectUri();
+
+  if (!clientId) {
+    throw new Error('GOOGLE_CLIENT_ID is not configured.');
+  }
+
+  if (!clientSecret) {
+    throw new Error('GOOGLE_CLIENT_SECRET is not configured.');
+  }
+
+  console.log('[GOOGLE_OAUTH_CLIENT]', {
+    clientIdPrefix: `${clientId.substring(0, 12)}...`,
+    redirectUri
+  });
+
+  const client = new google.auth.OAuth2(
+    clientId,
+    clientSecret,
+    redirectUri
+  );
+
+  if (tokens) {
+    client.setCredentials(tokens);
+  }
+
+  return client;
+}
 
 async function startServer() {
   const app = express();
@@ -158,19 +200,32 @@ async function startServer() {
   });
 
   // Safe Google OAuth Diagnostics Endpoint
+  // ============================================================
+  // GOOGLE OAUTH DIAGNOSTICS
+  // ============================================================
+
   app.get('/api/auth/google/diagnostics', (req, res) => {
-    const clientId = process.env.GOOGLE_CLIENT_ID || '';
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET || '';
-    const redirectUri = getRedirectUri(req);
-    const clientIdPrefix = clientId ? (clientId.length > 12 ? clientId.substring(0, 12) + '...' : clientId) : 'NONE';
+    const clientId = process.env.GOOGLE_CLIENT_ID?.trim() || '';
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim() || '';
+
+    const appUrl = getGoogleAppUrl();
+    const redirectUri = getGoogleRedirectUri();
 
     res.json({
       success: true,
-      clientConfigured: !!clientId,
-      secretConfigured: !!clientSecret,
-      appUrl: (process.env.APP_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, ''),
+
+      clientConfigured: Boolean(clientId),
+      secretConfigured: Boolean(clientSecret),
+
+      appUrl,
+
       redirectUri,
-      clientIdPrefix
+
+      clientIdPrefix: clientId
+        ? `${clientId.substring(0, 12)}...`
+        : 'NONE',
+
+      environment: process.env.NODE_ENV || 'development'
     });
   });
 
@@ -279,7 +334,7 @@ async function startServer() {
           googleTokens: null,
           updatedAt: new Date().toISOString()
         }, { merge: true }).catch(() => null);
-      } catch (e) {}
+      } catch (e) { }
     }
 
     res.json({ success: true, message: 'Google Account disconnected.' });
@@ -300,7 +355,7 @@ async function startServer() {
             googleTokens: tokens,
             updatedAt: new Date().toISOString()
           }, { merge: true }).catch(() => null);
-        } catch (e) {}
+        } catch (e) { }
       }
       // Auto-sync any unsynced leads once Google Account is connected
       autoSyncPendingLeads(undefined, targetUserId).catch(() => null);
@@ -1211,7 +1266,7 @@ async function startServer() {
         if (qSnap && !qSnap.empty) {
           existingLead = { id: qSnap.docs[0].id, ...qSnap.docs[0].data() };
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     const nowIso = new Date().toISOString();
@@ -1368,7 +1423,7 @@ async function startServer() {
         if (lSnap.exists()) {
           lead = { id: lSnap.id, ...lSnap.data() };
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     if (!lead) {
@@ -1425,7 +1480,7 @@ async function startServer() {
       try {
         const lSnap = await getDoc(doc(db, 'leads', id));
         if (lSnap.exists()) lead = { id: lSnap.id, ...lSnap.data() };
-      } catch (e) {}
+      } catch (e) { }
     }
 
     if (!lead) return res.status(404).json({ success: false, error: 'Lead not found.' });
@@ -1470,7 +1525,7 @@ async function startServer() {
           fsMsgs.forEach(m => mSet.set(m.id, m));
           messages = Array.from(mSet.values());
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     messages.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
@@ -1945,7 +2000,7 @@ async function startServer() {
     } else if (cleanEmail || cleanPhone) {
       for (const u of serverChatbotUsersMap.values()) {
         if ((cleanEmail && u.email && u.email.toLowerCase() === cleanEmail) ||
-            (cleanPhone && u.phone && u.phone === cleanPhone)) {
+          (cleanPhone && u.phone && u.phone === cleanPhone)) {
           userRecord = u;
           targetUserId = u.id;
           break;
@@ -1968,7 +2023,7 @@ async function startServer() {
             const matched = qSnap.docs.find(d => {
               const dData = d.data();
               return (cleanEmail && dData.email && dData.email.toLowerCase() === cleanEmail) ||
-                     (cleanPhone && dData.phone && dData.phone === cleanPhone);
+                (cleanPhone && dData.phone && dData.phone === cleanPhone);
             });
             if (matched) {
               userRecord = { id: matched.id, ...matched.data() };
@@ -2258,7 +2313,7 @@ async function startServer() {
         if (uSnap && uSnap.exists()) {
           userRecord = { id: uSnap.id, ...uSnap.data() };
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     if (!userRecord) {
@@ -2279,7 +2334,7 @@ async function startServer() {
           fsConvs.forEach(c => cMap.set(c.id, c));
           userConvs = Array.from(cMap.values());
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     userConvs.sort((a, b) => new Date(b.lastMessageAt || b.startedAt).getTime() - new Date(a.lastMessageAt || a.startedAt).getTime());
@@ -2315,7 +2370,7 @@ async function startServer() {
           fsMsgs.forEach(m => msgMap.set(m.id, m));
           messages = Array.from(msgMap.values());
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     if (!conversation && messages.length === 0) {
@@ -2345,7 +2400,7 @@ async function startServer() {
 
         const cSnap = await getDocs(collection(db, 'conversations')).catch(() => null);
         if (cSnap && !cSnap.empty) firestoreConvs = cSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      } catch (e) {}
+      } catch (e) { }
     }
 
     const uMap = new Map<string, any>();
