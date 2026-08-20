@@ -46,6 +46,15 @@ function getGoogleAppUrl(): string {
 }
 
 function getGoogleRedirectUri(): string {
+  // IMPORTANT:
+  // This value must exactly match one of the Authorized redirect URIs
+  // configured for the same Google OAuth Web Client ID.
+  const configuredRedirectUri = process.env.GOOGLE_REDIRECT_URI?.trim();
+
+  if (configuredRedirectUri) {
+    return configuredRedirectUri.replace(/\/$/, '');
+  }
+
   return `${getGoogleAppUrl()}/auth/callback`;
 }
 
@@ -89,8 +98,8 @@ async function startServer() {
   // Safe Google OAuth Startup Diagnostics
   const gClientId = process.env.GOOGLE_CLIENT_ID || '';
   const gClientSecret = process.env.GOOGLE_CLIENT_SECRET || '';
-  const gAppUrl = (process.env.APP_URL || 'http://localhost:3000').replace(/\/$/, '');
-  const gRedirectUri = `${gAppUrl}/auth/callback`;
+  const gAppUrl = getGoogleAppUrl();
+  const gRedirectUri = getGoogleRedirectUri();
   const gClientIdPrefix = gClientId ? (gClientId.length > 12 ? gClientId.substring(0, 12) + '...' : gClientId) : 'NONE';
 
   console.log('[GOOGLE_OAUTH_CONFIG]', {
@@ -101,37 +110,17 @@ async function startServer() {
     clientIdPrefix: gClientIdPrefix
   });
 
-  // Helper to compute redirect URI consistently
-  function getRedirectUri(req?: express.Request): string {
-    const rawAppUrl = process.env.APP_URL;
-    let baseUrl = rawAppUrl;
-    if (!baseUrl && req) {
-      baseUrl = `${req.protocol}://${req.get('host')}`;
-    }
-    if (!baseUrl) {
-      baseUrl = 'http://localhost:3000';
-    }
-    const cleanBaseUrl = baseUrl.replace(/\/$/, '');
-    return `${cleanBaseUrl}/auth/callback`;
-  }
-
-  // Helper to create OAuth2 client with client credentials consistently
-  function createOAuth2Client(tokens?: any, req?: express.Request) {
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    const redirectUri = getRedirectUri(req);
-
-    const client = new google.auth.OAuth2(
-      clientId,
-      clientSecret,
-      redirectUri
+  if (process.env.NODE_ENV === 'production' && !process.env.GOOGLE_REDIRECT_URI) {
+    console.warn(
+      '[GOOGLE_OAUTH_WARNING] GOOGLE_REDIRECT_URI is not set. ' +
+      'Using APP_URL + /auth/callback. For production, set ' +
+      'GOOGLE_REDIRECT_URI to the exact URI configured in Google Cloud.'
     );
-
-    if (tokens) {
-      client.setCredentials(tokens);
-    }
-    return client;
   }
+
+  // Use the single OAuth configuration defined above.
+  // Do not derive the redirect URI from the incoming request host.
+  // Google requires an exact redirect URI match.
 
   // Allow framing and CORS globally for all routes so widget and iframes load on external sites
   app.use((req, res, next) => {
@@ -268,7 +257,7 @@ async function startServer() {
 
     console.log('[GOOGLE_OAUTH_RECONNECT]', { started: true });
 
-    const client = createOAuth2Client(undefined, req);
+    const client = createOAuth2Client();
 
     const url = client.generateAuthUrl({
       access_type: 'offline',
@@ -284,17 +273,19 @@ async function startServer() {
   });
 
   // Google OAuth Callback
-  app.get(['/auth/callback', '/auth/callback/'], async (req, res) => {
-    const { code } = req.query;
-    if (!code) return res.redirect('/dashboard');
+  app.get(
+    ['/auth/callback', '/auth/callback/', '/auth/google/callback', '/auth/google/callback/'],
+    async (req, res) => {
+      const { code } = req.query;
+      if (!code) return res.redirect('/dashboard');
 
-    try {
-      const client = createOAuth2Client(undefined, req);
-      const { tokens } = await client.getToken(code as string);
+      try {
+        const client = createOAuth2Client();
+        const { tokens } = await client.getToken(code as string);
 
-      console.log('[GOOGLE_OAUTH_RECONNECT]', { tokenReceived: true });
+        console.log('[GOOGLE_OAUTH_RECONNECT]', { tokenReceived: true });
 
-      res.send(`
+        res.send(`
         <html>
           <body>
             <script>
@@ -312,11 +303,11 @@ async function startServer() {
           </body>
         </html>
       `);
-    } catch (error: any) {
-      console.error('[GOOGLE_OAUTH_CALLBACK_ERROR]', error?.message || error);
-      res.status(500).send('Authentication failed: ' + (error?.message || error));
-    }
-  });
+      } catch (error: any) {
+        console.error('[GOOGLE_OAUTH_CALLBACK_ERROR]', error?.message || error);
+        res.status(500).send('Authentication failed: ' + (error?.message || error));
+      }
+    });
 
   // Endpoint to clear / disconnect stored Google OAuth credentials
   app.post('/api/auth/google/disconnect', async (req, res) => {
