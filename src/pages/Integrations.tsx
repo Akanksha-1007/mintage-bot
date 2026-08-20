@@ -93,19 +93,39 @@ export default function Integrations() {
   const loadData = async () => {
     setIsLoading(true);
     try {
-      if (auth.currentUser) {
-        const userDocRef = doc(db, 'users', auth.currentUser.uid);
-        const docSnap = await getDoc(userDocRef);
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          setIsConnected(!!data.googleTokens);
-          setGoogleTokens(data.googleTokens || null);
-          setGlobalSpreadsheetId(data.spreadsheetId || '');
+      let resolvedTokens: any = null;
+      let resolvedSpreadsheetId: string = '';
 
-          if (data.googleTokens) {
-            fetchUserSheets(data.googleTokens);
+      if (auth.currentUser) {
+        try {
+          const userDocRef = doc(db, 'users', auth.currentUser.uid);
+          const docSnap = await getDoc(userDocRef);
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            resolvedTokens = data.googleTokens || null;
+            resolvedSpreadsheetId = data.spreadsheetId || '';
           }
+        } catch (e) { }
+      }
+
+      if (!resolvedTokens) {
+        const localTokensRaw = localStorage.getItem('mintage_google_tokens');
+        if (localTokensRaw) {
+          try { resolvedTokens = JSON.parse(localTokensRaw); } catch { }
         }
+      }
+
+      if (resolvedTokens) {
+        setIsConnected(true);
+        setGoogleTokens(resolvedTokens);
+        fetchUserSheets(resolvedTokens);
+      } else {
+        setIsConnected(false);
+        setGoogleTokens(null);
+      }
+
+      if (resolvedSpreadsheetId) {
+        setGlobalSpreadsheetId(resolvedSpreadsheetId);
       }
 
       // Fetch user's bots from Firestore
@@ -174,7 +194,7 @@ export default function Integrations() {
               }
             }
           });
-        } catch {}
+        } catch { }
       }
 
       const botList = Array.from(fetchedBotMap.values());
@@ -218,26 +238,31 @@ export default function Integrations() {
     const handleMessage = async (event: MessageEvent) => {
       if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
         const { tokens } = event.data;
-        if (auth.currentUser) {
+        if (tokens) {
           try {
-            await setDoc(doc(db, 'users', auth.currentUser.uid), {
-              googleTokens: tokens,
-              updatedAt: serverTimestamp(),
-            }, { merge: true });
+            localStorage.setItem('mintage_google_tokens', JSON.stringify(tokens));
 
+            const targetUid = effectiveUserId || auth.currentUser?.uid || 'demo_user';
             await fetch('/api/auth/google/tokens', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                userId: auth.currentUser.uid,
+                userId: targetUid,
                 tokens
               })
             }).catch(() => null);
 
+            if (auth.currentUser) {
+              await setDoc(doc(db, 'users', auth.currentUser.uid), {
+                googleTokens: tokens,
+                updatedAt: serverTimestamp(),
+              }, { merge: true }).catch(() => null);
+            }
+
             setIsConnected(true);
             setGoogleTokens(tokens);
             fetchUserSheets(tokens);
-            showToast('Google Account connected successfully!');
+            showToast('🎉 Google Account connected successfully!');
           } catch (error) {
             console.error('Error saving tokens:', error);
             showToast('Failed to connect Google account.', 'error');
@@ -247,21 +272,27 @@ export default function Integrations() {
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, []);
+  }, [effectiveUserId]);
 
   const handleConnect = async () => {
     setIsConnecting(true);
     try {
       const response = await fetch('/api/auth/google/url');
       const data = await response.json();
-      
+
       if (!response.ok) {
-        showToast(data.error || 'Failed to get auth URL', 'error');
+        showToast(data.error || 'Google OAuth credentials missing. Check GOOGLE_CLIENT_ID on server.', 'error');
         return;
       }
-      
-      window.open(data.url, 'google_oauth', 'width=600,height=700');
-    } catch (error) {
+
+      if (data.url) {
+        const popup = window.open(data.url, 'google_oauth', 'width=600,height=700');
+        if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+          // Fallback if popup is blocked: redirect full window
+          window.location.href = data.url;
+        }
+      }
+    } catch (error: any) {
       console.error('Failed to get auth URL:', error);
       showToast('An unexpected error occurred. Please try again.', 'error');
     } finally {
@@ -270,26 +301,29 @@ export default function Integrations() {
   };
 
   const handleDisconnect = async () => {
-    if (auth.currentUser) {
-      try {
-        await fetch('/api/auth/google/disconnect', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: auth.currentUser.uid })
-        }).catch(() => null);
+    try {
+      const targetUid = effectiveUserId || auth.currentUser?.uid || 'demo_user';
+      await fetch('/api/auth/google/disconnect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: targetUid })
+      }).catch(() => null);
 
+      localStorage.removeItem('mintage_google_tokens');
+
+      if (auth.currentUser) {
         await setDoc(doc(db, 'users', auth.currentUser.uid), {
           googleTokens: null,
           updatedAt: serverTimestamp(),
-        }, { merge: true });
-
-        setIsConnected(false);
-        setGoogleTokens(null);
-        setUserSheets([]);
-        showToast('Google Account disconnected successfully.');
-      } catch (error: any) {
-        showToast(`Failed to disconnect: ${error?.message || error}`, 'error');
+        }, { merge: true }).catch(() => null);
       }
+
+      setIsConnected(false);
+      setGoogleTokens(null);
+      setUserSheets([]);
+      showToast('Google Account disconnected successfully.');
+    } catch (error: any) {
+      showToast(`Failed to disconnect: ${error?.message || error}`, 'error');
     }
   };
 
