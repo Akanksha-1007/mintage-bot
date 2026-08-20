@@ -302,6 +302,8 @@ async function startServer() {
           }, { merge: true }).catch(() => null);
         } catch (e) {}
       }
+      // Auto-sync any unsynced leads once Google Account is connected
+      autoSyncPendingLeads(undefined, targetUserId).catch(() => null);
     }
 
     res.json({ success: true });
@@ -808,6 +810,11 @@ async function startServer() {
     serverBotsMap.set(id, botObj);
     saveBotsToFile();
     broadcastEvent('BOT_SAVED', botObj);
+
+    if (spreadsheetId) {
+      autoSyncPendingLeads(id).catch(() => null);
+    }
+
     res.json({ success: true, bot: botObj });
   });
 
@@ -1058,6 +1065,84 @@ async function startServer() {
     return { googleTokens, spreadsheetId, worksheetName };
   }
 
+  // Dynamic Background Auto-Sync Engine for Pending Leads
+  async function autoSyncPendingLeads(specificBotId?: string, specificClientId?: string) {
+    loadLeadsFromFile();
+    let firestoreLeads: any[] = [];
+    if (db) {
+      try {
+        const snap = await getDocs(collection(db, 'leads')).catch(() => null);
+        if (snap && !snap.empty) {
+          firestoreLeads = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        }
+      } catch (e) { }
+    }
+
+    const leadMap = new Map<string, any>();
+    serverLeadsList.forEach(l => { if (l && l.id) leadMap.set(l.id, l); });
+    firestoreLeads.forEach(l => { if (l && l.id) leadMap.set(l.id, l); });
+
+    let leadsToProcess = Array.from(leadMap.values()).filter(l => l && l.googleSheetSyncStatus !== 'synced');
+
+    if (specificBotId && specificBotId !== 'ALL') {
+      leadsToProcess = leadsToProcess.filter(l => l.botId === specificBotId || l.flowId === specificBotId);
+    }
+    if (specificClientId && specificClientId !== 'ALL' && specificClientId !== 'admin') {
+      leadsToProcess = leadsToProcess.filter(l => l.clientId === specificClientId || l.ownerId === specificClientId);
+    }
+
+    if (leadsToProcess.length === 0) return { processed: 0, synced: 0 };
+
+    console.log('[AUTO_SYNC_PENDING_START]', { count: leadsToProcess.length, specificBotId, specificClientId });
+
+    let syncedCount = 0;
+    for (const lead of leadsToProcess) {
+      try {
+        const botId = lead.botId || lead.flowId;
+        const resolvedBot = await resolveBotAndOwner(botId);
+        const clientId = lead.clientId || lead.ownerId || (resolvedBot ? resolvedBot.clientId : 'demo_user');
+        const sheetConfig = await resolveClientGoogleSheetsConfig(clientId, resolvedBot?.spreadsheetId, resolvedBot?.worksheetName);
+
+        if (sheetConfig.googleTokens && sheetConfig.spreadsheetId) {
+          await syncLeadToGoogleSheets(sheetConfig.googleTokens, sheetConfig.spreadsheetId, sheetConfig.worksheetName, lead);
+          lead.googleSheetSyncStatus = 'synced';
+          lead.googleSheetSyncedAt = new Date().toISOString();
+          lead.spreadsheetId = sheetConfig.spreadsheetId;
+          lead.worksheetName = sheetConfig.worksheetName;
+          delete lead.googleSheetSyncError;
+
+          const idx = serverLeadsList.findIndex(l => l.id === lead.id);
+          if (idx !== -1) serverLeadsList[idx] = lead;
+          else serverLeadsList.unshift(lead);
+
+          if (db) {
+            await setDoc(doc(db, 'leads', lead.id), {
+              googleSheetSyncStatus: 'synced',
+              googleSheetSyncedAt: lead.googleSheetSyncedAt,
+              spreadsheetId: sheetConfig.spreadsheetId,
+              worksheetName: sheetConfig.worksheetName,
+              googleSheetSyncError: null
+            }, { merge: true }).catch(() => null);
+          }
+
+          syncedCount++;
+          broadcastEvent('LEAD_SYNCED', lead);
+          console.log('[AUTO_SYNC_SUCCESS]', { leadId: lead.id, botId, spreadsheetId: sheetConfig.spreadsheetId });
+        }
+      } catch (err: any) {
+        console.warn('[AUTO_SYNC_LEAD_FAILED]', { leadId: lead.id, error: err?.message || err });
+      }
+    }
+
+    if (syncedCount > 0) {
+      saveLeadsToFile();
+    }
+
+    console.log('[AUTO_SYNC_PENDING_END]', { processed: leadsToProcess.length, synced: syncedCount });
+    return { processed: leadsToProcess.length, synced: syncedCount };
+  }
+
+
 
   // Backend Lead Storage & Retrieval
   app.post('/api/leads', async (req, res) => {
@@ -1240,6 +1325,11 @@ async function startServer() {
     }
 
     broadcastEvent(isUpdate ? 'LEAD_UPDATED' : 'LEAD_CAPTURED', leadRecord);
+
+    if (leadRecord.googleSheetSyncStatus !== 'synced') {
+      autoSyncPendingLeads(botId, clientId).catch(() => null);
+    }
+
     return res.json({
       success: true,
       leadId,
@@ -1437,6 +1527,11 @@ async function startServer() {
         l.botId === targetBot ||
         l.flowId === targetBot
       );
+    }
+
+    // Auto-sync any unsynced leads in background when dashboard loads/fetches leads
+    if (allLeads.some(l => l && l.googleSheetSyncStatus !== 'synced')) {
+      autoSyncPendingLeads(targetBot as string, targetOwner as string).catch(() => null);
     }
 
     res.json({ success: true, leads: allLeads });
