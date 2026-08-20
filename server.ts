@@ -389,15 +389,27 @@ async function startServer() {
     };
   }
 
+  // Helper to extract clean Spreadsheet ID from raw string or Google Sheets URL
+  function extractSpreadsheetId(input?: string): string {
+    if (!input) return '';
+    const trimmed = String(input).trim();
+    if (trimmed.includes('/d/')) {
+      const match = trimmed.match(/\/d\/([a-zA-Z0-9-_]+)/);
+      if (match && match[1]) return match[1];
+    }
+    return trimmed;
+  }
+
   // Dynamic Google Sheets Synchronization Engine with Duplicate Protection & Header Management
   async function syncLeadToGoogleSheets(
     tokens: any,
-    spreadsheetId: string,
+    rawSpreadsheetId: string,
     worksheetName: string = 'Sheet1',
     lead: any
   ) {
+    const spreadsheetId = extractSpreadsheetId(rawSpreadsheetId);
     if (!tokens || !spreadsheetId) {
-      throw new Error('Missing tokens or spreadsheetId');
+      throw new Error('Missing tokens or valid spreadsheetId');
     }
 
     console.log('[GOOGLE_SHEETS_AUTH]', {
@@ -407,7 +419,21 @@ async function startServer() {
 
     const auth = createOAuth2Client(tokens);
     const sheets = google.sheets({ version: 'v4', auth });
-    const targetWorksheet = worksheetName || 'Sheet1';
+    let targetWorksheet = worksheetName || 'Sheet1';
+
+    // Auto-discover tab titles from spreadsheet to prevent range parsing errors if Sheet1 does not exist
+    try {
+      const meta = await sheets.spreadsheets.get({
+        spreadsheetId,
+        fields: 'sheets.properties.title',
+      });
+      const titles = (meta.data.sheets || []).map((s: any) => s.properties?.title).filter(Boolean);
+      if (titles.length > 0 && !titles.includes(targetWorksheet)) {
+        targetWorksheet = titles[0];
+      }
+    } catch (metaErr: any) {
+      console.warn('[SHEETS_META_NOTICE] Could not fetch sheet metadata, falling back to worksheet name:', targetWorksheet);
+    }
 
     console.log('[GOOGLE_SHEET_SYNC]', {
       leadId: lead.id,
@@ -1070,7 +1096,7 @@ async function startServer() {
   // Helper to resolve client Google Sheets configuration (tokens & bot-specific spreadsheet ID)
   async function resolveClientGoogleSheetsConfig(clientId: string, botSpreadsheetId?: string, botWorksheetName?: string) {
     let googleTokens: any = null;
-    let spreadsheetId: string = botSpreadsheetId || '';
+    let spreadsheetId: string = extractSpreadsheetId(botSpreadsheetId) || '';
     let worksheetName: string = botWorksheetName || 'Sheet1';
 
     if (db) {
@@ -1086,14 +1112,14 @@ async function startServer() {
               if (uDoc.id === clientId || (data.email && data.email.toLowerCase() === clientId.toLowerCase()) || clientId === 'demo_user') {
                 googleTokens = data.googleTokens;
                 if (!spreadsheetId && data.spreadsheetId) {
-                  spreadsheetId = data.spreadsheetId;
+                  spreadsheetId = extractSpreadsheetId(data.spreadsheetId);
                 }
                 if (!botWorksheetName && data.worksheetName) {
                   worksheetName = data.worksheetName;
                 }
                 break;
               } else if (!spreadsheetId && data.spreadsheetId) {
-                spreadsheetId = data.spreadsheetId;
+                spreadsheetId = extractSpreadsheetId(data.spreadsheetId);
               }
             }
           }
@@ -1104,8 +1130,21 @@ async function startServer() {
     if (!googleTokens && userTokens.has(clientId)) {
       googleTokens = userTokens.get(clientId);
     }
+    if (!googleTokens && userTokens.has('demo_user')) {
+      googleTokens = userTokens.get('demo_user');
+    }
+    if (!googleTokens && userTokens.has('global')) {
+      googleTokens = userTokens.get('global');
+    }
     if (!googleTokens && userTokens.size > 0) {
       googleTokens = Array.from(userTokens.values())[0];
+    }
+
+    if (!spreadsheetId && process.env.GOOGLE_SPREADSHEET_ID) {
+      spreadsheetId = extractSpreadsheetId(process.env.GOOGLE_SPREADSHEET_ID);
+    }
+    if (!spreadsheetId && process.env.SPREADSHEET_ID) {
+      spreadsheetId = extractSpreadsheetId(process.env.SPREADSHEET_ID);
     }
 
     return { googleTokens, spreadsheetId, worksheetName };
@@ -1733,7 +1772,7 @@ async function startServer() {
 
     loadLeadsFromFile();
     const map = new Map<string, any>();
-    serverLeadsList.filter(l => l.clientId === targetClientId || l.ownerId === targetClientId).forEach(l => map.set(l.id, l));
+    serverLeadsList.filter(l => l.clientId === targetClientId || l.ownerId === targetClientId || l.clientId === 'demo_user' || l.clientId === 'guest_user' || !l.clientId || targetClientId === 'demo_user' || targetClientId === 'ALL').forEach(l => map.set(l.id, l));
     firestoreLeads.forEach(l => map.set(l.id, l));
 
     const clientLeads = Array.from(map.values());
@@ -1751,7 +1790,7 @@ async function startServer() {
       }
 
       const resolvedBot = await resolveBotAndOwner(lead.botId || lead.flowId);
-      const sheetConfig = await resolveClientGoogleSheetsConfig(targetClientId, resolvedBot?.spreadsheetId, resolvedBot?.worksheetName);
+      const sheetConfig = await resolveClientGoogleSheetsConfig(lead.clientId || targetClientId, resolvedBot?.spreadsheetId, resolvedBot?.worksheetName);
 
       const hasConfig = !!(sheetConfig.googleTokens && sheetConfig.spreadsheetId);
       console.log('[SYNC_GOOGLE_CONFIG]', { spreadsheetConfigured: hasConfig, worksheet: sheetConfig.worksheetName });

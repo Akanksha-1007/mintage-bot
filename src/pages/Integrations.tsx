@@ -423,6 +423,13 @@ export default function Integrations() {
       setBots(prev => prev.map(b => b.id === botId ? { ...b, spreadsheetId: cleanId } : b));
       setBotInputs(prev => ({ ...prev, [botId]: cleanId }));
 
+      // Immediately trigger background sync for all leads of this bot
+      fetch('/api/leads/sync-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: effectiveUserId || 'demo_user' })
+      }).catch(() => null);
+
       showToast('Google Sheet linked to Chatbot successfully!');
     } catch (err: any) {
       showToast(`Failed to link sheet: ${err.message}`, 'error');
