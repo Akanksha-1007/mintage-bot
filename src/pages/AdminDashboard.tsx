@@ -362,6 +362,9 @@ export default function AdminDashboard() {
 
   const totalBots = clients.reduce((acc, c) => acc + (c.botsCount || 0), 0);
   const totalLeads = clients.reduce((acc, c) => acc + (c.leadsCount || 0), 0);
+  const adminTrend = chatbotStats.dailyTrend.length > 0
+    ? chatbotStats.dailyTrend
+    : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((date) => ({ date, users: 0, conversations: 0 }));
 
   return (
     <div className="admin-console-page p-8 max-w-7xl mx-auto space-y-8 font-sans">
@@ -460,70 +463,41 @@ export default function AdminDashboard() {
       {/* TAB 1: Chatbot Activity & Users */}
       {activeTab === 'users' && (
         <div className="space-y-8 animate-in fade-in duration-300">
-          {/* Chatbot Overview KPI Stats Cards */}
-          <div className="admin-stat-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {/* Total Users */}
-            <div className="admin-stat-card bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex items-center justify-between">
-              <div className="space-y-1">
-                <p className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">Total Chatbot Users</p>
-                <p className="text-3xl font-black text-slate-900">{chatbotStats.totalUsers}</p>
-                <div className="flex items-center gap-1 text-[11px] font-bold text-emerald-600">
-                  <UserCheck className="w-3.5 h-3.5" />
-                  <span>{chatbotStats.activeUsers} Active Recently</span>
-                </div>
+          <section className="admin-overview-deck">
+            <article className="admin-primary-stat">
+              <div className="admin-stat-icon"><Users /></div>
+              <div>
+                <span className="admin-card-kicker">Audience</span>
+                <p>Total chatbot users</p>
+                <strong>{chatbotStats.totalUsers}</strong>
               </div>
-              <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center shrink-0">
-                <Users className="w-6 h-6" />
+              <div className="admin-primary-footer">
+                <span><UserCheck /> {chatbotStats.activeUsers} active recently</span>
+                <span>Live directory</span>
               </div>
-            </div>
+              <div className="admin-sparkline" aria-hidden="true">
+                {adminTrend.map((item, index) => <i key={index} style={{ height: `${Math.max(12, item.users * 12)}%` }} />)}
+              </div>
+            </article>
 
-            {/* New Users Today / This Week */}
-            <div className="admin-stat-card bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex items-center justify-between">
-              <div className="space-y-1">
-                <p className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">New Users Today</p>
-                <p className="text-3xl font-black text-slate-900">{chatbotStats.newUsersToday}</p>
-                <div className="flex items-center gap-1 text-[11px] font-bold text-indigo-600">
-                  <span>+{chatbotStats.newUsersThisWeek} this week</span>
-                </div>
-              </div>
-              <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center shrink-0">
-                <TrendingUp className="w-6 h-6" />
-              </div>
+            <div className="admin-secondary-stats">
+              <article>
+                <div className="admin-secondary-icon tone-green"><TrendingUp /></div>
+                <div><span>New today</span><strong>{chatbotStats.newUsersToday}</strong><small>+{chatbotStats.newUsersThisWeek} this week</small></div>
+              </article>
+              <article>
+                <div className="admin-secondary-icon tone-amber"><MessageSquare /></div>
+                <div><span>Conversations</span><strong>{chatbotStats.totalConversations}</strong><small>Across all widgets</small></div>
+              </article>
+              <article>
+                <div className="admin-secondary-icon tone-violet"><BarChart3 /></div>
+                <div><span>Total messages</span><strong>{chatbotStats.totalMessages}</strong><small>{chatbotStats.avgMessagesPerConversation} average per conversation</small></div>
+              </article>
             </div>
-
-            {/* Total Conversations */}
-            <div className="admin-stat-card bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex items-center justify-between">
-              <div className="space-y-1">
-                <p className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">Total Conversations</p>
-                <p className="text-3xl font-black text-slate-900">{chatbotStats.totalConversations}</p>
-                <div className="flex items-center gap-1 text-[11px] font-bold text-slate-500">
-                  <MessageSquare className="w-3.5 h-3.5 text-slate-400" />
-                  <span>Across all widgets</span>
-                </div>
-              </div>
-              <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center shrink-0">
-                <MessageSquare className="w-6 h-6" />
-              </div>
-            </div>
-
-            {/* Total Messages & Avg Length */}
-            <div className="admin-stat-card bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex items-center justify-between">
-              <div className="space-y-1">
-                <p className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">Total Messages</p>
-                <p className="text-3xl font-black text-slate-900">{chatbotStats.totalMessages}</p>
-                <div className="flex items-center gap-1 text-[11px] font-bold text-violet-600">
-                  <span>Avg {chatbotStats.avgMessagesPerConversation} msgs / conv</span>
-                </div>
-              </div>
-              <div className="w-12 h-12 bg-violet-50 text-violet-600 rounded-2xl flex items-center justify-center shrink-0">
-                <BarChart3 className="w-6 h-6" />
-              </div>
-            </div>
-          </div>
+          </section>
 
           {/* Daily Activity Growth Chart Card */}
-          {chatbotStats.dailyTrend && chatbotStats.dailyTrend.length > 0 && (
-            <div className="admin-activity-card bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-6 rounded-3xl shadow-xl border border-slate-800 space-y-4">
+          <div className="admin-activity-card bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-6 rounded-3xl shadow-xl border border-slate-800 space-y-4">
               <div className="flex items-center justify-between">
                 <div>
                   <div className="flex items-center gap-2">
@@ -546,9 +520,9 @@ export default function AdminDashboard() {
 
               {/* Bar Chart Visualization */}
               <div className="grid grid-cols-7 gap-3 pt-4 items-end h-40">
-                {chatbotStats.dailyTrend.map((item, idx) => {
+                {adminTrend.map((item, idx) => {
                   const maxVal = Math.max(
-                    ...chatbotStats.dailyTrend.flatMap(t => [t.users, t.conversations]),
+                    ...adminTrend.flatMap(t => [t.users, t.conversations]),
                     5
                   );
                   const userHeightPct = Math.max(10, Math.round((item.users / maxVal) * 100));
@@ -581,8 +555,7 @@ export default function AdminDashboard() {
                   );
                 })}
               </div>
-            </div>
-          )}
+          </div>
 
           {/* Chatbot Users Table Section */}
           <ChatbotUsersTable onSelectUser={(uId) => setSelectedUserId(uId)} />

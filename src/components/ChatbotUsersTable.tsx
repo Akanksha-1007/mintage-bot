@@ -152,9 +152,18 @@ export default function ChatbotUsersTable({ onSelectUser }: ChatbotUsersTablePro
   };
 
   return (
-    <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden space-y-4 p-6 font-sans">
+    <section className="chatbot-directory-card bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden space-y-4 p-6 font-sans">
+      <div className="directory-heading">
+        <div className="directory-title-icon"><User /></div>
+        <div>
+          <span className="directory-eyebrow">Workspace database</span>
+          <h3>People and conversations</h3>
+          <p>Every identified visitor and their latest chatbot activity.</p>
+        </div>
+        <div className="directory-view-pill"><span /> Table view</div>
+      </div>
       {/* Controls Bar */}
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 pb-4 border-b border-slate-100">
+      <div className="directory-controls flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 pb-4 border-b border-slate-100">
         <div className="relative w-full lg:w-80">
           <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
@@ -215,8 +224,8 @@ export default function ChatbotUsersTable({ onSelectUser }: ChatbotUsersTablePro
           <p className="text-xs text-slate-500 font-medium">Loading chatbot users directory...</p>
         </div>
       ) : paginatedUsers.length === 0 ? (
-        <div className="p-16 text-center bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
-          <User className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+        <div className="directory-empty p-16 text-center bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
+          <div className="directory-empty-icon"><User /></div>
           <h4 className="text-sm font-bold text-slate-700">No Chatbot Users Found</h4>
           <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1">
             No chatbot user records match your search or filter criteria.
@@ -317,7 +326,7 @@ export default function ChatbotUsersTable({ onSelectUser }: ChatbotUsersTablePro
       )}
 
       {/* Pagination Footer */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-100">
+      <div className="directory-footer flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-100">
         <p className="text-xs text-slate-500 font-medium">
           Showing <strong className="text-slate-800">{paginatedUsers.length}</strong> of <strong className="text-slate-800">{filteredUsers.length}</strong> users
         </p>
@@ -342,6 +351,6 @@ export default function ChatbotUsersTable({ onSelectUser }: ChatbotUsersTablePro
           </button>
         </div>
       </div>
-    </div>
+    </section>
   );
 }

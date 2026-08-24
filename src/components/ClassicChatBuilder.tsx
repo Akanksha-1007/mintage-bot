@@ -456,7 +456,7 @@ export default function ClassicChatBuilder({
               </button>
 
               {expandedCategories.frequentlyUsed && (
-                <div className="p-2 space-y-1.5 bg-white">
+                <div className="component-tile-grid p-2 bg-white">
                   <button
                     onClick={() => addComponentNode('message')}
                     className="w-full flex items-center gap-3 px-3 py-2 text-xs font-semibold text-gray-700 bg-gray-50/50 hover:bg-indigo-50/60 hover:text-indigo-700 rounded-lg border border-gray-100 hover:border-indigo-200 transition-all text-left group"
