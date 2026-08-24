@@ -401,6 +401,28 @@ async function startServer() {
   }
 
   // Dynamic Google Sheets Synchronization Engine with Duplicate Protection & Header Management
+  function columnNumberToLetter(columnNumber: number): string {
+    let result = '';
+    let n = Math.max(1, Math.floor(columnNumber));
+
+    while (n > 0) {
+      const remainder = (n - 1) % 26;
+      result = String.fromCharCode(65 + remainder) + result;
+      n = Math.floor((n - 1) / 26);
+    }
+
+    return result;
+  }
+
+  // Dynamic Google Sheets Synchronization Engine
+  //
+  // Behaviour:
+  //   - New lead ID       -> APPEND a new row
+  //   - Existing lead ID  -> UPDATE the existing row
+  //
+  // The previous implementation returned "alreadySynced" when a lead ID
+  // already existed. That made the API report "synced" while no data was
+  // actually written. This implementation updates the existing row instead.
   async function syncLeadToGoogleSheets(
     tokens: any,
     rawSpreadsheetId: string,
@@ -408,31 +430,67 @@ async function startServer() {
     lead: any
   ) {
     const spreadsheetId = extractSpreadsheetId(rawSpreadsheetId);
+
     if (!tokens || !spreadsheetId) {
       throw new Error('Missing tokens or valid spreadsheetId');
     }
 
     console.log('[GOOGLE_SHEETS_AUTH]', {
       clientConfigured: !!process.env.GOOGLE_CLIENT_ID,
-      refreshTokenConfigured: !!(tokens && (tokens.refresh_token || tokens.access_token))
+      refreshTokenConfigured: !!(
+        tokens &&
+        (tokens.refresh_token || tokens.access_token)
+      )
     });
 
     const auth = createOAuth2Client(tokens);
     const sheets = google.sheets({ version: 'v4', auth });
     let targetWorksheet = worksheetName || 'Sheet1';
 
-    // Auto-discover tab titles from spreadsheet to prevent range parsing errors if Sheet1 does not exist
+    // Discover the real worksheet/tab name. This prevents failures when
+    // the configured tab was renamed or when Sheet1 does not exist.
     try {
       const meta = await sheets.spreadsheets.get({
         spreadsheetId,
         fields: 'sheets.properties.title',
       });
-      const titles = (meta.data.sheets || []).map((s: any) => s.properties?.title).filter(Boolean);
+
+      const titles = (meta.data.sheets || [])
+        .map((sheet: any) => sheet.properties?.title)
+        .filter(Boolean);
+
       if (titles.length > 0 && !titles.includes(targetWorksheet)) {
+        console.warn('[SHEETS_WORKSHEET_FALLBACK]', {
+          requestedWorksheet: targetWorksheet,
+          usingWorksheet: titles[0]
+        });
         targetWorksheet = titles[0];
       }
     } catch (metaErr: any) {
-      console.warn('[SHEETS_META_NOTICE] Could not fetch sheet metadata, falling back to worksheet name:', targetWorksheet);
+      const metaMessage = String(metaErr?.message || metaErr);
+      const lower = metaMessage.toLowerCase();
+
+      if (
+        lower.includes('unauthorized_client') ||
+        lower.includes('invalid_grant') ||
+        lower.includes('invalid_client')
+      ) {
+        const oauthErr: any = new Error(
+          'Google Account authorization expired. Please re-authorize your Google account.'
+        );
+        oauthErr.code = lower.includes('invalid_grant')
+          ? 'invalid_grant'
+          : lower.includes('invalid_client')
+            ? 'invalid_client'
+            : 'unauthorized_client';
+        oauthErr.reconnectRequired = true;
+        throw oauthErr;
+      }
+
+      console.warn(
+        '[SHEETS_META_NOTICE] Could not fetch sheet metadata, using worksheet:',
+        targetWorksheet
+      );
     }
 
     console.log('[GOOGLE_SHEET_SYNC]', {
@@ -442,74 +500,160 @@ async function startServer() {
       worksheet: targetWorksheet
     });
 
-    // Step 1: Read existing worksheet data for duplicate checking & header analysis
+    // ------------------------------------------------------------
+    // Step 1: Read existing rows.
+    // ------------------------------------------------------------
     let existingRows: any[][] = [];
+
     try {
       const getRes = await sheets.spreadsheets.values.get({
         spreadsheetId,
         range: `'${targetWorksheet}'!A1:ZZ1000`,
       });
+
       if (getRes.data.values && getRes.data.values.length > 0) {
         existingRows = getRes.data.values;
       }
     } catch (err: any) {
       const errStr = String(err?.message || err).toLowerCase();
-      if (errStr.includes('unauthorized_client') || errStr.includes('invalid_grant') || errStr.includes('invalid_client')) {
+
+      if (
+        errStr.includes('unauthorized_client') ||
+        errStr.includes('invalid_grant') ||
+        errStr.includes('invalid_client')
+      ) {
         console.error('[GOOGLE_SHEET_SYNC_FAILED]', {
           leadId: lead.id,
           botId: lead.botId || lead.flowId,
           spreadsheetId,
-          error: 'Google Account authorization expired. Please re-authorize your Google account.'
+          error:
+            'Google Account authorization expired. Please re-authorize your Google account.'
         });
-        const oauthErr: any = new Error('Google Account authorization expired. Please re-authorize your Google account.');
-        oauthErr.code = 'unauthorized_client';
+
+        const oauthErr: any = new Error(
+          'Google Account authorization expired. Please re-authorize your Google account.'
+        );
+        oauthErr.code = errStr.includes('invalid_grant')
+          ? 'invalid_grant'
+          : errStr.includes('invalid_client')
+            ? 'invalid_client'
+            : 'unauthorized_client';
         oauthErr.reconnectRequired = true;
         throw oauthErr;
       }
-      console.warn(`Worksheet read warning for tab ${targetWorksheet}:`, err?.message || err);
+
+      // If the sheet is empty, Sheets can return no values. We can still
+      // create the header row below.
+      console.warn('[SHEETS_READ_WARNING]', err?.message || err);
     }
 
-    const existingHeaders: string[] = existingRows.length > 0
-      ? existingRows[0].map((h: any) => String(h).trim())
-      : [];
+    const existingHeaders: string[] =
+      existingRows.length > 0
+        ? existingRows[0].map((h: any) => String(h).trim())
+        : [];
 
-    // Step 2: Duplicate Check - Verify if leadId already exists in worksheet
+    // ------------------------------------------------------------
+    // Step 2: Find an existing row by Lead ID.
+    //
+    // IMPORTANT:
+    // We do NOT return early when a duplicate is found.
+    // We remember the row number and update it after constructing
+    // the complete row.
+    // ------------------------------------------------------------
+    let existingLeadRowNumber: number | null = null;
+
     if (existingRows.length > 1 && lead.id) {
       const leadIdColIndex = existingHeaders.findIndex(
-        h => h.toLowerCase() === 'lead id' || h.toLowerCase() === 'lead_id' || h.toLowerCase() === 'id'
+        h =>
+          h.toLowerCase() === 'lead id' ||
+          h.toLowerCase() === 'lead_id' ||
+          h.toLowerCase() === 'id'
       );
+
       if (leadIdColIndex !== -1) {
-        const duplicateFound = existingRows.slice(1).some(
-          row => row[leadIdColIndex] && String(row[leadIdColIndex]).trim() === String(lead.id).trim()
+        const duplicateRowIndex = existingRows.slice(1).findIndex(
+          row =>
+            row[leadIdColIndex] !== undefined &&
+            row[leadIdColIndex] !== null &&
+            String(row[leadIdColIndex]).trim() === String(lead.id).trim()
         );
-        if (duplicateFound) {
-          console.log('[GOOGLE_SHEET_DUPLICATE]', { leadId: lead.id, botId: lead.botId || lead.flowId, spreadsheetId, worksheet: targetWorksheet });
-          return { success: true, alreadySynced: true };
+
+        if (duplicateRowIndex !== -1) {
+          // Sheet row 1 is the header.
+          // slice(1) starts at sheet row 2.
+          existingLeadRowNumber = duplicateRowIndex + 2;
+
+          console.log('[GOOGLE_SHEET_EXISTING_LEAD]', {
+            leadId: lead.id,
+            rowNumber: existingLeadRowNumber,
+            spreadsheetId,
+            worksheet: targetWorksheet
+          });
         }
       }
     }
 
-    // Step 3: Standard headers & dynamic field mapping
-    const standardHeaders = ['Timestamp', 'Lead ID', 'Bot ID', 'Bot Name', 'Name', 'Phone', 'Email', 'Status', 'Source URL', 'Conversation ID', 'User ID'];
+    // ------------------------------------------------------------
+    // Step 3: Build standard + dynamic headers.
+    // ------------------------------------------------------------
+    const standardHeaders = [
+      'Timestamp',
+      'Lead ID',
+      'Bot ID',
+      'Bot Name',
+      'Name',
+      'Phone',
+      'Email',
+      'Status',
+      'Source URL',
+      'Conversation ID',
+      'User ID'
+    ];
+
     const fieldLabelMap = new Map<string, string>();
 
-    // Extract dynamic fields array
     if (Array.isArray(lead.fields)) {
-      lead.fields.forEach((f: any) => {
-        if (f && f.label) {
-          fieldLabelMap.set(String(f.label).trim(), f.value !== undefined ? String(f.value) : '');
+      lead.fields.forEach((field: any) => {
+        if (field && field.label) {
+          fieldLabelMap.set(
+            String(field.label).trim(),
+            field.value !== undefined ? String(field.value) : ''
+          );
         }
       });
     }
 
-    // Dynamic data key-value fallback
     const rawData = lead.data || lead;
+
     if (rawData && typeof rawData === 'object') {
       Object.entries(rawData).forEach(([key, val]) => {
         const cleanKey = String(key).trim();
-        if (!['id', 'botId', 'flowId', 'clientId', 'ownerId', 'botName', 'clientName', 'fields', 'sourceUrl', 'submittedAt', 'timestamp', 'googleSheetSyncStatus', 'googleSheetSyncError', 'googleSheetSyncedAt', 'spreadsheetId', 'worksheetName'].includes(cleanKey)) {
+
+        if (
+          ![
+            'id',
+            'botId',
+            'flowId',
+            'clientId',
+            'ownerId',
+            'botName',
+            'clientName',
+            'fields',
+            'sourceUrl',
+            'submittedAt',
+            'timestamp',
+            'googleSheetSyncStatus',
+            'googleSheetSyncError',
+            'googleSheetSyncedAt',
+            'spreadsheetId',
+            'worksheetName'
+          ].includes(cleanKey)
+        ) {
           if (!fieldLabelMap.has(cleanKey)) {
-            fieldLabelMap.set(cleanKey, val !== undefined ? String(val) : '');
+            fieldLabelMap.set(
+              cleanKey,
+              val !== undefined && val !== null ? String(val) : ''
+            );
           }
         }
       });
@@ -523,22 +667,33 @@ async function startServer() {
       headersUpdated = true;
     }
 
-    standardHeaders.forEach(sh => {
-      if (!headers.some(h => h.toLowerCase() === sh.toLowerCase())) {
-        headers.push(sh);
+    standardHeaders.forEach(standardHeader => {
+      if (
+        !headers.some(
+          header =>
+            header.toLowerCase() === standardHeader.toLowerCase()
+        )
+      ) {
+        headers.push(standardHeader);
         headersUpdated = true;
       }
     });
 
     fieldLabelMap.forEach((_, label) => {
-      if (!headers.some(h => h.toLowerCase() === label.toLowerCase())) {
+      if (
+        !headers.some(
+          header => header.toLowerCase() === label.toLowerCase()
+        )
+      ) {
         headers.push(label);
         headersUpdated = true;
       }
     });
 
     try {
-      // Step 4: Write updated header row to Google Sheets if new columns added
+      // ----------------------------------------------------------
+      // Step 4: Write headers if required.
+      // ----------------------------------------------------------
       if (headersUpdated) {
         await sheets.spreadsheets.values.update({
           spreadsheetId,
@@ -550,39 +705,92 @@ async function startServer() {
         });
       }
 
-      // Step 5: Construct row values aligned to dynamic header indices
+      // ----------------------------------------------------------
+      // Step 5: Construct the row using the final header order.
+      // ----------------------------------------------------------
       const rowValues = headers.map(header => {
-        const hLower = header.toLowerCase();
-        if (hLower === 'timestamp' || hLower === 'date') {
-          return lead.submittedAt || lead.timestamp || new Date().toLocaleString();
+        const hLower = String(header).trim().toLowerCase();
+
+        if (
+          hLower === 'timestamp' ||
+          hLower === 'created at' ||
+          hLower === 'submitted at'
+        ) {
+          return lead.submittedAt || lead.timestamp || new Date().toISOString();
         }
-        if (hLower === 'lead id' || hLower === 'lead_id') {
+
+        if (
+          hLower === 'lead id' ||
+          hLower === 'lead_id' ||
+          hLower === 'id'
+        ) {
           return lead.id || '';
         }
+
         if (hLower === 'bot id' || hLower === 'bot_id') {
           return lead.botId || lead.flowId || '';
         }
-        if (hLower === 'bot name' || hLower === 'bot') {
-          return lead.botName || lead.clientName || lead.flowName || '';
+
+        if (hLower === 'bot name' || hLower === 'bot_name') {
+          return lead.botName || lead.clientName || '';
         }
-        if (hLower === 'name' || hLower === 'full name') {
-          return lead.name || fieldLabelMap.get('Name') || fieldLabelMap.get('full_name') || fieldLabelMap.get('Full Name') || '';
+
+        if (
+          hLower === 'name' ||
+          hLower === 'full name' ||
+          hLower === 'fullname'
+        ) {
+          return (
+            lead.name ||
+            lead.fullName ||
+            fieldLabelMap.get('Name') ||
+            fieldLabelMap.get('Full Name') ||
+            ''
+          );
         }
-        if (hLower === 'phone' || hLower === 'phone number' || hLower === 'mobile') {
-          return lead.phone || fieldLabelMap.get('Phone') || fieldLabelMap.get('Phone Number') || fieldLabelMap.get('mobile') || '';
+
+        if (
+          hLower === 'phone' ||
+          hLower === 'phone number' ||
+          hLower === 'mobile' ||
+          hLower === 'contact number'
+        ) {
+          return (
+            lead.phone ||
+            fieldLabelMap.get('Phone') ||
+            fieldLabelMap.get('Phone Number') ||
+            fieldLabelMap.get('Mobile') ||
+            ''
+          );
         }
-        if (hLower === 'email' || hLower === 'email address') {
-          return lead.email || fieldLabelMap.get('Email') || fieldLabelMap.get('Email Address') || '';
+
+        if (
+          hLower === 'email' ||
+          hLower === 'email address'
+        ) {
+          return (
+            lead.email ||
+            fieldLabelMap.get('Email') ||
+            fieldLabelMap.get('Email Address') ||
+            ''
+          );
         }
+
         if (hLower === 'status') {
           return lead.status || 'New';
         }
-        if (hLower === 'source url' || hLower === 'source') {
-          return lead.sourceUrl || '';
+
+        if (
+          hLower === 'source url' ||
+          hLower === 'source'
+        ) {
+          return lead.sourceUrl || lead.source || '';
         }
+
         if (hLower === 'conversation id') {
           return lead.conversationId || '';
         }
+
         if (hLower === 'user id') {
           return lead.userId || '';
         }
@@ -591,17 +799,47 @@ async function startServer() {
           return fieldLabelMap.get(header) || '';
         }
 
-        for (const [lbl, val] of fieldLabelMap.entries()) {
-          if (lbl.toLowerCase() === hLower) {
-            return val;
+        for (const [label, value] of fieldLabelMap.entries()) {
+          if (label.toLowerCase() === hLower) {
+            return value;
           }
         }
 
         return '';
       });
 
-      // Step 6: Append row to target worksheet
-      await sheets.spreadsheets.values.append({
+      // ----------------------------------------------------------
+      // Step 6: UPDATE existing row OR APPEND new row.
+      // ----------------------------------------------------------
+      if (existingLeadRowNumber !== null) {
+        const lastColumn = columnNumberToLetter(headers.length);
+
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: `'${targetWorksheet}'!A${existingLeadRowNumber}:${lastColumn}${existingLeadRowNumber}`,
+          valueInputOption: 'USER_ENTERED',
+          requestBody: {
+            values: [rowValues]
+          }
+        });
+
+        console.log('[GOOGLE_SHEET_ROW_UPDATED]', {
+          leadId: lead.id,
+          rowNumber: existingLeadRowNumber,
+          spreadsheetId,
+          worksheet: targetWorksheet
+        });
+
+        return {
+          success: true,
+          action: 'updated',
+          rowNumber: existingLeadRowNumber,
+          spreadsheetId,
+          worksheetName: targetWorksheet
+        };
+      }
+
+      const appendRes = await sheets.spreadsheets.values.append({
         spreadsheetId,
         range: `'${targetWorksheet}'`,
         valueInputOption: 'USER_ENTERED',
@@ -610,25 +848,62 @@ async function startServer() {
           values: [rowValues]
         }
       });
+
+      // Google returns an updatedRange such as Sheet1!A2:K2.
+      const updatedRange =
+        appendRes.data.updates?.updatedRange || null;
+
+      console.log('[GOOGLE_SHEET_ROW_APPENDED]', {
+        leadId: lead.id,
+        spreadsheetId,
+        worksheet: targetWorksheet,
+        updatedRange
+      });
+
+      return {
+        success: true,
+        action: 'appended',
+        updatedRange,
+        spreadsheetId,
+        worksheetName: targetWorksheet
+      };
     } catch (err: any) {
       const errStr = String(err?.message || err).toLowerCase();
-      if (errStr.includes('unauthorized_client') || errStr.includes('invalid_grant') || errStr.includes('invalid_client')) {
+
+      if (
+        errStr.includes('unauthorized_client') ||
+        errStr.includes('invalid_grant') ||
+        errStr.includes('invalid_client')
+      ) {
         console.error('[GOOGLE_SHEET_SYNC_FAILED]', {
           leadId: lead.id,
           botId: lead.botId || lead.flowId,
           spreadsheetId,
-          error: 'Google Account authorization expired. Please re-authorize your Google account.'
+          error:
+            'Google Account authorization expired. Please re-authorize your Google account.'
         });
-        const oauthErr: any = new Error('Google Account authorization expired. Please re-authorize your Google account.');
-        oauthErr.code = 'unauthorized_client';
+
+        const oauthErr: any = new Error(
+          'Google Account authorization expired. Please re-authorize your Google account.'
+        );
+        oauthErr.code = errStr.includes('invalid_grant')
+          ? 'invalid_grant'
+          : errStr.includes('invalid_client')
+            ? 'invalid_client'
+            : 'unauthorized_client';
         oauthErr.reconnectRequired = true;
         throw oauthErr;
       }
+
+      console.error('[GOOGLE_SHEET_WRITE_ERROR]', {
+        leadId: lead.id,
+        spreadsheetId,
+        worksheet: targetWorksheet,
+        error: err?.message || err
+      });
+
       throw err;
     }
-
-    console.log('[GOOGLE_SHEET_SYNC_SUCCESS]', { leadId: lead.id, botId: lead.botId || lead.flowId, spreadsheetId, worksheet: targetWorksheet });
-    return { success: true, alreadySynced: false };
   }
 
   // Sync Lead to Google Sheets Endpoint
@@ -649,8 +924,21 @@ async function startServer() {
         submittedAt: leadData?.submittedAt || new Date().toLocaleString()
       };
 
-      await syncLeadToGoogleSheets(tokens, spreadsheetId, worksheetName || 'Sheet1', leadObj);
-      res.json({ success: true });
+      const syncResult = await syncLeadToGoogleSheets(
+        tokens,
+        spreadsheetId,
+        worksheetName || 'Sheet1',
+        leadObj
+      );
+
+      res.json({
+        success: true,
+        action: syncResult?.action || 'appended',
+        rowNumber: syncResult?.rowNumber || null,
+        updatedRange: syncResult?.updatedRange || null,
+        spreadsheetId: syncResult?.spreadsheetId || extractSpreadsheetId(spreadsheetId),
+        worksheetName: syncResult?.worksheetName || worksheetName || 'Sheet1'
+      });
     } catch (error: any) {
       console.error('Sheets Sync Error:', error?.message || error);
       res.status(500).json({ error: error?.message || 'Failed to sync lead to Google Sheets.' });
@@ -1366,8 +1654,17 @@ async function startServer() {
 
     if (sheetConfig.googleTokens && sheetConfig.spreadsheetId) {
       try {
-        const syncRes = await syncLeadToGoogleSheets(sheetConfig.googleTokens, sheetConfig.spreadsheetId, sheetConfig.worksheetName, leadRecord);
+        const syncRes = await syncLeadToGoogleSheets(
+          sheetConfig.googleTokens,
+          sheetConfig.spreadsheetId,
+          sheetConfig.worksheetName,
+          leadRecord
+        );
+
         leadRecord.googleSheetSyncStatus = 'synced';
+        leadRecord.googleSheetSyncAction = syncRes?.action || 'appended';
+        leadRecord.googleSheetRowNumber = syncRes?.rowNumber || null;
+        leadRecord.googleSheetUpdatedRange = syncRes?.updatedRange || null;
         leadRecord.googleSheetSyncedAt = new Date().toISOString();
         leadRecord.spreadsheetId = sheetConfig.spreadsheetId;
         leadRecord.worksheetName = sheetConfig.worksheetName;
@@ -1379,6 +1676,9 @@ async function startServer() {
             googleSheetSyncedAt: leadRecord.googleSheetSyncedAt,
             spreadsheetId: sheetConfig.spreadsheetId,
             worksheetName: sheetConfig.worksheetName,
+            googleSheetSyncAction: leadRecord.googleSheetSyncAction,
+            googleSheetRowNumber: leadRecord.googleSheetRowNumber,
+            googleSheetUpdatedRange: leadRecord.googleSheetUpdatedRange,
             googleSheetSyncError: null
           }, { merge: true }).catch(() => null);
         }
@@ -1421,6 +1721,9 @@ async function startServer() {
       isUpdate,
       googleSheetSync: {
         status: leadRecord.googleSheetSyncStatus,
+        action: leadRecord.googleSheetSyncAction || null,
+        rowNumber: leadRecord.googleSheetRowNumber || null,
+        updatedRange: leadRecord.googleSheetUpdatedRange || null,
         spreadsheetId: sheetConfig.spreadsheetId || null,
         worksheetName: sheetConfig.worksheetName || null,
         error: leadRecord.googleSheetSyncError || null
