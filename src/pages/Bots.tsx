@@ -176,6 +176,8 @@ export default function Bots() {
         }
       });
 
+      window.dispatchEvent(new CustomEvent('mintage_bot_deleted', { detail: { id: targetId } }));
+
       setBots(prev => prev.filter(b => b.id !== targetId));
       setDeletingBot(null);
     } catch (error) {

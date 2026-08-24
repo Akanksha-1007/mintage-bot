@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import ChatWidget from '../components/ChatWidget';
 import { db, auth } from '../lib/firebase';
-import { doc, getDoc, updateDoc, setDoc, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, setDoc, serverTimestamp, collection, query, where, getDocs, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { 
-  Loader2, CheckCircle2, ExternalLink, AlertCircle, FileSpreadsheet, 
+  Loader2, CheckCircle2, ExternalLink, AlertCircle, AlertTriangle, FileSpreadsheet, 
   Plus, Sparkles, Bot, Link2, RefreshCw, Send, Trash2, Check, Copy, HelpCircle 
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -31,6 +31,9 @@ export default function Integrations() {
   const [botInputs, setBotInputs] = useState<{ [botId: string]: string }>({});
   const [botLoading, setBotLoading] = useState<{ [botId: string]: boolean }>({});
   const [botTestResults, setBotTestResults] = useState<{ [botId: string]: { success: boolean; msg: string } | null }>({});
+
+  const [deletingBot, setDeletingBot] = useState<BotInfo | null>(null);
+  const [isDeletingBot, setIsDeletingBot] = useState(false);
 
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
@@ -128,6 +131,13 @@ export default function Integrations() {
         setGlobalSpreadsheetId(resolvedSpreadsheetId);
       }
 
+      // Read deleted bot IDs blacklist
+      const deletedIdsRaw = localStorage.getItem('mintage_deleted_bot_ids');
+      let deletedIds: string[] = [];
+      if (deletedIdsRaw) {
+        try { deletedIds = JSON.parse(deletedIdsRaw); } catch { }
+      }
+
       // Fetch user's bots from Firestore
       const fetchedBotMap = new Map<string, BotInfo>();
 
@@ -139,12 +149,14 @@ export default function Integrations() {
           );
           const botsSnap = await getDocs(botsQ);
           botsSnap.docs.forEach(d => {
-            fetchedBotMap.set(d.id, {
-              id: d.id,
-              name: d.data().name || 'Unnamed Bot',
-              spreadsheetId: d.data().spreadsheetId || '',
-              createdBy: d.data().createdBy
-            });
+            if (!deletedIds.includes(d.id)) {
+              fetchedBotMap.set(d.id, {
+                id: d.id,
+                name: d.data().name || 'Unnamed Bot',
+                spreadsheetId: d.data().spreadsheetId || '',
+                createdBy: d.data().createdBy
+              });
+            }
           });
         } catch (err) {
           console.warn('Firestore bots fetch warning:', err);
@@ -158,7 +170,7 @@ export default function Integrations() {
           const sData = await sRes.json();
           if (sData.success && Array.isArray(sData.bots)) {
             sData.bots.forEach((b: any) => {
-              if (!fetchedBotMap.has(b.id)) {
+              if (b && b.id && !deletedIds.includes(b.id) && !fetchedBotMap.has(b.id)) {
                 fetchedBotMap.set(b.id, {
                   id: b.id,
                   name: b.name || 'Unnamed Bot',
@@ -174,23 +186,25 @@ export default function Integrations() {
       }
 
       // Fallback/merge with local storage bots
-      const localBotsRaw = localStorage.getItem('mintage_bots');
+      const localBotsRaw = localStorage.getItem('mintage_bots') || localStorage.getItem('botflow_local_bots');
       if (localBotsRaw) {
         try {
           const parsed: BotInfo[] = JSON.parse(localBotsRaw);
           parsed.forEach(b => {
-            if (!fetchedBotMap.has(b.id)) {
-              fetchedBotMap.set(b.id, {
-                id: b.id,
-                name: b.name || 'Unnamed Bot',
-                spreadsheetId: b.spreadsheetId || '',
-                createdBy: b.createdBy
-              });
-            } else {
-              // Update spreadsheet ID if set in localStorage
-              const existing = fetchedBotMap.get(b.id)!;
-              if (b.spreadsheetId && !existing.spreadsheetId) {
-                existing.spreadsheetId = b.spreadsheetId;
+            if (b && b.id && !deletedIds.includes(b.id)) {
+              if (!fetchedBotMap.has(b.id)) {
+                fetchedBotMap.set(b.id, {
+                  id: b.id,
+                  name: b.name || 'Unnamed Bot',
+                  spreadsheetId: b.spreadsheetId || '',
+                  createdBy: b.createdBy
+                });
+              } else {
+                // Update spreadsheet ID if set in localStorage
+                const existing = fetchedBotMap.get(b.id)!;
+                if (b.spreadsheetId && !existing.spreadsheetId) {
+                  existing.spreadsheetId = b.spreadsheetId;
+                }
               }
             }
           });
@@ -216,7 +230,118 @@ export default function Integrations() {
 
   useEffect(() => {
     loadData();
+
+    // Listen to custom window event mintage_bot_deleted
+    const handleCustomBotDeleted = (e: any) => {
+      const deletedId = e.detail?.id;
+      if (deletedId) {
+        setBots(prev => prev.filter(b => b.id !== deletedId));
+        setSelectedBotIdForEmbed(prev => prev === deletedId ? '' : prev);
+      } else {
+        loadData();
+      }
+    };
+    window.addEventListener('mintage_bot_deleted', handleCustomBotDeleted);
+
+    // Realtime Firestore Snapshot Listener
+    let unsubscribeBots: (() => void) | null = null;
+    try {
+      unsubscribeBots = onSnapshot(collection(db, 'bot_configurations'), () => {
+        loadData();
+      }, () => {});
+    } catch {}
+
+    // SSE Listener from backend
+    let eventSource: EventSource | null = null;
+    try {
+      eventSource = new EventSource('/api/events');
+      eventSource.onmessage = (event) => {
+        if (event.data && !event.data.startsWith(':')) {
+          try {
+            const parsed = JSON.parse(event.data);
+            if (parsed.type === 'BOT_DELETED') {
+              const deletedId = parsed.data?.botId;
+              if (deletedId) {
+                setBots(prev => prev.filter(b => b.id !== deletedId));
+                setSelectedBotIdForEmbed(prev => prev === deletedId ? '' : prev);
+              } else {
+                loadData();
+              }
+            }
+          } catch {}
+        }
+      };
+    } catch {}
+
+    return () => {
+      window.removeEventListener('mintage_bot_deleted', handleCustomBotDeleted);
+      if (unsubscribeBots) unsubscribeBots();
+      if (eventSource) eventSource.close();
+    };
   }, [effectiveUserId]);
+
+  const confirmDeleteBot = async () => {
+    if (!deletingBot) return;
+    const targetId = deletingBot.id;
+    setIsDeletingBot(true);
+
+    try {
+      // 1. Delete from Server API
+      try {
+        await fetch(`/api/bots/${encodeURIComponent(targetId)}`, { method: 'DELETE' });
+        await fetch('/api/bots/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: targetId })
+        });
+      } catch (apiErr) {
+        console.warn('Server bot delete API error:', apiErr);
+      }
+
+      // 2. Delete from Firestore
+      await deleteDoc(doc(db, 'bot_configurations', targetId)).catch(() => null);
+
+      // 3. Update localStorage blacklist
+      const deletedIdsRaw = localStorage.getItem('mintage_deleted_bot_ids');
+      let deletedIds: string[] = [];
+      if (deletedIdsRaw) {
+        try { deletedIds = JSON.parse(deletedIdsRaw); } catch {}
+      }
+      if (!deletedIds.includes(targetId)) {
+        deletedIds.push(targetId);
+        localStorage.setItem('mintage_deleted_bot_ids', JSON.stringify(deletedIds));
+      }
+
+      // 4. Clean up localStorage bot caches
+      ['mintage_bots', 'botflow_local_bots', 'mintage_bot_configurations'].forEach(key => {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              const filtered = parsed.filter((b: any) => b && b.id !== targetId);
+              localStorage.setItem(key, JSON.stringify(filtered));
+            }
+          } catch {}
+        }
+      });
+
+      // 5. Broadcast custom event
+      window.dispatchEvent(new CustomEvent('mintage_bot_deleted', { detail: { id: targetId } }));
+
+      // 6. Update local state
+      setBots(prev => prev.filter(b => b.id !== targetId));
+      if (selectedBotIdForEmbed === targetId) {
+        setSelectedBotIdForEmbed('');
+      }
+      showToast('Chatbot flow deleted permanently.');
+      setDeletingBot(null);
+    } catch (error: any) {
+      showToast(`Error deleting chatbot: ${error?.message || error}`, 'error');
+    } finally {
+      setIsDeletingBot(false);
+    }
+  };
 
   const fetchUserSheets = async (tokens: any) => {
     try {
@@ -781,6 +906,18 @@ export default function Integrations() {
                     <option value="demo_bot_id">Demo Starter Bot</option>
                   )}
                 </select>
+                {bots.length > 0 && activeBotId && activeBotId !== 'demo_bot_id' && (
+                  <button
+                    onClick={() => {
+                      const target = bots.find(b => b.id === activeBotId);
+                      if (target) setDeletingBot(target);
+                    }}
+                    className="p-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl transition-all border border-red-200"
+                    title="Delete Currently Selected Bot"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1054,8 +1191,8 @@ export default function Integrations() {
                               </div>
                             </div>
 
-                            {hasSheetLinked && (
-                              <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2">
+                              {hasSheetLinked && (
                                 <a
                                   href={`https://docs.google.com/spreadsheets/d/${bot.spreadsheetId}`}
                                   target="_blank"
@@ -1064,8 +1201,16 @@ export default function Integrations() {
                                 >
                                   Open Google Sheet <ExternalLink className="w-3 h-3" />
                                 </a>
-                              </div>
-                            )}
+                              )}
+                              <button
+                                onClick={() => setDeletingBot(bot)}
+                                className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-bold transition-all flex items-center gap-1 border border-red-200"
+                                title="Delete Chatbot Flow Permanently"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Delete Bot</span>
+                              </button>
+                            </div>
                           </div>
 
                           {/* Quick Select from Drive Dropdown */}
@@ -1270,6 +1415,46 @@ export default function Integrations() {
           </div>
         </div>
       </div>
+      )}
+      {/* Delete Bot Confirmation Modal */}
+      {deletingBot && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-[100] p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-md w-full p-8 shadow-2xl border border-gray-100 text-center space-y-6">
+            <div className="w-16 h-16 bg-red-50 text-red-600 rounded-3xl flex items-center justify-center mx-auto shrink-0">
+              <AlertTriangle className="w-8 h-8" />
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="text-xl font-bold text-gray-900">Delete Chatbot Flow?</h3>
+              <p className="text-xs text-gray-500 leading-relaxed">
+                Are you sure you want to delete <strong className="text-gray-800">"{deletingBot.name}"</strong>? This will permanently remove the bot configuration, embed script endpoints, and Google Sheet link.
+              </p>
+              <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-100 p-2.5 rounded-xl font-medium mt-2">
+                Note: Any lead data previously captured by this bot will remain safely saved in your Lead Data section.
+              </p>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeletingBot(null)}
+                disabled={isDeletingBot}
+                className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-xl transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteBot}
+                disabled={isDeletingBot}
+                className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl transition-all shadow-lg shadow-red-100 flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {isDeletingBot ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                <span>{isDeletingBot ? 'Deleting...' : 'Delete Permanently'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

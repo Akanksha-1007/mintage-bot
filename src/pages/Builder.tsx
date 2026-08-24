@@ -83,6 +83,8 @@ function BuilderContent() {
         }
       });
 
+      window.dispatchEvent(new CustomEvent('mintage_bot_deleted', { detail: { id } }));
+
       navigate('/bots');
     } catch (error) {
       console.error('Error deleting bot:', error);

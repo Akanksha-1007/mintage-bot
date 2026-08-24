@@ -44,12 +44,19 @@ export default function Dashboard() {
       let leadsCount = 0;
       let fetchedLeads: RecentLead[] = [];
 
+      // Read deleted bot IDs blacklist
+      const deletedIdsRaw = localStorage.getItem('mintage_deleted_bot_ids');
+      let deletedIds: string[] = [];
+      if (deletedIdsRaw) {
+        try { deletedIds = JSON.parse(deletedIdsRaw); } catch {}
+      }
+
       // 1. Local storage fallback reads
       const localBotsRaw = localStorage.getItem('mintage_bots');
       if (localBotsRaw) {
         try { 
           const parsed = JSON.parse(localBotsRaw); 
-          const filtered = !isGlobalAdminView && targetUserId ? parsed.filter((b: any) => b.createdBy === targetUserId || !b.createdBy) : parsed;
+          const filtered = (!isGlobalAdminView && targetUserId ? parsed.filter((b: any) => b.createdBy === targetUserId || !b.createdBy) : parsed).filter((b: any) => b && b.id && !deletedIds.includes(b.id));
           botsCount = filtered.length;
         } catch {}
       }
@@ -87,7 +94,8 @@ export default function Dashboard() {
         
         const botsSnap = await getDocs(botsQuery).catch(() => null);
         if (botsSnap) {
-          botsCount = isGlobalAdminView ? botsSnap.size : Math.max(botsCount, botsSnap.size);
+          const validDocs = botsSnap.docs.filter(d => !deletedIds.includes(d.id));
+          botsCount = isGlobalAdminView ? validDocs.length : Math.max(botsCount, validDocs.length);
         }
       } catch (e) {
         console.warn('Bots query skipped:', e);
