@@ -598,9 +598,19 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   };
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // React state updates are asynchronous. A ref gives us an immediate guard so
+  // rapid double-clicks or duplicate event handlers cannot fire /api/leads twice
+  // from the same widget instance. The backend also has a persistent Firestore
+  // idempotency lock for cross-instance protection.
+  const leadSubmissionInFlightRef = useRef(false);
 
   const saveLead = async (data: any, fieldsList: Array<{ fieldId: string; label: string; value: string }> = dynamicFields) => {
-    if (isSubmitting) return;
+    if (isSubmitting || leadSubmissionInFlightRef.current) {
+      console.warn('[LEAD] duplicate submission blocked on client');
+      return;
+    }
+
+    leadSubmissionInFlightRef.current = true;
     setIsSubmitting(true);
 
     const effectiveClientId = localStorage.getItem('mintage_effective_user_id') || localStorage.getItem('mintage_client_id') || undefined;
@@ -667,6 +677,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     }, 600);
 
     // Reset submission state after the lead has been persisted.
+    leadSubmissionInFlightRef.current = false;
     setIsSubmitting(false);
   };
 
@@ -808,7 +819,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
           />
           <button
             type="submit"
-            disabled={!inputValue.trim()}
+            disabled={!inputValue.trim() || isSubmitting}
             className="bg-indigo-600 text-white p-2.5 rounded-xl hover:bg-indigo-700 transition-all shadow-md shadow-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Send className="w-4 h-4" />
