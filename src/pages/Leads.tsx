@@ -434,7 +434,7 @@ export default function Leads() {
 
       const data = await res.json();
       if (res.ok && data.success) {
-        showToast('🎉 Lead successfully synchronized to Google Sheet!');
+        showToast('Lead successfully synchronized to Google Sheet!');
         if (selectedLead && selectedLead.id === lead.id) {
           setSelectedLead({
             ...selectedLead,
@@ -472,7 +472,7 @@ export default function Leads() {
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        showToast(`🎉 Synced ${data.synced || 0} leads to Google Sheet (${data.skipped || 0} already synced)!`);
+        showToast(`Synced ${data.synced || 0} leads to Google Sheet (${data.skipped || 0} already synced)!`);
         setTimeout(() => window.location.reload(), 1500);
       } else {
         showToast(data.error || 'Failed to sync existing leads', 'error');
@@ -521,7 +521,7 @@ export default function Leads() {
   };
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-8 font-sans">
+    <div className="leads-page p-8 max-w-7xl mx-auto space-y-8 font-sans">
       {/* Toast Notification */}
       {toast && (
         <div className={`fixed bottom-6 right-6 z-50 px-5 py-3 rounded-2xl shadow-2xl border text-xs font-bold flex items-center gap-2 animate-bounce ${toast.type === 'success'
@@ -534,7 +534,7 @@ export default function Leads() {
       )}
 
       {/* Header & Controls */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      <div className="leads-page-header flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <div className="flex items-center gap-2">
             <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight">Leads Center</h2>
@@ -548,7 +548,7 @@ export default function Leads() {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="leads-control-bar flex flex-wrap items-center gap-3">
           {/* Bot Filter Dropdown */}
           <div className="flex items-center gap-2 bg-white px-3.5 py-2 border border-gray-200 rounded-xl shadow-2xs">
             <Bot className="w-4 h-4 text-indigo-600" />
@@ -615,33 +615,33 @@ export default function Leads() {
       </div>
 
       {/* KPI Analytics Stat Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-        <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-2xs space-y-1">
+      <div className="leads-stat-grid grid grid-cols-2 md:grid-cols-6 gap-4">
+        <div className="lead-stat-card is-total bg-white p-4 rounded-2xl border border-gray-100 shadow-2xs space-y-1">
           <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Total Leads</span>
           <span className="text-2xl font-black text-slate-900">{leadStats.total}</span>
         </div>
 
-        <div className="bg-blue-50/70 p-4 rounded-2xl border border-blue-100 shadow-2xs space-y-1">
+        <div className="lead-stat-card is-new bg-blue-50/70 p-4 rounded-2xl border border-blue-100 shadow-2xs space-y-1">
           <span className="text-[10px] font-bold text-blue-700 uppercase tracking-widest block">New</span>
           <span className="text-2xl font-black text-blue-900">{leadStats.new}</span>
         </div>
 
-        <div className="bg-amber-50/70 p-4 rounded-2xl border border-amber-100 shadow-2xs space-y-1">
+        <div className="lead-stat-card is-contacted bg-amber-50/70 p-4 rounded-2xl border border-amber-100 shadow-2xs space-y-1">
           <span className="text-[10px] font-bold text-amber-700 uppercase tracking-widest block">Contacted</span>
           <span className="text-2xl font-black text-amber-900">{leadStats.contacted}</span>
         </div>
 
-        <div className="bg-indigo-50/70 p-4 rounded-2xl border border-indigo-100 shadow-2xs space-y-1">
+        <div className="lead-stat-card is-qualified bg-indigo-50/70 p-4 rounded-2xl border border-indigo-100 shadow-2xs space-y-1">
           <span className="text-[10px] font-bold text-indigo-700 uppercase tracking-widest block">Qualified</span>
           <span className="text-2xl font-black text-indigo-900">{leadStats.qualified}</span>
         </div>
 
-        <div className="bg-emerald-50/70 p-4 rounded-2xl border border-emerald-100 shadow-2xs space-y-1">
+        <div className="lead-stat-card is-converted bg-emerald-50/70 p-4 rounded-2xl border border-emerald-100 shadow-2xs space-y-1">
           <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-widest block">Converted</span>
           <span className="text-2xl font-black text-emerald-900">{leadStats.converted}</span>
         </div>
 
-        <div className="bg-rose-50/70 p-4 rounded-2xl border border-rose-100 shadow-2xs space-y-1">
+        <div className="lead-stat-card is-lost bg-rose-50/70 p-4 rounded-2xl border border-rose-100 shadow-2xs space-y-1">
           <span className="text-[10px] font-bold text-rose-700 uppercase tracking-widest block">Lost</span>
           <span className="text-2xl font-black text-rose-900">{leadStats.lost}</span>
         </div>
@@ -657,7 +657,7 @@ export default function Leads() {
 
 
       {/* Dynamic Table Section */}
-      <div className="bg-white rounded-[32px] shadow-xs border border-gray-200 overflow-hidden">
+      <div className="leads-table-card bg-white rounded-[32px] shadow-xs border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead>

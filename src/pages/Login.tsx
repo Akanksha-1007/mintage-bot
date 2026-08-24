@@ -16,6 +16,7 @@ import { MessageSquare, Loader2, AlertCircle, KeyRound, ArrowRight, ShieldCheck 
 import { motion, AnimatePresence } from 'motion/react';
 
 import MintageLogo from '../components/MintageLogo';
+import ThemeToggle from '../components/ThemeToggle';
 
 export default function Login() {
   const { loginDemo, loginClient } = useAuth();
@@ -228,6 +229,7 @@ export default function Login() {
   if (showSetPassword) {
     return (
       <div className="login-page">
+        <ThemeToggle className="login-theme-toggle" />
         <main className="login-auth-side">
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="login-auth-card">
             <div className="login-mobile-logo"><MintageLogo size="xl" /></div>
@@ -254,6 +256,7 @@ export default function Login() {
 
   return (
     <div className="login-page">
+      <ThemeToggle className="login-theme-toggle" />
       <main className="login-auth-side">
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="login-auth-card">
           <div className="login-mobile-logo"><MintageLogo size="xl" /></div>

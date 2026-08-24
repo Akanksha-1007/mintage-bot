@@ -5,7 +5,7 @@ import {
   Sparkles, Image as ImageIcon, ChevronDown, ChevronRight, 
   Trash2, ArrowUp, ArrowDown, Plus, Eye, Code, FileText, 
   Save, Share2, FileSpreadsheet, Check, Copy, X, Wand2, Layers,
-  Send, Bot
+  Send, Bot, ListChecks, TextCursorInput, ArrowRight, CalendarDays, LifeBuoy, TrendingUp
 } from 'lucide-react';
 
 interface ClassicChatBuilderProps {
@@ -27,10 +27,9 @@ interface ClassicChatBuilderProps {
 }
 
 const EMOJI_PALETTE = [
-  '👋', '🚀', '🤖', '✨', '🔥', '😇', '😎', '😍', '😊', '👏', 
-  '👍', '😄', '🤐', '🙋', '🤩', '💪', '🤷', '👱', '🤞', '👧', 
-  '👎', '🧸', '🟢', '😃', '🖐', '👈', '👉', '🛫', '⏰', '🎉', 
-  '💬', '📞', '✉️', '⭐', '❤️', '📍'
+  '👋', '😊', '🙂', '✨', '✅', '👍',
+  '💬', '📞', '✉️', '📅', '📍', '🔗',
+  '⭐', '🎉', '💡', '📌', '➡️', '❤️'
 ];
 
 export default function ClassicChatBuilder({
@@ -84,10 +83,10 @@ export default function ClassicChatBuilder({
     let defaultLabel = labelText || 'New Message';
     let key = '';
 
-    if (type === 'message') defaultLabel = 'Welcome! Thanks for showing interest! 🚀';
-    if (type === 'name') { defaultLabel = 'To start, could you share your full name with us? ✨'; key = 'full_name'; }
-    if (type === 'phone') { defaultLabel = 'Thanks! Could you also give us your phone number? 📞'; key = 'phone_number'; }
-    if (type === 'email') { defaultLabel = 'Perfect! Now please provide your email address so our team can reach out! ✉️'; key = 'email_address'; }
+    if (type === 'message') defaultLabel = 'Welcome! Thanks for showing interest.';
+    if (type === 'name') { defaultLabel = 'To start, could you share your full name with us?'; key = 'full_name'; }
+    if (type === 'phone') { defaultLabel = 'Thanks! Could you also give us your phone number?'; key = 'phone_number'; }
+    if (type === 'email') { defaultLabel = 'Perfect! Now please provide your email address so our team can reach out.'; key = 'email_address'; }
     if (type === 'singleChoice') defaultLabel = 'Please select an option below:';
     if (type === 'multipleChoice') defaultLabel = 'Select all that apply:';
     if (type === 'textQuestion') defaultLabel = 'What specific topic or service are you interested in?';
@@ -181,22 +180,22 @@ export default function ClassicChatBuilder({
     let newNodes: Node[] = [];
     if (templateType === 'lead') {
       newNodes = [
-        { id: 'node_1', type: 'message', data: { label: 'Welcome! Thanks for showing interest! 🚀\nWe’re thrilled to have you here.' }, position: { x: 250, y: 100 } },
-        { id: 'node_2', type: 'message', data: { label: 'Let’s get you signed up! 🎉' }, position: { x: 250, y: 220 } },
-        { id: 'node_3', type: 'name', data: { label: 'To start, could you share your full name with us? ✨', key: 'full_name' }, position: { x: 250, y: 340 } },
-        { id: 'node_4', type: 'phone', data: { label: 'Thanks! 📞 Could you also give us your phone number?\nWe’ll use it to send updates.', key: 'phone_number' }, position: { x: 250, y: 460 } },
-        { id: 'node_5', type: 'email', data: { label: 'Perfect! 🌐 Now, please provide your email address so our team can reach out! 📧', key: 'email_address' }, position: { x: 250, y: 580 } },
+        { id: 'node_1', type: 'message', data: { label: 'Welcome! Thanks for showing interest.\nWe’re thrilled to have you here.' }, position: { x: 250, y: 100 } },
+        { id: 'node_2', type: 'message', data: { label: 'Let’s get you signed up.' }, position: { x: 250, y: 220 } },
+        { id: 'node_3', type: 'name', data: { label: 'To start, could you share your full name with us?', key: 'full_name' }, position: { x: 250, y: 340 } },
+        { id: 'node_4', type: 'phone', data: { label: 'Thanks! Could you also give us your phone number?\nWe’ll use it to send updates.', key: 'phone_number' }, position: { x: 250, y: 460 } },
+        { id: 'node_5', type: 'email', data: { label: 'Perfect! Now, please provide your email address so our team can reach out.', key: 'email_address' }, position: { x: 250, y: 580 } },
       ];
     } else if (templateType === 'booking') {
       newNodes = [
-        { id: 'node_1', type: 'message', data: { label: 'Hello! 👋 Welcome to our appointment booking assistant.' }, position: { x: 250, y: 100 } },
+        { id: 'node_1', type: 'message', data: { label: 'Hello! Welcome to our appointment booking assistant.' }, position: { x: 250, y: 100 } },
         { id: 'node_2', type: 'singleChoice', data: { label: 'What service are you looking to book today?', choices: ['Consultation Call', 'Product Demo', 'Support Session'] }, position: { x: 250, y: 220 } },
         { id: 'node_3', type: 'name', data: { label: 'Please enter your name so we can reserve your slot:', key: 'full_name' }, position: { x: 250, y: 340 } },
         { id: 'node_4', type: 'email', data: { label: 'Where should we send your booking confirmation?', key: 'email_address' }, position: { x: 250, y: 460 } },
       ];
     } else {
       newNodes = [
-        { id: 'node_1', type: 'message', data: { label: 'Hi there! 👋 How can we assist you today?' }, position: { x: 250, y: 100 } },
+        { id: 'node_1', type: 'message', data: { label: 'Hi there! How can we assist you today?' }, position: { x: 250, y: 100 } },
         { id: 'node_2', type: 'textQuestion', data: { label: 'Please describe your query or issue in detail:', key: 'customer_query' }, position: { x: 250, y: 220 } },
         { id: 'node_3', type: 'email', data: { label: 'Leave your email address so our support team can reply:', key: 'email_address' }, position: { x: 250, y: 340 } },
       ];
@@ -306,7 +305,7 @@ export default function ClassicChatBuilder({
       setTimeout(() => {
         setTestMessages(prev => [...prev, {
           sender: 'bot',
-          text: '🎉 Thank you! You have completed the chatbot flow.'
+          text: 'Thank you! You have completed the chatbot flow.'
         }]);
       }, 600);
     }
@@ -357,9 +356,9 @@ export default function ClassicChatBuilder({
   const embedIframeCode = `<iframe src="${activeOrigin}/widget/${botId || 'demo_bot_id'}" width="380" height="600" style="border:none; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,0.15);"></iframe>`;
 
   return (
-    <div className="h-full flex flex-col bg-gray-50/50 font-sans select-none">
+    <div className="classic-builder h-full flex flex-col bg-gray-50/50 font-sans select-none">
       {/* Top Header matching exact screenshot */}
-      <header className="bg-white border-b border-gray-200 px-6 py-3 flex flex-wrap justify-between items-center gap-4 shadow-2xs z-20">
+      <header className="builder-toolbar bg-white border-b border-gray-200 px-6 py-3 flex flex-wrap justify-between items-center gap-4 shadow-2xs z-20">
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
             <span>Edit Your Chat Flow -</span>
@@ -439,7 +438,7 @@ export default function ClassicChatBuilder({
       {/* 3 Column Main Area */}
       <div className="flex-1 flex overflow-hidden">
         {/* ================= COLUMN 1: Add Chat Component ================= */}
-        <div className="w-72 bg-white border-r border-gray-200 flex flex-col shrink-0 overflow-y-auto">
+        <div className="builder-library w-72 bg-white border-r border-gray-200 flex flex-col shrink-0 overflow-y-auto">
           {/* Header Bar */}
           <div className="bg-gray-100/80 px-4 py-3 border-b border-gray-200 text-center">
             <h2 className="text-xs font-bold text-gray-700 uppercase tracking-wide">Add Chat Component</h2>
@@ -462,7 +461,7 @@ export default function ClassicChatBuilder({
                     onClick={() => addComponentNode('message')}
                     className="w-full flex items-center gap-3 px-3 py-2 text-xs font-semibold text-gray-700 bg-gray-50/50 hover:bg-indigo-50/60 hover:text-indigo-700 rounded-lg border border-gray-100 hover:border-indigo-200 transition-all text-left group"
                   >
-                    <span className="p-1.5 rounded-md bg-amber-100 text-amber-600 group-hover:scale-110 transition-transform">🚀</span>
+                    <span className="p-1 rounded-md bg-amber-100 text-amber-700 group-hover:scale-110 transition-transform"><MessageSquare className="w-4 h-4" /></span>
                     <span className="font-bold">Message</span>
                   </button>
 
@@ -494,7 +493,7 @@ export default function ClassicChatBuilder({
                     onClick={() => addComponentNode('singleChoice')}
                     className="w-full flex items-center gap-3 px-3 py-2 text-xs font-semibold text-gray-700 bg-gray-50/50 hover:bg-indigo-50/60 hover:text-indigo-700 rounded-lg border border-gray-100 hover:border-indigo-200 transition-all text-left group"
                   >
-                    <span className="p-1.5 rounded-md bg-purple-100 text-purple-600 group-hover:scale-110 transition-transform">👆</span>
+                    <span className="p-1 rounded-md bg-purple-100 text-purple-600 group-hover:scale-110 transition-transform"><CheckSquare className="w-4 h-4" /></span>
                     <span className="font-bold">Single Choice</span>
                   </button>
 
@@ -502,7 +501,7 @@ export default function ClassicChatBuilder({
                     onClick={() => addComponentNode('multipleChoice')}
                     className="w-full flex items-center gap-3 px-3 py-2 text-xs font-semibold text-gray-700 bg-gray-50/50 hover:bg-indigo-50/60 hover:text-indigo-700 rounded-lg border border-gray-100 hover:border-indigo-200 transition-all text-left group"
                   >
-                    <span className="p-1.5 rounded-md bg-emerald-100 text-emerald-600 group-hover:scale-110 transition-transform">📊</span>
+                    <span className="p-1 rounded-md bg-emerald-100 text-emerald-600 group-hover:scale-110 transition-transform"><ListChecks className="w-4 h-4" /></span>
                     <span className="font-bold">Multiple Choice</span>
                   </button>
 
@@ -510,7 +509,7 @@ export default function ClassicChatBuilder({
                     onClick={() => addComponentNode('textQuestion')}
                     className="w-full flex items-center gap-3 px-3 py-2 text-xs font-semibold text-gray-700 bg-gray-50/50 hover:bg-indigo-50/60 hover:text-indigo-700 rounded-lg border border-gray-100 hover:border-indigo-200 transition-all text-left group"
                   >
-                    <span className="p-1.5 rounded-md bg-cyan-100 text-cyan-600 group-hover:scale-110 transition-transform">❓</span>
+                    <span className="p-1 rounded-md bg-cyan-100 text-cyan-700 group-hover:scale-110 transition-transform"><TextCursorInput className="w-4 h-4" /></span>
                     <span className="font-bold">Text Question</span>
                   </button>
 
@@ -580,7 +579,7 @@ export default function ClassicChatBuilder({
         </div>
 
         {/* ================= COLUMN 2: Create/Reorder Chat Flow ================= */}
-        <div className="flex-1 flex flex-col bg-[#f8fafc] bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:16px_16px] overflow-y-auto">
+        <div className="builder-canvas flex-1 flex flex-col bg-[#f8fafc] bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:16px_16px] overflow-y-auto">
           {/* Header Bar */}
           <div className="bg-gray-100/80 px-4 py-3 border-b border-gray-200 text-center sticky top-0 z-10 backdrop-blur-xs">
             <h2 className="text-xs font-bold text-gray-700 uppercase tracking-wide">Create/Reorder Chat Flow</h2>
@@ -621,7 +620,7 @@ export default function ClassicChatBuilder({
                     </div>
 
                     {/* Chat Bubble Card */}
-                    <div className={`flex-1 rounded-2xl p-4 transition-all shadow-xs border ${
+                    <div className={`flow-step-card flex-1 rounded-2xl p-4 transition-all shadow-xs border ${
                       node.type === 'message' 
                         ? 'bg-purple-50/60 border-purple-100 text-purple-950' 
                         : 'bg-white border-gray-200/80 text-gray-900'
@@ -653,10 +652,10 @@ export default function ClassicChatBuilder({
                                 <span>{choice}</span>
                                 {targetNode ? (
                                   <span className="text-[10px] bg-indigo-600 text-white px-1.5 py-0.5 rounded font-mono font-semibold">
-                                    ➜ Step #{targetIndex + 1}: {((targetNode.data?.label as string) || targetNode.type).slice(0, 16)}
+                                    <ArrowRight className="w-3 h-3" /> Step #{targetIndex + 1}: {((targetNode.data?.label as string) || targetNode.type).slice(0, 16)}
                                   </span>
                                 ) : (
-                                  <span className="text-[9px] text-gray-400 font-normal">➜ Next</span>
+                                  <span className="text-[9px] text-gray-400 font-normal flex items-center gap-1"><ArrowRight className="w-3 h-3" /> Next</span>
                                 )}
                               </span>
                             );
@@ -669,25 +668,25 @@ export default function ClassicChatBuilder({
                         <span className="text-gray-400 font-semibold text-[10px]">Next Step:</span>
                         {node.data?.nextStepId === 'END' ? (
                           <span className="px-2 py-0.5 bg-red-50 text-red-600 border border-red-200 rounded-md font-bold text-[10px]">
-                            🛑 End Chat Flow
+                            <X className="w-3 h-3 inline mr-1" /> End Chat Flow
                           </span>
                         ) : node.data?.nextStepId ? (() => {
                           const targetIdx = safeNodes.findIndex(n => n.id === node.data.nextStepId);
                           const targetNode = targetIdx !== -1 ? safeNodes[targetIdx] : null;
                           return targetNode ? (
                             <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-md font-bold text-[10px] flex items-center gap-1">
-                              ➜ Step #{targetIdx + 1}: {((targetNode.data?.label as string) || targetNode.type).slice(0, 20)}
+                              <ArrowRight className="w-3 h-3" /> Step #{targetIdx + 1}: {((targetNode.data?.label as string) || targetNode.type).slice(0, 20)}
                             </span>
                           ) : (
-                            <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-[10px]">➜ Next</span>
+                            <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-[10px] flex items-center gap-1"><ArrowRight className="w-3 h-3" /> Next</span>
                           );
                         })() : index < safeNodes.length - 1 ? (
                           <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded text-[10px] font-medium">
-                            ➜ Step #{index + 2} (Default Next)
+                            <ArrowRight className="w-3 h-3 inline mr-1" /> Step #{index + 2} (Default Next)
                           </span>
                         ) : (
                           <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-md font-bold text-[10px]">
-                            🏁 End of Flow
+                            <Check className="w-3 h-3 inline mr-1" /> End of Flow
                           </span>
                         )}
                       </div>
@@ -747,7 +746,7 @@ export default function ClassicChatBuilder({
         </div>
 
         {/* ================= COLUMN 3: Customize Bot Messages ================= */}
-        <div className="w-80 bg-white border-l border-gray-200 flex flex-col shrink-0 overflow-y-auto">
+        <div className="builder-properties w-80 bg-white border-l border-gray-200 flex flex-col shrink-0 overflow-y-auto">
           {/* Header Bar */}
           <div className="bg-gray-100/80 px-4 py-3 border-b border-gray-200 text-center">
             <h2 className="text-xs font-bold text-gray-700 uppercase tracking-wide">Customize Bot Messages</h2>
@@ -791,7 +790,7 @@ export default function ClassicChatBuilder({
                       value={(selectedNode.data?.label as string) || ''}
                       onChange={(e) => updateSelectedNodeData('label', e.target.value)}
                       className="w-full text-xs p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 font-sans leading-relaxed resize-none"
-                      placeholder="Welcome! Thanks for showing interest! 🚀"
+                      placeholder="Welcome! Thanks for showing interest."
                     />
                   </div>
 
@@ -812,9 +811,9 @@ export default function ClassicChatBuilder({
                   {/* Emoji Picker Grid matching exact screenshot */}
                   <div>
                     <label className="block text-xs font-bold text-gray-600 mb-2">
-                      Click to insert Emoji
+                      Add an emoji
                     </label>
-                    <div className="grid grid-cols-6 gap-1.5 p-2 bg-gray-50 rounded-2xl border border-gray-200 max-h-48 overflow-y-auto">
+                    <div className="emoji-picker-grid grid grid-cols-6 gap-1.5 p-2 bg-gray-50 rounded-2xl border border-gray-200 max-h-48 overflow-y-auto">
                       {EMOJI_PALETTE.map((emoji, i) => (
                         <button
                           key={i}
@@ -859,7 +858,7 @@ export default function ClassicChatBuilder({
                       className="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-xs font-semibold text-gray-800 focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 shadow-2xs"
                     >
                       <option value="">Default Next Step (Sequential)</option>
-                      <option value="END">🛑 End Chat Flow Here</option>
+                      <option value="END">End chat flow here</option>
                       {safeNodes.filter(n => n.id !== selectedNode.id).map((n) => {
                         const stepIndex = safeNodes.findIndex(sn => sn.id === n.id) + 1;
                         const label = (n.data?.label as string) || n.type;
@@ -947,7 +946,7 @@ export default function ClassicChatBuilder({
                               </div>
 
                               <div className="flex items-center gap-2 pt-1 border-t border-gray-200/60">
-                                <span className="text-[11px] text-indigo-700 font-bold shrink-0">➜ Go to:</span>
+                                <span className="text-[11px] text-indigo-700 font-bold shrink-0 flex items-center gap-1"><ArrowRight className="w-3 h-3" /> Go to:</span>
                                 <select
                                   value={currentRoute}
                                   onChange={(e) => {
@@ -1209,7 +1208,7 @@ export default function ClassicChatBuilder({
                 onClick={() => loadPresetTemplate('lead')}
                 className="w-full p-4 bg-gray-50 hover:bg-indigo-50 hover:border-indigo-200 border border-gray-200 rounded-2xl text-left transition-all"
               >
-                <div className="font-bold text-sm text-gray-900">🚀 Lead Generation Flow</div>
+                <div className="font-bold text-sm text-gray-900 flex items-center gap-2"><TrendingUp className="w-4 h-4 text-indigo-600" /> Lead Generation Flow</div>
                 <div className="text-xs text-gray-500 mt-1">Welcomes visitors, collects Name, Phone Number, and Email.</div>
               </button>
 
@@ -1217,7 +1216,7 @@ export default function ClassicChatBuilder({
                 onClick={() => loadPresetTemplate('booking')}
                 className="w-full p-4 bg-gray-50 hover:bg-indigo-50 hover:border-indigo-200 border border-gray-200 rounded-2xl text-left transition-all"
               >
-                <div className="font-bold text-sm text-gray-900">📅 Appointment Booking Flow</div>
+                <div className="font-bold text-sm text-gray-900 flex items-center gap-2"><CalendarDays className="w-4 h-4 text-indigo-600" /> Appointment Booking Flow</div>
                 <div className="text-xs text-gray-500 mt-1">Asks for service choice, user name, and booking email.</div>
               </button>
 
@@ -1225,7 +1224,7 @@ export default function ClassicChatBuilder({
                 onClick={() => loadPresetTemplate('support')}
                 className="w-full p-4 bg-gray-50 hover:bg-indigo-50 hover:border-indigo-200 border border-gray-200 rounded-2xl text-left transition-all"
               >
-                <div className="font-bold text-sm text-gray-900">💬 Customer Support & FAQ</div>
+                <div className="font-bold text-sm text-gray-900 flex items-center gap-2"><LifeBuoy className="w-4 h-4 text-indigo-600" /> Customer Support & FAQ</div>
                 <div className="text-xs text-gray-500 mt-1">Collects detailed issue description and user contact.</div>
               </button>
             </div>

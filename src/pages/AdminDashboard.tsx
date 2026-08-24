@@ -364,9 +364,9 @@ export default function AdminDashboard() {
   const totalLeads = clients.reduce((acc, c) => acc + (c.leadsCount || 0), 0);
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-8 font-sans">
+    <div className="admin-console-page p-8 max-w-7xl mx-auto space-y-8 font-sans">
       {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="admin-page-header flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
             <span className="px-3 py-1 bg-indigo-50 text-indigo-700 rounded-full text-xs font-bold uppercase tracking-wider flex items-center gap-1 border border-indigo-100">
@@ -419,7 +419,7 @@ export default function AdminDashboard() {
       </div>
 
       {/* Main Tab Navigation Header */}
-      <div className="flex border-b border-slate-200 space-x-8">
+      <div className="admin-tab-strip flex border-b border-slate-200 space-x-8">
         <button
           onClick={() => setActiveTab('users')}
           className={`pb-4 text-sm font-extrabold border-b-2 transition-all flex items-center gap-2 ${activeTab === 'users' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'
@@ -461,9 +461,9 @@ export default function AdminDashboard() {
       {activeTab === 'users' && (
         <div className="space-y-8 animate-in fade-in duration-300">
           {/* Chatbot Overview KPI Stats Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="admin-stat-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {/* Total Users */}
-            <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex items-center justify-between">
+            <div className="admin-stat-card bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex items-center justify-between">
               <div className="space-y-1">
                 <p className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">Total Chatbot Users</p>
                 <p className="text-3xl font-black text-slate-900">{chatbotStats.totalUsers}</p>
@@ -478,7 +478,7 @@ export default function AdminDashboard() {
             </div>
 
             {/* New Users Today / This Week */}
-            <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex items-center justify-between">
+            <div className="admin-stat-card bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex items-center justify-between">
               <div className="space-y-1">
                 <p className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">New Users Today</p>
                 <p className="text-3xl font-black text-slate-900">{chatbotStats.newUsersToday}</p>
@@ -492,7 +492,7 @@ export default function AdminDashboard() {
             </div>
 
             {/* Total Conversations */}
-            <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex items-center justify-between">
+            <div className="admin-stat-card bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex items-center justify-between">
               <div className="space-y-1">
                 <p className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">Total Conversations</p>
                 <p className="text-3xl font-black text-slate-900">{chatbotStats.totalConversations}</p>
@@ -507,7 +507,7 @@ export default function AdminDashboard() {
             </div>
 
             {/* Total Messages & Avg Length */}
-            <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex items-center justify-between">
+            <div className="admin-stat-card bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex items-center justify-between">
               <div className="space-y-1">
                 <p className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">Total Messages</p>
                 <p className="text-3xl font-black text-slate-900">{chatbotStats.totalMessages}</p>
@@ -523,7 +523,7 @@ export default function AdminDashboard() {
 
           {/* Daily Activity Growth Chart Card */}
           {chatbotStats.dailyTrend && chatbotStats.dailyTrend.length > 0 && (
-            <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-6 rounded-3xl shadow-xl border border-slate-800 space-y-4">
+            <div className="admin-activity-card bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-6 rounded-3xl shadow-xl border border-slate-800 space-y-4">
               <div className="flex items-center justify-between">
                 <div>
                   <div className="flex items-center gap-2">

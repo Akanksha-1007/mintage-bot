@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import MintageLogo from './MintageLogo';
+import ThemeToggle from './ThemeToggle';
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -164,11 +165,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <span className="hidden text-[#c5c4c1] sm:inline">/</span>
               <span className="truncate text-[12px] font-medium text-[#37352f]">{activeItem?.name || 'Workspace'}</span>
             </div>
-            <button className="topbar-search hidden items-center gap-2 rounded-md px-2.5 py-1.5 text-[11px] text-[#9b9a97] hover:bg-[#f7f7f5] sm:flex">
-              <Search className="h-3.5 w-3.5" />
-              <span>Search workspace</span>
-              <kbd>⌘ K</kbd>
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button className="topbar-search hidden items-center gap-2 rounded-md px-2.5 py-1.5 text-[11px] text-[#9b9a97] hover:bg-[#f7f7f5] sm:flex">
+                <Search className="h-3.5 w-3.5" />
+                <span>Search workspace</span>
+                <kbd>⌘ K</kbd>
+              </button>
+              <ThemeToggle />
+            </div>
           </header>
 
           <main className="mintage-page-shell min-h-0 flex-1 overflow-auto bg-white">

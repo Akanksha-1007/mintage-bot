@@ -387,7 +387,7 @@ export default function Integrations() {
             setIsConnected(true);
             setGoogleTokens(tokens);
             fetchUserSheets(tokens);
-            showToast('🎉 Google Account connected successfully!');
+            showToast('Google Account connected successfully!');
           } catch (error) {
             console.error('Error saving tokens:', error);
             showToast('Failed to connect Google account.', 'error');
@@ -802,8 +802,8 @@ export default function Integrations() {
 
         showToast(
           action === 'updated'
-            ? `✅ Test lead updated in Google Sheet${location}`
-            : `🎉 Test lead appended to Google Sheet${location}`
+            ? `Test lead updated in Google Sheet${location}`
+            : `Test lead appended to Google Sheet${location}`
         );
       } else {
         showToast(data.error || 'Failed to sync test lead', 'error');
@@ -824,7 +824,7 @@ export default function Integrations() {
   }
 
   return (
-    <div className="p-8 max-w-6xl mx-auto space-y-8 font-sans">
+    <div className="integrations-page p-8 max-w-6xl mx-auto space-y-8 font-sans">
       {/* Toast Banner */}
       {toast && (
         <div className={`fixed bottom-6 right-6 z-50 px-5 py-3 rounded-2xl shadow-2xl border text-xs font-bold flex items-center gap-2 animate-bounce ${toast.type === 'success'
@@ -837,7 +837,7 @@ export default function Integrations() {
       )}
 
       {/* Header & Navigation Tabs */}
-      <div className="space-y-4">
+      <div className="integrations-page-header space-y-4">
         <div className="flex justify-between items-center">
           <div>
             <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight">Integrations & Website Embed</h2>
@@ -856,7 +856,7 @@ export default function Integrations() {
         </div>
 
         {/* Navigation Tabs */}
-        <div className="flex items-center gap-2 border-b border-gray-200 pb-1">
+        <div className="integrations-tab-strip flex items-center gap-2 border-b border-gray-200 pb-1">
           <button
             onClick={() => setActiveTab('embed')}
             className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${activeTab === 'embed'
@@ -884,7 +884,7 @@ export default function Integrations() {
       {activeTab === 'embed' ? (
         /* ================= EMBED CODE SECTION ================= */
         <div className="space-y-8">
-          <div className="bg-white p-8 rounded-3xl shadow-xs border border-gray-200 space-y-6">
+          <div className="embed-config-card bg-white p-8 rounded-3xl shadow-xs border border-gray-200 space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-gray-100">
               <div>
                 <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
@@ -940,16 +940,16 @@ export default function Integrations() {
               </p>
               <div className="pt-1 flex flex-wrap gap-2 text-[11px]">
                 <span className="bg-amber-100 text-amber-900 font-bold px-2.5 py-1 rounded-lg">
-                  💡 Fix 1: Use Option 2 (Popup Window) or Option 3 (Direct Link) on external sites
+                  Fix 1: Use Option 2 (Popup Window) or Option 3 (Direct Link) on external sites
                 </span>
                 <span className="bg-amber-100 text-amber-900 font-bold px-2.5 py-1 rounded-lg">
-                  🚀 Fix 2: Deploy app to production to unlock seamless cross-domain inline iframe embedding
+                  Fix 2: Deploy app to production to unlock seamless cross-domain inline iframe embedding
                 </span>
               </div>
             </div>
 
             {/* Snippet Option 1: JS Script */}
-            <div className="space-y-3">
+            <div className="embed-option-card option-widget space-y-3">
               <div className="flex justify-between items-center">
                 <div>
                   <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider flex items-center gap-1.5">
@@ -975,7 +975,7 @@ export default function Integrations() {
             </div>
 
             {/* Snippet Option 2: Popup Window Mode */}
-            <div className="space-y-3 pt-4 border-t border-gray-100">
+            <div className="embed-option-card option-popup space-y-3 pt-4 border-t border-gray-100">
               <div className="flex justify-between items-center">
                 <div>
                   <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider flex items-center gap-1.5">
@@ -1001,7 +1001,7 @@ export default function Integrations() {
             </div>
 
             {/* Snippet Option 3: Direct Web Link */}
-            <div className="space-y-3 pt-4 border-t border-gray-100">
+            <div className="embed-option-card option-link space-y-3 pt-4 border-t border-gray-100">
               <div className="flex justify-between items-center">
                 <div>
                   <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider flex items-center gap-1.5">
@@ -1027,7 +1027,7 @@ export default function Integrations() {
             </div>
 
             {/* Snippet Option 4: iFrame */}
-            <div className="space-y-3 pt-4 border-t border-gray-100">
+            <div className="embed-option-card option-frame space-y-3 pt-4 border-t border-gray-100">
               <div className="flex justify-between items-center">
                 <div>
                   <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider flex items-center gap-1.5">
@@ -1238,7 +1238,7 @@ export default function Integrations() {
                                   <option value="">-- Select a Google Sheet from Drive --</option>
                                   {userSheets.map((s) => (
                                     <option key={s.id} value={s.id}>
-                                      📊 {s.name} ({s.id.slice(0, 10)}...)
+                                      {s.name} ({s.id.slice(0, 10)}...)
                                     </option>
                                   ))}
                                 </select>
@@ -1466,4 +1466,3 @@ export default function Integrations() {
     </div>
   );
 }
-
