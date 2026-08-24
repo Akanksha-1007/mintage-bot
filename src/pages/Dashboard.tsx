@@ -173,209 +173,107 @@ export default function Dashboard() {
   }, [effectiveUserId, isAdmin, impersonatedClient]);
 
   return (
-    <div className="min-h-full bg-slate-50/80 p-6 sm:p-8 space-y-8">
-      {/* Header Banner with Premium Indigo/Slate Palette */}
-      <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-3xl p-8 shadow-xl shadow-slate-900/10 border border-slate-800">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-xs font-semibold backdrop-blur-md">
-                <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Mintage Client Workspace</span>
-              </div>
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-semibold backdrop-blur-md">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span>Real-Time Live</span>
-              </div>
-            </div>
-            <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight">
-              {impersonatedClient ? `${impersonatedClient.name}'s Dashboard` : (clientUser ? `${clientUser.name}'s Dashboard` : 'Chatbot Command Center')}
-            </h1>
-            <p className="text-slate-300 text-sm max-w-xl leading-relaxed">
-              Monitor active AI conversational flows, review incoming customer leads, and fine-tune your automated funnel.
-            </p>
+    <div className="workspace-page dashboard-page">
+      <header className="page-heading">
+        <div>
+          <div className="eyebrow-row">
+            <span className="eyebrow">Workspace overview</span>
+            <span className="status-pill status-live"><span />Live</span>
           </div>
-
-          <div className="flex items-center gap-3 shrink-0">
-            <Link
-              to="/builder"
-              className="px-5 py-3 bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 text-white text-xs font-bold rounded-2xl shadow-lg shadow-indigo-500/25 transition-all flex items-center gap-2"
-            >
-              <Zap className="w-4 h-4" />
-              <span>Create Bot Flow</span>
-            </Link>
-            <Link
-              to="/integrations"
-              className="px-4 py-3 bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-slate-200 text-xs font-bold rounded-2xl transition-all flex items-center gap-2"
-            >
-              <Code2 className="w-4 h-4 text-indigo-400" />
-              <span>Widget Script</span>
-            </Link>
-          </div>
+          <h1>{impersonatedClient ? `${impersonatedClient.name}'s workspace` : (clientUser ? `${clientUser.name}'s workspace` : 'Dashboard')}</h1>
+          <p>Manage your chatbot flows, captured leads, and publishing tools from one place.</p>
         </div>
-      </div>
-
-      {/* KPI Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Active Bots */}
-        <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm hover:shadow-xl hover:border-indigo-300 transition-all duration-300 group">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3.5 bg-indigo-50 text-indigo-600 rounded-2xl group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300 shadow-sm">
-              <Bot className="w-6 h-6" />
-            </div>
-            <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-full">
-              <Activity className="w-3 h-3" /> Active
-            </span>
-          </div>
-          <h3 className="text-slate-500 text-xs font-bold uppercase tracking-wider">Active Bot Flows</h3>
-          <div className="flex items-baseline justify-between mt-2">
-            <p className="text-4xl font-extrabold text-slate-900 tracking-tight">{loading ? '...' : stats.bots}</p>
-            <Link to="/bots" className="text-xs font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1 group-hover:translate-x-1 transition-transform">
-              Manage <ArrowRight className="w-3.5 h-3.5" />
-            </Link>
-          </div>
+        <div className="page-actions">
+          <Link to="/integrations" className="button-secondary">
+            <Code2 className="h-4 w-4" />
+            Embed widget
+          </Link>
+          <Link to="/builder" className="button-primary">
+            <PlusIcon />
+            New bot
+          </Link>
         </div>
+      </header>
 
-        {/* Total Leads */}
-        <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm hover:shadow-xl hover:border-emerald-300 transition-all duration-300 group">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3.5 bg-emerald-50 text-emerald-600 rounded-2xl group-hover:bg-emerald-600 group-hover:text-white transition-all duration-300 shadow-sm">
-              <Users className="w-6 h-6" />
-            </div>
-            <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-full">
-              +18% this month
-            </span>
-          </div>
-          <h3 className="text-slate-500 text-xs font-bold uppercase tracking-wider">Captured Leads</h3>
-          <div className="flex items-baseline justify-between mt-2">
-            <p className="text-4xl font-extrabold text-slate-900 tracking-tight">{loading ? '...' : stats.leads}</p>
-            <Link to="/leads" className="text-xs font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-1 group-hover:translate-x-1 transition-transform">
-              View Leads <ArrowRight className="w-3.5 h-3.5" />
-            </Link>
-          </div>
-        </div>
+      <section className="metric-grid" aria-label="Workspace statistics">
+        <article className="metric-card">
+          <div className="metric-icon"><Bot /></div>
+          <div><p>Active bots</p><strong>{loading ? '—' : stats.bots}</strong></div>
+          <Link to="/bots">Open <ArrowRight /></Link>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon"><Users /></div>
+          <div><p>Captured leads</p><strong>{loading ? '—' : stats.leads}</strong></div>
+          <Link to="/leads">View <ArrowRight /></Link>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon"><TrendingUp /></div>
+          <div><p>Conversion rate</p><strong>{loading ? '—' : `${stats.conversion}%`}</strong></div>
+          <div className="metric-progress"><span style={{ width: `${Math.min(stats.conversion * 5, 100)}%` }} /></div>
+        </article>
+      </section>
 
-        {/* Avg Conversion */}
-        <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm hover:shadow-xl hover:border-violet-300 transition-all duration-300 group">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3.5 bg-violet-50 text-violet-600 rounded-2xl group-hover:bg-violet-600 group-hover:text-white transition-all duration-300 shadow-sm">
-              <TrendingUp className="w-6 h-6" />
-            </div>
-            <span className="inline-flex items-center gap-1 text-xs font-bold text-violet-700 bg-violet-50 border border-violet-100 px-2.5 py-1 rounded-full">
-              High Efficiency
-            </span>
-          </div>
-          <h3 className="text-slate-500 text-xs font-bold uppercase tracking-wider">Conversion Efficiency</h3>
-          <div className="flex items-baseline justify-between mt-2">
-            <p className="text-4xl font-extrabold text-slate-900 tracking-tight">{loading ? '...' : `${stats.conversion}%`}</p>
-            <div className="w-24 bg-slate-100 h-2 rounded-full overflow-hidden">
-              <div className="bg-gradient-to-r from-violet-500 to-indigo-600 h-full rounded-full" style={{ width: `${Math.min(stats.conversion * 5, 100)}%` }} />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Content Action Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left 2 Cols: Quick Flow Builder & Integration */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Builder Promo Card */}
-          <div className="bg-gradient-to-br from-indigo-900 via-slate-900 to-indigo-950 p-8 rounded-3xl text-white shadow-xl relative overflow-hidden group border border-indigo-800/50">
-            <div className="relative z-10 max-w-lg space-y-4">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 text-xs font-semibold border border-indigo-400/20">
-                <GitBranch className="w-3.5 h-3.5 text-indigo-400" />
-                Visual AI Canvas
-              </div>
-              <h3 className="text-2xl sm:text-3xl font-extrabold tracking-tight">Design & Launch AI Chatbots</h3>
-              <p className="text-slate-300 text-xs sm:text-sm leading-relaxed">
-                Build intuitive conditional logic trees, collect contact info, and automate customer support in a drag-and-drop editor.
-              </p>
-              <div className="pt-2">
-                <Link 
-                  to="/builder"
-                  className="inline-flex items-center gap-2.5 px-6 py-3.5 bg-gradient-to-r from-indigo-500 to-violet-600 text-white font-bold text-xs rounded-2xl hover:from-indigo-600 hover:to-violet-700 transition-all shadow-lg shadow-indigo-600/30 group-hover:translate-x-1"
-                >
-                  <span>Launch Visual Builder</span>
-                  <ArrowRight className="w-4 h-4" />
-                </Link>
-              </div>
-            </div>
-            <div className="absolute top-1/2 -right-8 -translate-y-1/2 opacity-10 group-hover:opacity-20 transition-opacity duration-500 pointer-events-none">
-              <Bot className="w-80 h-80 text-indigo-300" />
-            </div>
+      <div className="dashboard-columns">
+        <section className="dashboard-main-column">
+          <div className="section-title-row">
+            <div><p className="eyebrow">Quick start</p><h2>Build and publish</h2></div>
+            <span className="text-note">Everything stays in this workspace</span>
           </div>
 
-          {/* Quick Integration Card */}
-          <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-6">
-            <div className="flex items-center gap-4">
-              <div className="p-3.5 bg-violet-50 text-violet-600 rounded-2xl shrink-0">
-                <MessageSquare className="w-6 h-6" />
-              </div>
-              <div>
-                <h4 className="text-base font-bold text-slate-900">Embed Chatbot Widget</h4>
-                <p className="text-xs text-slate-500 mt-0.5">Copy one line of JS script to embed on your website or landing page.</p>
-              </div>
+          <article className="builder-feature">
+            <div className="feature-copy">
+              <span className="feature-icon"><GitBranch /></span>
+              <h3>Shape a conversation visually</h3>
+              <p>Arrange messages, questions, conditions, and lead capture steps in the drag-and-drop builder.</p>
+              <Link to="/builder" className="button-primary">Open builder <ArrowRight className="h-4 w-4" /></Link>
             </div>
-            <Link 
-              to="/integrations"
-              className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition-all shadow-md shrink-0 flex items-center gap-2"
-            >
-              <span>Get Embed Code</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </Link>
-          </div>
-        </div>
+            <div className="feature-canvas" aria-hidden="true">
+              <div className="flow-card flow-card-a"><span />Welcome message</div>
+              <div className="flow-line" />
+              <div className="flow-card flow-card-b"><span />Capture contact</div>
+              <div className="flow-card flow-card-c"><span />Save lead</div>
+            </div>
+          </article>
 
-        {/* Right Col: Recent Lead Activity */}
-        <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm space-y-6 flex flex-col">
-          <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-            <div className="flex items-center gap-2">
-              <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-              <h3 className="text-base font-bold text-slate-900">Recent Leads</h3>
-            </div>
-            <Link to="/leads" className="text-xs font-bold text-indigo-600 hover:text-indigo-700">
-              View All
-            </Link>
+          <Link to="/integrations" className="inline-resource-card">
+            <span className="resource-icon"><MessageSquare /></span>
+            <span className="min-w-0 flex-1"><strong>Website embed</strong><small>Add a floating chatbot to any site with one script.</small></span>
+            <ArrowRight />
+          </Link>
+        </section>
+
+        <aside className="recent-panel">
+          <div className="section-title-row compact">
+            <div><p className="eyebrow">Activity</p><h2>Recent leads</h2></div>
+            <Link to="/leads">View all</Link>
           </div>
 
           {recentLeads.length > 0 ? (
-            <div className="space-y-3 flex-1">
+            <div className="recent-list">
               {recentLeads.map((lead, idx) => {
-                const leadEmail = lead.data?.email || lead.data?.Email || lead.data?.name || 'Anonymous Lead';
+                const leadEmail = lead.data?.email || lead.data?.Email || lead.data?.name || 'Anonymous lead';
                 return (
-                  <div key={lead.id || idx} className="p-3.5 bg-slate-50 hover:bg-indigo-50/50 rounded-2xl border border-slate-100 transition-all flex items-start justify-between gap-3">
-                    <div className="space-y-1 min-w-0">
-                      <p className="text-xs font-bold text-slate-900 truncate">{leadEmail}</p>
-                      <p className="text-[11px] text-slate-500 flex items-center gap-1">
-                        <Clock className="w-3 h-3 text-slate-400" />
-                        <span>Recent Submission</span>
-                      </p>
-                    </div>
-                    <span className="text-[10px] font-semibold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full shrink-0">
-                      Lead Captured
-                    </span>
+                  <div key={lead.id || idx} className="recent-item">
+                    <div className="avatar-initial">{String(leadEmail).charAt(0).toUpperCase()}</div>
+                    <div className="min-w-0 flex-1"><strong>{leadEmail}</strong><span><Clock /> Recent submission</span></div>
+                    <span className="status-pill">New</span>
                   </div>
                 );
               })}
             </div>
           ) : (
-            <div className="text-center py-8 px-4 bg-slate-50 rounded-2xl border border-dashed border-slate-200 flex-1 flex flex-col items-center justify-center space-y-2">
-              <CheckCircle2 className="w-8 h-8 text-slate-300" />
-              <p className="text-xs font-bold text-slate-600">No leads captured yet</p>
-              <p className="text-[11px] text-slate-400 max-w-xs">Test your chatbot widget to capture your first customer leads.</p>
+            <div className="empty-activity">
+              <CheckCircle2 />
+              <strong>No leads yet</strong>
+              <p>New submissions will appear here as they arrive.</p>
             </div>
           )}
-
-          <Link
-            to="/leads"
-            className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-2xl transition-all text-center block"
-          >
-            Open Lead Center
-          </Link>
-        </div>
+        </aside>
       </div>
     </div>
   );
 }
 
+function PlusIcon() {
+  return <span className="plus-icon" aria-hidden="true">+</span>;
+}

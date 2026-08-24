@@ -188,148 +188,109 @@ export default function Bots() {
   };
 
   return (
-    <div className="p-8 max-w-6xl mx-auto">
-      <div className="flex justify-between items-center mb-8">
+    <div className="workspace-page bots-page">
+      <header className="page-heading">
         <div>
-          <h2 className="text-3xl font-bold text-gray-900">Mintage Chatbots</h2>
-          <p className="text-gray-500 mt-1">Manage, edit, and embed your Mintage chatbot flows.</p>
+          <span className="eyebrow">Chatbot library</span>
+          <h1>My bots</h1>
+          <p>Open a flow, review its setup, or publish a new chatbot.</p>
         </div>
-        <Link 
-          to="/builder"
-          className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
-        >
-          <Plus className="w-5 h-5" />
-          Create New Bot
+        <Link to="/builder" className="button-primary">
+          <Plus className="h-4 w-4" />
+          New bot
         </Link>
+      </header>
+
+      <div className="database-toolbar">
+        <div className="database-view is-active"><GitBranch /> All flows <span>{bots.length}</span></div>
+        <div className="database-toolbar-note">Updated automatically</div>
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-20">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600"></div>
+        <div className="loading-state">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span>Loading bots…</span>
         </div>
       ) : bots.length === 0 ? (
-        <div className="bg-white rounded-[32px] p-12 text-center border border-dashed border-gray-200">
-          <div className="w-20 h-20 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-6">
-            <GitBranch className="w-10 h-10 text-indigo-200" />
+        <div className="empty-database">
+          <div className="empty-icon">
+            <GitBranch />
           </div>
-          <h3 className="text-xl font-bold text-gray-900 mb-2">No bots yet</h3>
-          <p className="text-gray-500 mb-8 max-w-sm mx-auto">
-            You haven't created any chatbot flows yet. Start building your first lead-gen machine!
-          </p>
-          <Link 
-            to="/builder"
-            className="inline-flex items-center gap-2 px-8 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all"
-          >
-            Create Your First Bot
-          </Link>
+          <h3>No bots in this workspace</h3>
+          <p>Create your first conversational flow and publish it when you are ready.</p>
+          <Link to="/builder" className="button-primary"><Plus className="h-4 w-4" /> Create a bot</Link>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="bot-card-grid">
           {bots.map((bot) => (
-            <div key={bot.id} className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm hover:shadow-xl transition-all group">
-              <div className="flex justify-between items-start mb-6">
-                <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
-                  <GitBranch className="w-6 h-6" />
+            <article key={bot.id} className="bot-card">
+              <div className="bot-card-head">
+                <div className="bot-icon">
+                  <BotIcon />
                 </div>
-                <div className="flex gap-2">
-                  <button 
-                    onClick={() => navigate(`/builder/${bot.id}`)}
-                    className="p-2 bg-gray-50 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
-                    title="Edit Bot Flow"
-                  >
-                    <Edit2 className="w-4 h-4" />
+                <div className="bot-card-actions">
+                  <button onClick={() => navigate(`/builder/${bot.id}`)} className="icon-button" title="Edit bot flow">
+                    <Edit2 />
                   </button>
-                  <button 
-                    onClick={() => setDeletingBot(bot)}
-                    className="p-2 bg-red-50 text-red-500 hover:text-red-700 hover:bg-red-100 rounded-xl transition-all"
-                    title="Delete Bot"
-                  >
-                    <Trash2 className="w-4 h-4" />
+                  <button onClick={() => setDeletingBot(bot)} className="icon-button danger" title="Delete bot">
+                    <Trash2 />
                   </button>
                 </div>
               </div>
-              <h4 className="text-lg font-bold text-gray-900 mb-1 truncate">{bot.name}</h4>
-              <p className="text-xs text-gray-400 font-medium uppercase tracking-widest mb-4">
-                Updated {bot.updatedAt?.toDate ? format(bot.updatedAt.toDate(), 'MMM d, yyyy') : 'Recently'}
-              </p>
-              
-              <div className="flex items-center gap-2 mb-6 flex-wrap">
-                <div className="px-3 py-1 bg-emerald-50 text-emerald-600 rounded-lg text-[10px] font-bold uppercase tracking-wider">
-                  {bot.leadsCount || 0} Leads
-                </div>
-                <div className="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[10px] font-bold uppercase tracking-wider">
-                  {bot.leadsCount && bot.leadsCount > 0 ? 'Active' : 'Awaiting Flow'}
-                </div>
+              <div className="bot-title-row">
+                <div className="min-w-0"><h3>{bot.name}</h3><p>Updated {bot.updatedAt?.toDate ? format(bot.updatedAt.toDate(), 'MMM d, yyyy') : 'recently'}</p></div>
+                <span className={`status-pill ${bot.leadsCount && bot.leadsCount > 0 ? 'status-live' : ''}`}><span />{bot.leadsCount && bot.leadsCount > 0 ? 'Active' : 'Draft'}</span>
+              </div>
+
+              <div className="bot-properties">
+                <div><span>Leads</span><strong>{bot.leadsCount || 0}</strong></div>
+                <div><span>Google Sheet</span>
                 {bot.spreadsheetId ? (
-                  <a 
-                    href={`https://docs.google.com/spreadsheets/d/${bot.spreadsheetId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-3 py-1 bg-teal-50 text-teal-700 hover:bg-teal-100 rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 transition-colors"
-                    title="Open connected Google Sheet"
-                  >
-                    <FileSpreadsheet className="w-3 h-3 text-teal-600" />
-                    Sheet Linked
+                  <a href={`https://docs.google.com/spreadsheets/d/${bot.spreadsheetId}`} target="_blank" rel="noopener noreferrer">
+                    <FileSpreadsheet /> Connected
                   </a>
                 ) : (
-                  <Link 
-                    to={`/builder/${bot.id}`}
-                    className="px-3 py-1 bg-gray-50 text-gray-400 hover:text-indigo-600 rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 transition-colors"
-                  >
-                    <FileSpreadsheet className="w-3 h-3" />
-                    + Link Sheet
-                  </Link>
-                )}
+                  <Link to={`/builder/${bot.id}`}>Not connected</Link>
+                )}</div>
               </div>
-              
-              <div className="flex gap-2">
-                <Link 
-                  to={`/builder/${bot.id}`}
-                  className="flex-1 py-2.5 px-3 bg-slate-900 text-white text-xs font-bold rounded-xl hover:bg-indigo-600 transition-all text-center flex items-center justify-center gap-1.5 shadow-sm"
-                >
-                  <Edit2 className="w-3.5 h-3.5" />
-                  <span>View & Edit Flow</span>
+
+              <div className="bot-card-footer">
+                <Link to={`/builder/${bot.id}`} className="button-primary compact">
+                  Open flow
                 </Link>
-                <a 
-                  href={`/widget/${bot.id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="py-2.5 px-3 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 font-bold text-xs rounded-xl transition-all flex items-center gap-1.5"
-                  title="Test & Preview Live Chatbot Widget"
-                >
-                  <span>Test Widget</span>
-                  <ExternalLink className="w-3.5 h-3.5" />
+                <a href={`/widget/${bot.id}`} target="_blank" rel="noopener noreferrer" className="button-secondary compact">
+                  Preview <ExternalLink />
                 </a>
               </div>
-            </div>
+            </article>
           ))}
         </div>
       )}
 
       {/* Delete Bot Confirmation Modal */}
       {deletingBot && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-[100] p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl max-w-md w-full p-8 shadow-2xl border border-gray-100 text-center space-y-6">
-            <div className="w-16 h-16 bg-red-50 text-red-600 rounded-3xl flex items-center justify-center mx-auto shrink-0">
-              <AlertTriangle className="w-8 h-8" />
+        <div className="modal-backdrop">
+          <div className="notion-modal text-center">
+            <div className="modal-danger-icon">
+              <AlertTriangle />
             </div>
 
             <div className="space-y-2">
-              <h3 className="text-xl font-bold text-gray-900">Delete Chatbot Flow?</h3>
-              <p className="text-xs text-gray-500 leading-relaxed">
-                Are you sure you want to delete <strong className="text-gray-800">"{deletingBot.name}"</strong>? This will permanently remove the bot configuration and widget endpoint.
+              <h3>Delete this bot?</h3>
+              <p>
+                <strong>“{deletingBot.name}”</strong> and its published widget endpoint will be permanently removed.
               </p>
-              <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-100 p-2.5 rounded-xl font-medium mt-2">
-                Note: Any lead data previously captured by this bot will remain safely saved in your Lead Data section.
+              <p className="modal-note">
+                Previously captured leads will remain available in Lead data.
               </p>
             </div>
 
-            <div className="flex gap-3 pt-2">
+            <div className="modal-actions">
               <button
                 type="button"
                 onClick={() => setDeletingBot(null)}
                 disabled={isDeleting}
-                className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-xl transition-all"
+                className="button-secondary flex-1"
               >
                 Cancel
               </button>
@@ -337,10 +298,10 @@ export default function Bots() {
                 type="button"
                 onClick={confirmDeleteBot}
                 disabled={isDeleting}
-                className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl transition-all shadow-lg shadow-red-100 flex items-center justify-center gap-2 disabled:opacity-50"
+                className="button-danger flex-1"
               >
-                {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                <span>{isDeleting ? 'Deleting...' : 'Delete Permanently'}</span>
+                {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                <span>{isDeleting ? 'Deleting…' : 'Delete bot'}</span>
               </button>
             </div>
           </div>
@@ -348,4 +309,8 @@ export default function Bots() {
       )}
     </div>
   );
+}
+
+function BotIcon() {
+  return <GitBranch aria-hidden="true" />;
 }

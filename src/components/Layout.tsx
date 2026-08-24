@@ -1,13 +1,27 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, GitBranch, Database, LogOut, MessageSquare, Bot, ShieldCheck, Zap, ArrowLeft } from 'lucide-react';
+import {
+  ArrowLeft,
+  Bot,
+  ChevronDown,
+  Database,
+  GitBranch,
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  MessageSquare,
+  Search,
+  ShieldCheck,
+  X,
+  Zap,
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-
 import MintageLogo from './MintageLogo';
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const { logout, isAdmin, impersonatedClient, clientUser, clearImpersonation } = useAuth();
 
   const handleLogout = async () => {
@@ -15,110 +29,152 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     navigate('/login');
   };
 
-  const navItems = [
-    { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
-    { name: 'My Bots', path: '/bots', icon: Bot },
-    { name: 'New Bot', path: '/builder', icon: GitBranch },
-    { name: 'Integrations', path: '/integrations', icon: MessageSquare },
-    { name: 'Lead Data', path: '/leads', icon: Database },
-  ];
+  const navItems = useMemo(() => {
+    const items = [
+      { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
+      { name: 'My bots', path: '/bots', icon: Bot },
+      { name: 'New bot', path: '/builder', icon: GitBranch },
+      { name: 'Integrations', path: '/integrations', icon: MessageSquare },
+      { name: 'Lead data', path: '/leads', icon: Database },
+    ];
 
-  // ONLY show Admin Console in sidebar if user is an Admin AND NOT currently in client view or client login
-  if (isAdmin && !impersonatedClient && !clientUser) {
-    navItems.unshift({ name: 'Admin Console', path: '/admin', icon: ShieldCheck });
-  }
+    if (isAdmin && !impersonatedClient && !clientUser) {
+      items.unshift({ name: 'Admin console', path: '/admin', icon: ShieldCheck });
+    }
+
+    return items;
+  }, [clientUser, impersonatedClient, isAdmin]);
+
+  useEffect(() => setMobileNavOpen(false), [location.pathname]);
+
+  const activeItem = navItems.find((item) =>
+    item.path === '/builder'
+      ? location.pathname.startsWith('/builder')
+      : location.pathname === item.path,
+  );
+
+  const workspaceName = impersonatedClient?.name || clientUser?.name || (isAdmin ? 'Admin workspace' : 'Mintage workspace');
+  const workspaceDetail = impersonatedClient?.email || clientUser?.email || (isAdmin ? 'Administrator' : 'Personal workspace');
+
+  const sidebar = (
+    <aside className="notion-sidebar flex h-full w-[248px] shrink-0 flex-col border-r border-[#e8e8e5] bg-[#f7f7f5]">
+      <div className="px-2 pt-2">
+        <button className="workspace-switcher flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left">
+          <MintageLogo size="sm" />
+          <ChevronDown className="h-3.5 w-3.5 text-[#9b9a97]" />
+        </button>
+      </div>
+
+      <div className="mx-3 my-2 border-t border-[#e6e6e3]" />
+
+      <nav className="flex-1 overflow-y-auto px-2 pb-4">
+        <p className="sidebar-section-label px-2 pb-1 pt-2">Workspace</p>
+        <div className="space-y-0.5">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = item.path === '/builder'
+              ? location.pathname.startsWith('/builder')
+              : location.pathname === item.path;
+
+            return (
+              <Link
+                key={item.path}
+                to={item.path}
+                className={`sidebar-link ${isActive ? 'is-active' : ''}`}
+              >
+                <Icon className="h-[17px] w-[17px] shrink-0" strokeWidth={1.8} />
+                <span className="truncate">{item.name}</span>
+                {item.path === '/admin' && <span className="sidebar-badge">Admin</span>}
+              </Link>
+            );
+          })}
+        </div>
+
+        <p className="sidebar-section-label mt-5 px-2 pb-1 pt-2">Workspace details</p>
+        <div className="mx-1 rounded-md border border-[#e4e4e1] bg-white/60 px-3 py-2.5">
+          <p className="truncate text-[12px] font-medium text-[#37352f]">{workspaceName}</p>
+          <p className="mt-0.5 truncate text-[11px] text-[#9b9a97]">{workspaceDetail}</p>
+        </div>
+      </nav>
+
+      <div className="border-t border-[#e6e6e3] p-2">
+        <button onClick={handleLogout} className="sidebar-link w-full text-left">
+          <LogOut className="h-[17px] w-[17px]" strokeWidth={1.8} />
+          <span>Log out</span>
+        </button>
+      </div>
+    </aside>
+  );
 
   return (
-    <div className="flex h-screen bg-gray-50 flex-col">
-      {/* Top Impersonation Notification Banner (Only for Admin impersonating client) */}
+    <div className="app-shell flex h-screen flex-col bg-white text-[#37352f]">
       {isAdmin && impersonatedClient && (
-        <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-indigo-600 text-white px-6 py-2.5 flex flex-col sm:flex-row items-center justify-between gap-2 shadow-md z-50 text-xs font-bold shrink-0">
-          <div className="flex items-center gap-2">
-            <Zap className="w-4 h-4 text-amber-200 animate-bounce" />
-            <span>
-              VIEWING CLIENT WORKSPACE: <strong className="underline underline-offset-2">{impersonatedClient.name}</strong> ({impersonatedClient.email})
-            </span>
+        <div className="flex shrink-0 flex-col items-center justify-between gap-2 border-b border-[#e7d7b7] bg-[#fbf3db] px-4 py-2 text-[12px] text-[#64473a] sm:flex-row">
+          <div className="flex min-w-0 items-center gap-2">
+            <Zap className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">Viewing {impersonatedClient.name}'s client workspace</span>
           </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => {
-                clearImpersonation();
-                navigate('/admin');
-              }}
-              className="px-3 py-1 bg-black/20 hover:bg-black/40 text-white border border-white/20 rounded-lg transition-all flex items-center gap-1"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              Exit Client View & Return to Admin
-            </button>
-          </div>
+          <button
+            onClick={() => {
+              clearImpersonation();
+              navigate('/admin');
+            }}
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 font-medium hover:bg-black/5"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Return to admin
+          </button>
         </div>
       )}
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar */}
-        <aside className="w-64 bg-white border-r border-gray-200 flex flex-col shrink-0">
-          <div className="p-5 border-b border-gray-200">
-            <MintageLogo size="md" showSubtitle={true} />
-            {impersonatedClient ? (
-              <p className="text-[10px] text-amber-600 font-bold uppercase tracking-wider mt-2 bg-amber-50 px-2 py-1 rounded border border-amber-100 truncate">
-                Client View: {impersonatedClient.name}
-              </p>
-            ) : clientUser ? (
-              <p className="text-[10px] text-indigo-600 font-bold uppercase tracking-wider mt-2 bg-indigo-50 px-2 py-1 rounded border border-indigo-100 truncate">
-                Client: {clientUser.name}
-              </p>
-            ) : isAdmin ? (
-              <p className="text-[10px] text-purple-600 font-bold uppercase tracking-wider mt-2 bg-purple-50 px-2 py-1 rounded border border-purple-100 truncate">
-                Admin Console
-              </p>
-            ) : null}
-          </div>
-          <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = location.pathname === item.path;
-              const isAdminItem = item.path === '/admin';
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="hidden md:block">{sidebar}</div>
 
-              return (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  className={`flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all ${
-                    isActive
-                      ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/20 font-bold'
-                      : isAdminItem
-                        ? 'text-indigo-700 bg-indigo-50/80 hover:bg-indigo-100 font-bold'
-                        : 'text-slate-600 hover:bg-slate-100 font-medium'
-                  }`}
-                >
-                  <Icon className="w-5 h-5" />
-                  <span className="text-xs tracking-wide">{item.name}</span>
-                  {isAdminItem && (
-                    <span className="ml-auto text-[9px] bg-indigo-200 text-indigo-900 px-1.5 py-0.5 rounded uppercase font-black">
-                      Admin
-                    </span>
-                  )}
-                </Link>
-              );
-            })}
-          </nav>
-
-          <div className="p-4 border-t border-gray-200">
+        {mobileNavOpen && (
+          <div className="fixed inset-0 z-[120] flex md:hidden">
             <button
-              onClick={handleLogout}
-              className="flex items-center gap-3 px-4 py-2 w-full text-left text-gray-600 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors text-xs font-bold"
-            >
-              <LogOut className="w-5 h-5" />
-              <span>Logout</span>
-            </button>
+              aria-label="Close navigation"
+              className="absolute inset-0 bg-black/25"
+              onClick={() => setMobileNavOpen(false)}
+            />
+            <div className="relative h-full shadow-2xl">
+              {sidebar}
+              <button
+                aria-label="Close navigation"
+                onClick={() => setMobileNavOpen(false)}
+                className="absolute right-2 top-2 rounded-md p-1.5 text-[#787774] hover:bg-black/5"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
-        </aside>
+        )}
 
-        {/* Main Content */}
-        <main className="flex-1 overflow-auto">
-          {children}
-        </main>
+        <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <header className="workspace-topbar flex h-11 shrink-0 items-center justify-between border-b border-[#eeeeec] bg-white px-3 sm:px-4">
+            <div className="flex min-w-0 items-center gap-2">
+              <button
+                aria-label="Open navigation"
+                onClick={() => setMobileNavOpen(true)}
+                className="rounded-md p-1.5 text-[#787774] hover:bg-[#f1f1ef] md:hidden"
+              >
+                <Menu className="h-4 w-4" />
+              </button>
+              <span className="hidden text-[12px] text-[#9b9a97] sm:inline">Mintage</span>
+              <span className="hidden text-[#c5c4c1] sm:inline">/</span>
+              <span className="truncate text-[12px] font-medium text-[#37352f]">{activeItem?.name || 'Workspace'}</span>
+            </div>
+            <button className="topbar-search hidden items-center gap-2 rounded-md px-2.5 py-1.5 text-[11px] text-[#9b9a97] hover:bg-[#f7f7f5] sm:flex">
+              <Search className="h-3.5 w-3.5" />
+              <span>Search workspace</span>
+              <kbd>⌘ K</kbd>
+            </button>
+          </header>
+
+          <main className="mintage-page-shell min-h-0 flex-1 overflow-auto bg-white">
+            {children}
+          </main>
+        </section>
       </div>
     </div>
   );

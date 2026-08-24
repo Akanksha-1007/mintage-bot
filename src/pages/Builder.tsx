@@ -549,7 +549,7 @@ function BuilderContent() {
   };
 
   return (
-    <div className="h-full flex flex-col bg-gray-50 relative">
+    <div className="builder-page h-full flex flex-col bg-gray-50 relative">
       {/* Visual Elegant Toast Notification */}
       {toast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[110] flex items-center gap-3 bg-gray-900/95 backdrop-blur-md text-white px-5 py-3 rounded-xl shadow-2xl border border-white/10 animate-fade-in-up">
@@ -925,7 +925,7 @@ function BuilderContent() {
       ) : (
         <>
           {/* Builder Header */}
-      <header className="bg-white border-b border-gray-200 px-6 py-3 flex justify-between items-center shadow-sm z-10">
+      <header className="builder-toolbar bg-white border-b border-gray-200 px-6 py-3 flex justify-between items-center shadow-sm z-10">
         <div className="flex items-center gap-4">
           <div className="bg-indigo-100 p-2 rounded-lg">
             <Settings2 className="w-5 h-5 text-indigo-600" />
@@ -1211,7 +1211,7 @@ function BuilderContent() {
 
       <div className="flex-1 flex overflow-hidden">
         {/* Left Sidebar: Node Library */}
-        <aside className="w-72 bg-white border-r border-gray-200 flex flex-col z-10">
+        <aside className="builder-library w-72 bg-white border-r border-gray-200 flex flex-col z-10">
           <div className="p-4 border-b border-gray-100 bg-gray-50/50">
             <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest">Add Chat Component</h3>
           </div>
@@ -1285,7 +1285,7 @@ function BuilderContent() {
         </aside>
 
         {/* Canvas Area */}
-        <div className="flex-1 relative">
+        <div className="builder-canvas flex-1 relative">
           <ReactFlow
             nodes={safeNodes}
             edges={safeEdges}
@@ -1303,7 +1303,7 @@ function BuilderContent() {
 
         {/* Right Sidebar: Properties Panel */}
         {selectedNode && (
-          <aside className="w-80 bg-white border-l border-gray-200 flex flex-col z-10">
+          <aside className="builder-properties w-80 bg-white border-l border-gray-200 flex flex-col z-10">
             <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
               <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest">Properties</h3>
               <button onClick={() => setSelectedNode(null)} className="text-gray-400 hover:text-gray-600">
@@ -1570,4 +1570,3 @@ export default function Builder() {
     </ReactFlowProvider>
   );
 }
-
