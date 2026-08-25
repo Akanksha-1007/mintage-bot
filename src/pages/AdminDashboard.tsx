@@ -759,7 +759,7 @@ export default function AdminDashboard() {
       {/* Modal 1: create client credentials */}
       {showCreateModal && (
         <div className="modal-backdrop">
-          <div className="notion-modal is-md">
+          <div className="app-modal is-md">
             <div className="modal-head">
               <div className="modal-head-main">
                 <span className="icon-tile tile-lg"><UserPlus /></span>
@@ -878,7 +878,7 @@ export default function AdminDashboard() {
       {/* Modal 2: generated credentials */}
       {createdCredentialsCard && (
         <div className="modal-backdrop">
-          <div className="notion-modal is-centered">
+          <div className="app-modal is-centered">
             <div className="modal-danger-icon tone-green">
               <CheckCircle2 />
             </div>
@@ -943,7 +943,7 @@ export default function AdminDashboard() {
       {/* Modal 3: delete client */}
       {clientToDelete && (
         <div className="modal-backdrop">
-          <div className="notion-modal is-centered">
+          <div className="app-modal is-centered">
             <div className="modal-danger-icon">
               <AlertTriangle />
             </div>

@@ -270,7 +270,7 @@ export default function Bots() {
       {/* Delete Bot Confirmation Modal */}
       {deletingBot && (
         <div className="modal-backdrop">
-          <div className="notion-modal is-centered">
+          <div className="app-modal is-centered">
             <div className="modal-danger-icon">
               <AlertTriangle />
             </div>

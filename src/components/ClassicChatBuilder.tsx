@@ -1075,7 +1075,7 @@ export default function ClassicChatBuilder({
       {/* ================= MODAL: Install Embed Widget ================= */}
       {showInstallModal && (
         <div className="modal-backdrop">
-          <div className="notion-modal is-md">
+          <div className="app-modal is-md">
             <div className="modal-head">
               <div className="modal-head-main">
                 <span className="icon-tile tile-lg tone-blue"><Code /></span>
@@ -1141,7 +1141,7 @@ export default function ClassicChatBuilder({
       {/* ================= MODAL: Import Template ================= */}
       {showTemplateModal && (
         <div className="modal-backdrop">
-          <div className="notion-modal">
+          <div className="app-modal">
             <div className="modal-head">
               <div>
                 <h3>Import a template</h3>

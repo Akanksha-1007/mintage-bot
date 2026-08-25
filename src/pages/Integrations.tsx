@@ -1398,7 +1398,7 @@ export default function Integrations() {
       {/* Delete bot confirmation */}
       {deletingBot && (
         <div className="modal-backdrop">
-          <div className="notion-modal is-centered">
+          <div className="app-modal is-centered">
             <div className="modal-danger-icon">
               <AlertTriangle />
             </div>

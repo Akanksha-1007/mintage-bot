@@ -2,8 +2,8 @@
 
 /* ==========================================================================
    Mintage workspace — design system
-   Surfaces, spacing and type follow a Notion-style document aesthetic.
-   Icons are Lucide line icons at a Framer-like 1.75 stroke weight.
+   A document-style surface, spacing and type scale shared by every page.
+   Icons are line icons drawn at a consistent 1.75 stroke weight.
    --------------------------------------------------------------------------
    1.  Tokens
    2.  Base & typography
@@ -76,7 +76,7 @@
   --tint-purple-bg: #f4f0f7;  --tint-purple-fg: #7d5aa0;  --tint-purple-line: #e6dcee;
   --tint-pink-bg: #fbf0f5;    --tint-pink-fg: #ad477e;    --tint-pink-line: #f2dde8;
 
-  /* Radii — Notion stays restrained */
+  /* Radii — kept deliberately restrained */
   --r-xs: 3px;
   --r-sm: 4px;
   --r-md: 6px;
@@ -785,7 +785,7 @@ svg.lucide,
 .tone-pink.tone-pink     { background: var(--tint-pink-bg);   border-color: var(--tint-pink-line);   color: var(--tint-pink-fg); }
 .tone-gray.tone-gray     { background: var(--tint-gray-bg);   border-color: var(--tint-gray-line);   color: var(--tint-gray-fg); }
 
-/* Notion-style callout */
+/* Callout */
 .callout {
   display: flex;
   align-items: flex-start;
@@ -1308,7 +1308,7 @@ kbd,
   animation: fade-in var(--dur-slow) var(--ease);
 }
 
-.notion-modal {
+.app-modal {
   width: 100%;
   max-width: 420px;
   max-height: min(86vh, 800px);
@@ -1321,23 +1321,23 @@ kbd,
   animation: modal-in var(--dur-slow) var(--ease);
 }
 
-.notion-modal.is-md { max-width: 520px; }
-.notion-modal.is-lg { max-width: 640px; }
-.notion-modal.is-xl { max-width: 780px; }
+.app-modal.is-md { max-width: 520px; }
+.app-modal.is-lg { max-width: 640px; }
+.app-modal.is-xl { max-width: 780px; }
 
-.notion-modal h3 {
+.app-modal h3 {
   font-size: 17px;
   font-weight: 600;
   letter-spacing: -0.018em;
 }
 
-.notion-modal > p {
+.app-modal > p {
   color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.55;
 }
 
-.notion-modal.is-centered { text-align: center; }
+.app-modal.is-centered { text-align: center; }
 
 .modal-head {
   display: flex;
@@ -1430,7 +1430,7 @@ kbd,
    12. App chrome: sidebar, topbar, theme toggle
    ========================================================================== */
 
-.notion-sidebar {
+.app-sidebar {
   width: var(--sidebar-w);
   border-right: 1px solid var(--line);
   background: var(--bg-sidebar);
@@ -4100,7 +4100,7 @@ kbd,
   .builder-properties { width: 100%; }
   .classic-canvas-inner { padding: 20px 14px 48px; }
   .login-auth-card { padding: 26px 20px; }
-  .notion-modal { padding: 20px; }
+  .app-modal { padding: 20px; }
   .activity-chart { height: 148px; gap: 6px; }
   .activity-bars { height: 108px; }
 }

@@ -581,7 +581,7 @@ function BuilderContent() {
       {/* Google Sheets Modal */}
       {showSheetsModal && (
         <div className="modal-backdrop">
-          <div className="notion-modal is-xl">
+          <div className="app-modal is-xl">
             <div className="modal-head">
               <div className="modal-head-main">
                 <span className="icon-tile tile-lg tone-green"><FileSpreadsheet /></span>
@@ -810,7 +810,7 @@ function BuilderContent() {
       {/* Share Modal */}
       {showShareModal && (
         <div className="modal-backdrop">
-          <div className="notion-modal is-md">
+          <div className="app-modal is-md">
             <div className="modal-head">
               <h3>Embed chatbot</h3>
               <button onClick={() => setShowShareModal(false)} className="icon-button" aria-label="Close">
@@ -860,7 +860,7 @@ function BuilderContent() {
       {/* Delete Bot Confirmation Modal in Builder */}
       {showDeleteModal && (
         <div className="modal-backdrop">
-          <div className="notion-modal is-centered">
+          <div className="app-modal is-centered">
             <div className="modal-danger-icon">
               <AlertCircle />
             </div>
@@ -975,7 +975,7 @@ function BuilderContent() {
       {/* Google Sheets Modal */}
       {showSheetsModal && (
         <div className="modal-backdrop">
-          <div className="notion-modal is-xl">
+          <div className="app-modal is-xl">
             <div className="modal-head">
               <div className="modal-head-main">
                 <span className="icon-tile tile-lg tone-green"><FileSpreadsheet /></span>

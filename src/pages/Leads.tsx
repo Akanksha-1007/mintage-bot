@@ -783,7 +783,7 @@ export default function Leads() {
       {/* Lead detail modal */}
       {selectedLead && (
         <div className="modal-backdrop">
-          <div className="notion-modal is-lg">
+          <div className="app-modal is-lg">
             <div className="modal-head">
               <div className="modal-head-main">
                 <span className="icon-tile tile-lg"><FileText /></span>
@@ -939,7 +939,7 @@ export default function Leads() {
       {/* Delete confirmation */}
       {deletingLead && (
         <div className="modal-backdrop">
-          <div className="notion-modal is-centered">
+          <div className="app-modal is-centered">
             <div className="modal-danger-icon">
               <AlertTriangle />
             </div>

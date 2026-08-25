@@ -67,7 +67,7 @@ export default function UserDetailModal({ userId, onClose, onSelectConversation 
 
   return (
     <div className="modal-backdrop">
-      <div className="notion-modal is-xl">
+      <div className="app-modal is-xl">
         {loading ? (
           <div className="loading-state">
             <Loader2 className="animate-spin" />

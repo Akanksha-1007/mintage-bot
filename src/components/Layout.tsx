@@ -58,7 +58,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const workspaceDetail = impersonatedClient?.email || clientUser?.email || (isAdmin ? 'Administrator' : 'Personal workspace');
 
   const sidebar = (
-    <aside className="notion-sidebar flex h-full shrink-0 flex-col">
+    <aside className="app-sidebar flex h-full shrink-0 flex-col">
       <div className="px-2 pt-2">
         <button type="button" className="workspace-switcher">
           <MintageLogo size="sm" />
