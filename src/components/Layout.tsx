@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   Bot,
-  ChevronDown,
+  ChevronsUpDown,
   Database,
   GitBranch,
   LayoutDashboard,
@@ -12,8 +12,8 @@ import {
   MessageSquare,
   Search,
   ShieldCheck,
+  Sparkles,
   X,
-  Zap,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import MintageLogo from './MintageLogo';
@@ -58,19 +58,19 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const workspaceDetail = impersonatedClient?.email || clientUser?.email || (isAdmin ? 'Administrator' : 'Personal workspace');
 
   const sidebar = (
-    <aside className="notion-sidebar flex h-full w-[248px] shrink-0 flex-col border-r border-[#e8e8e5] bg-[#f7f7f5]">
+    <aside className="notion-sidebar flex h-full shrink-0 flex-col">
       <div className="px-2 pt-2">
-        <button className="workspace-switcher flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left">
+        <button type="button" className="workspace-switcher">
           <MintageLogo size="sm" />
-          <ChevronDown className="h-3.5 w-3.5 text-[#9b9a97]" />
+          <ChevronsUpDown />
         </button>
       </div>
 
-      <div className="mx-3 my-2 border-t border-[#e6e6e3]" />
+      <div className="sidebar-divider" />
 
       <nav className="flex-1 overflow-y-auto px-2 pb-4">
-        <p className="sidebar-section-label px-2 pb-1 pt-2">Workspace</p>
-        <div className="space-y-0.5">
+        <p className="sidebar-section-label">Workspace</p>
+        <div className="flex flex-col gap-0.5">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = item.path === '/builder'
@@ -83,7 +83,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 to={item.path}
                 className={`sidebar-link ${isActive ? 'is-active' : ''}`}
               >
-                <Icon className="h-[17px] w-[17px] shrink-0" strokeWidth={1.8} />
+                <Icon />
                 <span className="truncate">{item.name}</span>
                 {item.path === '/admin' && <span className="sidebar-badge">Admin</span>}
               </Link>
@@ -91,16 +91,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           })}
         </div>
 
-        <p className="sidebar-section-label mt-5 px-2 pb-1 pt-2">Workspace details</p>
-        <div className="mx-1 rounded-md border border-[#e4e4e1] bg-white/60 px-3 py-2.5">
-          <p className="truncate text-[12px] font-medium text-[#37352f]">{workspaceName}</p>
-          <p className="mt-0.5 truncate text-[11px] text-[#9b9a97]">{workspaceDetail}</p>
+        <p className="sidebar-section-label">Workspace details</p>
+        <div className="sidebar-workspace-card">
+          <strong>{workspaceName}</strong>
+          <span>{workspaceDetail}</span>
         </div>
       </nav>
 
-      <div className="border-t border-[#e6e6e3] p-2">
-        <button onClick={handleLogout} className="sidebar-link w-full text-left">
-          <LogOut className="h-[17px] w-[17px]" strokeWidth={1.8} />
+      <div className="sidebar-footer">
+        <button type="button" onClick={handleLogout} className="sidebar-link">
+          <LogOut />
           <span>Log out</span>
         </button>
       </div>
@@ -108,21 +108,21 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <div className="app-shell flex h-screen flex-col bg-white text-[#37352f]">
+    <div className="app-shell flex h-screen flex-col">
       {isAdmin && impersonatedClient && (
-        <div className="flex shrink-0 flex-col items-center justify-between gap-2 border-b border-[#e7d7b7] bg-[#fbf3db] px-4 py-2 text-[12px] text-[#64473a] sm:flex-row">
+        <div className="impersonation-bar shrink-0">
           <div className="flex min-w-0 items-center gap-2">
-            <Zap className="h-3.5 w-3.5 shrink-0" />
+            <Sparkles />
             <span className="truncate">Viewing {impersonatedClient.name}'s client workspace</span>
           </div>
           <button
+            type="button"
             onClick={() => {
               clearImpersonation();
               navigate('/admin');
             }}
-            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 font-medium hover:bg-black/5"
           >
-            <ArrowLeft className="h-3.5 w-3.5" />
+            <ArrowLeft />
             Return to admin
           </button>
         </div>
@@ -134,48 +134,53 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         {mobileNavOpen && (
           <div className="fixed inset-0 z-[120] flex md:hidden">
             <button
+              type="button"
               aria-label="Close navigation"
-              className="absolute inset-0 bg-black/25"
+              className="mobile-nav-backdrop"
               onClick={() => setMobileNavOpen(false)}
             />
             <div className="relative h-full shadow-2xl">
               {sidebar}
               <button
+                type="button"
                 aria-label="Close navigation"
                 onClick={() => setMobileNavOpen(false)}
-                className="absolute right-2 top-2 rounded-md p-1.5 text-[#787774] hover:bg-black/5"
+                className="icon-button absolute right-2 top-2"
               >
-                <X className="h-4 w-4" />
+                <X />
               </button>
             </div>
           </div>
         )}
 
         <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <header className="workspace-topbar flex h-11 shrink-0 items-center justify-between border-b border-[#eeeeec] bg-white px-3 sm:px-4">
-            <div className="flex min-w-0 items-center gap-2">
+          <header className="workspace-topbar shrink-0">
+            <div className="flex min-w-0 items-center gap-1.5">
               <button
+                type="button"
                 aria-label="Open navigation"
                 onClick={() => setMobileNavOpen(true)}
-                className="rounded-md p-1.5 text-[#787774] hover:bg-[#f1f1ef] md:hidden"
+                className="icon-button md:hidden"
               >
-                <Menu className="h-4 w-4" />
+                <Menu />
               </button>
-              <span className="hidden text-[12px] text-[#9b9a97] sm:inline">Mintage</span>
-              <span className="hidden text-[#c5c4c1] sm:inline">/</span>
-              <span className="truncate text-[12px] font-medium text-[#37352f]">{activeItem?.name || 'Workspace'}</span>
+              <div className="breadcrumb">
+                <span className="crumb-root hidden sm:inline">Mintage</span>
+                <span className="crumb-sep hidden sm:inline">/</span>
+                <span className="crumb-current">{activeItem?.name || 'Workspace'}</span>
+              </div>
             </div>
-            <div className="flex items-center gap-1.5">
-              <button className="topbar-search hidden items-center gap-2 rounded-md px-2.5 py-1.5 text-[11px] text-[#9b9a97] hover:bg-[#f7f7f5] sm:flex">
-                <Search className="h-3.5 w-3.5" />
+            <div className="flex items-center gap-1">
+              <button type="button" className="topbar-search hidden sm:inline-flex">
+                <Search />
                 <span>Search workspace</span>
-                <kbd>⌘ K</kbd>
+                <kbd>⌘K</kbd>
               </button>
               <ThemeToggle />
             </div>
           </header>
 
-          <main className="mintage-page-shell min-h-0 flex-1 overflow-auto bg-white">
+          <main className="min-h-0 flex-1 overflow-auto" style={{ background: 'var(--bg)' }}>
             {children}
           </main>
         </section>

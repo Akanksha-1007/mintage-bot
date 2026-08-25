@@ -69,7 +69,7 @@ function BotSync() {
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isDemo, impersonatedClient, loading } = useAuth();
 
-  if (loading) return <div className="flex items-center justify-center h-screen">Loading...</div>;
+  if (loading) return <div className="centered-status"><p>Loading…</p></div>;
   if (!user && !isDemo && !impersonatedClient) return <Navigate to="/login" />;
 
   return <Layout>{children}</Layout>;
@@ -78,7 +78,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function AdminRoute({ children }: { children: React.ReactNode }) {
   const { user, isDemo, impersonatedClient, loading, isAdmin } = useAuth();
 
-  if (loading) return <div className="flex items-center justify-center h-screen font-sans text-slate-600">Loading...</div>;
+  if (loading) return <div className="centered-status"><p>Loading…</p></div>;
   if (!user && !isDemo && !impersonatedClient) return <Navigate to="/login" />;
   if (!isAdmin) return <Navigate to="/dashboard" replace />;
 

@@ -1,6 +1,7 @@
 import React from 'react';
 
-const mintageLogo = new URL('../assets/images/mintage-logo.png', import.meta.url).href;
+const mintageMark = new URL('../assets/images/mintage-mark.png', import.meta.url).href;
+const mintageLockup = new URL('../assets/images/mintage-lockup.png', import.meta.url).href;
 
 interface MintageLogoProps {
   className?: string;
@@ -14,37 +15,33 @@ export default function MintageLogo({
   showSubtitle = false,
 }: MintageLogoProps) {
   const sizeMap = {
-    sm: { mark: 'h-7 w-7', title: 'text-[14px]', sub: 'text-[10px]' },
-    md: { mark: 'h-8 w-8', title: 'text-[15px]', sub: 'text-[10px]' },
-    lg: { mark: 'h-10 w-10', title: 'text-lg', sub: 'text-[11px]' },
-    xl: { mark: 'h-12 w-12', title: 'text-xl', sub: 'text-xs' },
+    sm: { mark: 'h-[26px] w-[26px]', title: 'text-[14.5px]', sub: 'text-[10.5px]' },
+    md: { mark: 'h-[30px] w-[30px]', title: 'text-[15px]', sub: 'text-[11px]' },
+    lg: { mark: 'h-[36px] w-[36px]', title: 'text-[17px]', sub: 'text-[11.5px]' },
+    xl: { mark: '', title: '', sub: '' },
   };
-
-  const currentSize = sizeMap[size];
 
   if (size === 'xl') {
     return (
       <div className={`full-brand-lockup ${className}`}>
-        <img src={mintageLogo} alt="Mintage — Refreshing brands" />
+        <img src={mintageLockup} alt="Mintage — refreshing brands" />
       </div>
     );
   }
 
+  const currentSize = sizeMap[size];
+
   return (
-    <div className={`flex items-center gap-2.5 min-w-0 ${className}`}>
-      <div className={`${currentSize.mark} brand-mark shrink-0`} aria-hidden="true">
-        <img src={mintageLogo} alt="" />
-      </div>
-      <div className="flex min-w-0 flex-col leading-none">
-        <span className={`font-semibold tracking-[-0.025em] text-[#202020] ${currentSize.title}`}>
-          Mintage
-        </span>
+    <div className={`flex min-w-0 items-center gap-2.5 ${className}`}>
+      <span className={`brand-mark ${currentSize.mark}`} aria-hidden="true">
+        <img src={mintageMark} alt="" />
+      </span>
+      <span className="flex min-w-0 flex-col leading-none">
+        <span className={`brand-name ${currentSize.title}`}>Mintage</span>
         {showSubtitle && (
-          <span className={`mt-1 truncate font-medium text-[#787774] ${currentSize.sub}`}>
-            Chatbot workspace
-          </span>
+          <span className={`brand-sub ${currentSize.sub}`}>Chatbot workspace</span>
         )}
-      </div>
+      </span>
     </div>
   );
 }

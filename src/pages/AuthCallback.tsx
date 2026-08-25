@@ -14,11 +14,9 @@ export default function AuthCallback() {
   }, [navigate]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="text-center">
-        <h2 className="text-xl font-bold text-gray-900">Authentication Successful</h2>
-        <p className="text-gray-500 mt-2">Redirecting you back to the dashboard...</p>
-      </div>
+    <div className="centered-status">
+      <h2>Authentication successful</h2>
+      <p>Redirecting you back to the dashboard…</p>
     </div>
   );
 }

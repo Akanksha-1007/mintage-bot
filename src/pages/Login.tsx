@@ -260,7 +260,6 @@ export default function Login() {
       <main className="login-auth-side">
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="login-auth-card">
           <div className="login-mobile-logo"><MintageLogo size="xl" /></div>
-          <span className="login-eyebrow">Mintage workspace</span>
           <h1>{isSignUp ? 'Create your account' : 'Welcome back'}</h1>
           <p className="login-intro">{isSignUp ? 'Set up your workspace and start building conversations.' : 'Sign in to continue to your chatbot workspace.'}</p>
 
@@ -288,20 +287,10 @@ export default function Login() {
           </form>
 
           <div className="login-utility-row">
-            <button onClick={() => { setIsSignUp(!isSignUp); setError(''); }} disabled={isLoading}>
-              {isSignUp ? 'Already have an account? Sign in' : 'New to Mintage? Create an account'}
-            </button>
             <button type="button" onClick={() => { setEmail('admin@mintagemarkcomm.com'); setPassword('Admin@123'); setIsDemoMode(false); setError(''); }}>
               <ShieldCheck /> Admin access
             </button>
           </div>
-
-          <label className="login-demo-row" htmlFor="demo-mode">
-            <input id="demo-mode" type="checkbox" checked={isDemoMode} onChange={(e) => setIsDemoMode(e.target.checked)} />
-            <span><strong>Explore demo workspace</strong><small>Continue without connecting an account.</small></span>
-          </label>
-
-          <p className="login-legal">By continuing, you agree to use this workspace responsibly.</p>
         </motion.div>
       </main>
     </div>

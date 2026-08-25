@@ -1,11 +1,36 @@
 import React, { useState } from 'react';
 import { Node, Edge } from '@xyflow/react';
-import { 
-  MessageSquare, User, Phone, Mail, CheckSquare, HelpCircle, 
-  Sparkles, Image as ImageIcon, ChevronDown, ChevronRight, 
-  Trash2, ArrowUp, ArrowDown, Plus, Eye, Code, FileText, 
-  Save, Share2, FileSpreadsheet, Check, Copy, X, Wand2, Layers,
-  Send, Bot, ListChecks, TextCursorInput, ArrowRight, CalendarDays, LifeBuoy, TrendingUp
+import {
+  ArrowDown,
+  ArrowRight,
+  ArrowUp,
+  Bot,
+  CalendarDays,
+  Check,
+  CheckSquare,
+  ChevronDown,
+  Code,
+  Copy,
+  Eye,
+  FileSpreadsheet,
+  HelpCircle,
+  Image as ImageIcon,
+  Layers,
+  LifeBuoy,
+  ListChecks,
+  Mail,
+  MessageSquare,
+  Phone,
+  Plus,
+  Save,
+  Send,
+  Sparkles,
+  TextCursorInput,
+  Trash2,
+  TrendingUp,
+  User,
+  Wand2,
+  X,
 } from 'lucide-react';
 
 interface ClassicChatBuilderProps {
@@ -313,29 +338,30 @@ export default function ClassicChatBuilder({
 
   const getNodeIcon = (type: string) => {
     switch (type) {
-      case 'image': return <ImageIcon className="w-4 h-4 text-pink-600" />;
-      case 'message': return <MessageSquare className="w-4 h-4 text-indigo-600" />;
-      case 'name': return <User className="w-4 h-4 text-blue-600" />;
-      case 'phone': return <Phone className="w-4 h-4 text-teal-600" />;
-      case 'email': return <Mail className="w-4 h-4 text-amber-600" />;
-      case 'singleChoice': return <HelpCircle className="w-4 h-4 text-purple-600" />;
-      case 'multipleChoice': return <CheckSquare className="w-4 h-4 text-emerald-600" />;
-      case 'textQuestion': return <HelpCircle className="w-4 h-4 text-cyan-600" />;
-      case 'aiResponse': return <Sparkles className="w-4 h-4 text-violet-600" />;
-      default: return <MessageSquare className="w-4 h-4 text-indigo-600" />;
+      case 'image': return <ImageIcon />;
+      case 'message': return <MessageSquare />;
+      case 'name': return <User />;
+      case 'phone': return <Phone />;
+      case 'email': return <Mail />;
+      case 'singleChoice': return <HelpCircle />;
+      case 'multipleChoice': return <CheckSquare />;
+      case 'textQuestion': return <TextCursorInput />;
+      case 'aiResponse': return <Sparkles />;
+      default: return <MessageSquare />;
     }
   };
 
   const getNodeBg = (type: string) => {
     switch (type) {
-      case 'image': return 'bg-pink-100 text-pink-700';
-      case 'name': return 'bg-blue-100 text-blue-700';
-      case 'phone': return 'bg-teal-100 text-teal-700';
-      case 'email': return 'bg-amber-100 text-amber-700';
-      case 'singleChoice': return 'bg-purple-100 text-purple-700';
-      case 'multipleChoice': return 'bg-emerald-100 text-emerald-700';
-      case 'aiResponse': return 'bg-violet-100 text-violet-700';
-      default: return 'bg-indigo-100 text-indigo-700';
+      case 'image': return 'tone-pink';
+      case 'name': return 'tone-green';
+      case 'phone': return 'tone-green';
+      case 'email': return 'tone-blue';
+      case 'singleChoice': return 'tone-purple';
+      case 'multipleChoice': return 'tone-purple';
+      case 'textQuestion': return 'tone-orange';
+      case 'aiResponse': return 'tone-pink';
+      default: return 'tone-blue';
     }
   };
 
@@ -351,86 +377,58 @@ export default function ClassicChatBuilder({
     return origin + cleanBase;
   };
   const activeOrigin = getAppBaseUrl();
-  
+
   const embedScriptCode = `<script src="${activeOrigin}/widget.js" data-bot-id="${botId || 'demo_bot_id'}" async></script>`;
   const embedIframeCode = `<iframe src="${activeOrigin}/widget/${botId || 'demo_bot_id'}" width="380" height="600" style="border:none; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,0.15);"></iframe>`;
 
   return (
-    <div className="classic-builder h-full flex flex-col bg-gray-50/50 font-sans select-none">
-      {/* Top Header matching exact screenshot */}
-      <header className="builder-toolbar bg-white border-b border-gray-200 px-6 py-3 flex flex-wrap justify-between items-center gap-4 shadow-2xs z-20">
-        <div className="flex items-center gap-3">
-          <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-            <span>Edit Your Chat Flow -</span>
-            <input 
-              type="text" 
-              value={botName}
-              onChange={(e) => setBotName(e.target.value)}
-              className="font-bold text-indigo-600 bg-indigo-50/50 hover:bg-indigo-50 border border-indigo-200/60 focus:border-indigo-500 rounded-lg px-2.5 py-1 text-xl focus:outline-none focus:ring-2 focus:ring-indigo-200 transition-all w-64"
-              placeholder="Get More Leads..."
-            />
-          </h1>
+    <div className="classic-builder">
+      <header className="builder-toolbar">
+        <div className="min-w-0">
+          <input
+            type="text"
+            value={botName}
+            onChange={(e) => setBotName(e.target.value)}
+            className="builder-title-input"
+            placeholder="Untitled bot"
+            aria-label="Bot name"
+          />
+          <p className="builder-subtitle">Edit your chat flow</p>
         </div>
 
-        <div className="flex items-center gap-2.5">
-          {/* Visualise Flow Button */}
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={onToggleMode}
-            className="flex items-center gap-2 px-3.5 py-2 text-xs font-semibold bg-white text-indigo-600 border border-indigo-200 hover:bg-indigo-50 rounded-lg transition-all shadow-2xs"
-            title="Switch to 2D Node Canvas Builder"
+            className="button-secondary"
+            title="Switch to the node canvas builder"
           >
-            <Layers className="w-4 h-4 text-indigo-600" />
-            <span>Visualise Flow</span>
+            <Layers />
+            <span>Visualise flow</span>
           </button>
 
-          {/* Import Template Button */}
-          <button
-            onClick={() => setShowTemplateModal(true)}
-            className="flex items-center gap-2 px-3.5 py-2 text-xs font-semibold bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 rounded-lg transition-all shadow-2xs"
-          >
-            <Wand2 className="w-4 h-4 text-purple-500" />
-            <span>Import template</span>
+          <button onClick={() => setShowTemplateModal(true)} className="button-secondary">
+            <Wand2 />
+            <span>Template</span>
           </button>
 
-          {/* Test Chat Button */}
-          <button
-            onClick={startTestChat}
-            className="flex items-center gap-2 px-3.5 py-2 text-xs font-semibold bg-white text-blue-600 border border-blue-200 hover:bg-blue-50 rounded-lg transition-all shadow-2xs"
-          >
-            <Eye className="w-4 h-4 text-blue-600" />
+          <button onClick={startTestChat} className="button-secondary">
+            <Eye />
             <span>Test</span>
           </button>
 
-          {/* Install Widget Button */}
-          <button
-            onClick={() => setShowInstallModal(true)}
-            className="flex items-center gap-2 px-4 py-2 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all shadow-sm shadow-blue-200"
-          >
-            <Code className="w-4 h-4" />
+          <button onClick={() => setShowInstallModal(true)} className="button-secondary">
+            <Code />
             <span>Install</span>
           </button>
 
-          {/* Connect Sheet Button */}
-          <button
-            onClick={() => setShowSheetsModal(true)}
-            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg transition-all border ${
-              botSpreadsheetId 
-                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' 
-                : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
-            }`}
-          >
-            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-            <span>{botSpreadsheetId ? 'Sheet Linked' : 'Sheet'}</span>
+          <button onClick={() => setShowSheetsModal(true)} className="button-secondary">
+            <FileSpreadsheet />
+            <span>{botSpreadsheetId ? 'Sheet linked' : 'Sheet'}</span>
           </button>
 
-          {/* Save / Publish */}
-          <button
-            onClick={onSave}
-            disabled={isSaving}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-all shadow-sm disabled:opacity-50"
-          >
-            <Save className="w-3.5 h-3.5" />
-            <span>{isSaving ? 'Saving...' : 'Save'}</span>
+          <button onClick={onSave} disabled={isSaving} className="button-primary">
+            <Save />
+            <span>{isSaving ? 'Saving…' : 'Save'}</span>
           </button>
         </div>
       </header>
@@ -438,140 +436,137 @@ export default function ClassicChatBuilder({
       {/* 3 Column Main Area */}
       <div className="flex-1 flex overflow-hidden">
         {/* ================= COLUMN 1: Add Chat Component ================= */}
-        <div className="builder-library w-72 bg-white border-r border-gray-200 flex flex-col shrink-0 overflow-y-auto">
-          {/* Header Bar */}
-          <div className="bg-gray-100/80 px-4 py-3 border-b border-gray-200 text-center">
-            <h2 className="text-xs font-bold text-gray-700 uppercase tracking-wide">Add Chat Component</h2>
-          </div>
+        <div className="builder-library">
+          <div className="builder-panel-head">Add chat component</div>
 
-          <div className="p-3 space-y-3">
+          <div className="builder-scroll">
             {/* Category: Frequently Used */}
-            <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+            <div className="builder-group">
               <button
                 onClick={() => toggleCategory('frequentlyUsed')}
-                className="w-full px-3.5 py-2.5 bg-gray-50/80 hover:bg-gray-100 flex justify-between items-center text-xs font-bold text-gray-800 transition-colors"
+                className="builder-group-toggle"
               >
                 <span>Frequently used</span>
-                <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${expandedCategories.frequentlyUsed ? '' : '-rotate-90'}`} />
+                <ChevronDown style={{ transform: expandedCategories.frequentlyUsed ? 'none' : 'rotate(-90deg)' }} />
               </button>
 
               {expandedCategories.frequentlyUsed && (
-                <div className="component-tile-grid p-2 bg-white">
+                <div className="builder-group-body">
                   <button
                     onClick={() => addComponentNode('message')}
-                    className="w-full flex items-center gap-3 px-3 py-2 text-xs font-semibold text-gray-700 bg-gray-50/50 hover:bg-indigo-50/60 hover:text-indigo-700 rounded-lg border border-gray-100 hover:border-indigo-200 transition-all text-left group"
+                    className="component-tile"
                   >
-                    <span className="p-1 rounded-md bg-amber-100 text-amber-700 group-hover:scale-110 transition-transform"><MessageSquare className="w-4 h-4" /></span>
-                    <span className="font-bold">Message</span>
+                    <span className="icon-tile tone-blue"><MessageSquare /></span>
+                    <span>Message</span>
                   </button>
 
                   <button
                     onClick={() => addComponentNode('name')}
-                    className="w-full flex items-center gap-3 px-3 py-2 text-xs font-semibold text-gray-700 bg-gray-50/50 hover:bg-indigo-50/60 hover:text-indigo-700 rounded-lg border border-gray-100 hover:border-indigo-200 transition-all text-left group"
+                    className="component-tile"
                   >
-                    <span className="p-1 rounded-md bg-blue-100 text-blue-600 group-hover:scale-110 transition-transform"><User className="w-4 h-4" /></span>
-                    <span className="font-bold">Name</span>
+                    <span className="icon-tile tone-green"><User /></span>
+                    <span>Name</span>
                   </button>
 
                   <button
                     onClick={() => addComponentNode('phone')}
-                    className="w-full flex items-center gap-3 px-3 py-2 text-xs font-semibold text-gray-700 bg-gray-50/50 hover:bg-indigo-50/60 hover:text-indigo-700 rounded-lg border border-gray-100 hover:border-indigo-200 transition-all text-left group"
+                    className="component-tile"
                   >
-                    <span className="p-1 rounded-md bg-teal-100 text-teal-600 group-hover:scale-110 transition-transform"><Phone className="w-4 h-4" /></span>
-                    <span className="font-bold">Phone Number</span>
+                    <span className="icon-tile tone-green"><Phone /></span>
+                    <span>Phone Number</span>
                   </button>
 
                   <button
                     onClick={() => addComponentNode('email')}
-                    className="w-full flex items-center gap-3 px-3 py-2 text-xs font-semibold text-gray-700 bg-gray-50/50 hover:bg-indigo-50/60 hover:text-indigo-700 rounded-lg border border-gray-100 hover:border-indigo-200 transition-all text-left group"
+                    className="component-tile"
                   >
-                    <span className="p-1 rounded-md bg-amber-100 text-amber-600 group-hover:scale-110 transition-transform"><Mail className="w-4 h-4" /></span>
-                    <span className="font-bold">Email</span>
+                    <span className="icon-tile tone-blue"><Mail /></span>
+                    <span>Email</span>
                   </button>
 
                   <button
                     onClick={() => addComponentNode('singleChoice')}
-                    className="w-full flex items-center gap-3 px-3 py-2 text-xs font-semibold text-gray-700 bg-gray-50/50 hover:bg-indigo-50/60 hover:text-indigo-700 rounded-lg border border-gray-100 hover:border-indigo-200 transition-all text-left group"
+                    className="component-tile"
                   >
-                    <span className="p-1 rounded-md bg-purple-100 text-purple-600 group-hover:scale-110 transition-transform"><CheckSquare className="w-4 h-4" /></span>
-                    <span className="font-bold">Single Choice</span>
+                    <span className="icon-tile tone-purple"><CheckSquare /></span>
+                    <span>Single Choice</span>
                   </button>
 
                   <button
                     onClick={() => addComponentNode('multipleChoice')}
-                    className="w-full flex items-center gap-3 px-3 py-2 text-xs font-semibold text-gray-700 bg-gray-50/50 hover:bg-indigo-50/60 hover:text-indigo-700 rounded-lg border border-gray-100 hover:border-indigo-200 transition-all text-left group"
+                    className="component-tile"
                   >
-                    <span className="p-1 rounded-md bg-emerald-100 text-emerald-600 group-hover:scale-110 transition-transform"><ListChecks className="w-4 h-4" /></span>
-                    <span className="font-bold">Multiple Choice</span>
+                    <span className="icon-tile tone-purple"><ListChecks /></span>
+                    <span>Multiple Choice</span>
                   </button>
 
                   <button
                     onClick={() => addComponentNode('textQuestion')}
-                    className="w-full flex items-center gap-3 px-3 py-2 text-xs font-semibold text-gray-700 bg-gray-50/50 hover:bg-indigo-50/60 hover:text-indigo-700 rounded-lg border border-gray-100 hover:border-indigo-200 transition-all text-left group"
+                    className="component-tile"
                   >
-                    <span className="p-1 rounded-md bg-cyan-100 text-cyan-700 group-hover:scale-110 transition-transform"><TextCursorInput className="w-4 h-4" /></span>
-                    <span className="font-bold">Text Question</span>
+                    <span className="icon-tile tone-orange"><TextCursorInput /></span>
+                    <span>Text Question</span>
                   </button>
 
                   <button
                     onClick={() => addComponentNode('aiResponse')}
-                    className="w-full flex items-center gap-3 px-3 py-2 text-xs font-semibold text-gray-700 bg-gray-50/50 hover:bg-indigo-50/60 hover:text-indigo-700 rounded-lg border border-gray-100 hover:border-indigo-200 transition-all text-left group"
+                    className="component-tile"
                   >
-                    <span className="p-1 rounded-md bg-violet-100 text-violet-600 group-hover:scale-110 transition-transform"><Sparkles className="w-4 h-4" /></span>
-                    <span className="font-bold">AI Responses</span>
+                    <span className="icon-tile tone-pink"><Sparkles /></span>
+                    <span>AI Responses</span>
                   </button>
                 </div>
               )}
             </div>
 
             {/* Category: Request Information */}
-            <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+            <div className="builder-group">
               <button
                 onClick={() => toggleCategory('requestInfo')}
-                className="w-full px-3.5 py-2.5 bg-gray-50/80 hover:bg-gray-100 flex justify-between items-center text-xs font-bold text-gray-800 transition-colors"
+                className="builder-group-toggle"
               >
                 <span>Request Information</span>
-                <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${expandedCategories.requestInfo ? '' : '-rotate-90'}`} />
+                <ChevronDown style={{ transform: expandedCategories.requestInfo ? 'none' : 'rotate(-90deg)' }} />
               </button>
               {expandedCategories.requestInfo && (
-                <div className="p-2 space-y-1.5 bg-white">
-                  <button onClick={() => addComponentNode('name')} className="w-full text-left px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-indigo-50 rounded-lg">Name Input</button>
-                  <button onClick={() => addComponentNode('phone')} className="w-full text-left px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-indigo-50 rounded-lg">Phone Input</button>
-                  <button onClick={() => addComponentNode('email')} className="w-full text-left px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-indigo-50 rounded-lg">Email Input</button>
+                <div className="builder-group-body">
+                  <button onClick={() => addComponentNode('name')} className="component-tile-plain">Name input</button>
+                  <button onClick={() => addComponentNode('phone')} className="component-tile-plain">Phone input</button>
+                  <button onClick={() => addComponentNode('email')} className="component-tile-plain">Email input</button>
                 </div>
               )}
             </div>
 
             {/* Category: Send Information */}
-            <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+            <div className="builder-group">
               <button
                 onClick={() => toggleCategory('sendInfo')}
-                className="w-full px-3.5 py-2.5 bg-gray-50/80 hover:bg-gray-100 flex justify-between items-center text-xs font-bold text-gray-800 transition-colors"
+                className="builder-group-toggle"
               >
                 <span>Send Information</span>
-                <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${expandedCategories.sendInfo ? '' : '-rotate-90'}`} />
+                <ChevronDown style={{ transform: expandedCategories.sendInfo ? 'none' : 'rotate(-90deg)' }} />
               </button>
               {expandedCategories.sendInfo && (
-                <div className="p-2 space-y-1.5 bg-white">
-                  <button onClick={() => addComponentNode('message')} className="w-full text-left px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-indigo-50 rounded-lg">Bot Message</button>
-                  <button onClick={() => addComponentNode('image')} className="w-full text-left px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-indigo-50 rounded-lg">Image / GIF</button>
+                <div className="builder-group-body">
+                  <button onClick={() => addComponentNode('message')} className="component-tile-plain">Bot message</button>
+                  <button onClick={() => addComponentNode('image')} className="component-tile-plain">Image / GIF</button>
                 </div>
               )}
             </div>
 
             {/* Category: Decide and Act */}
-            <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+            <div className="builder-group">
               <button
                 onClick={() => toggleCategory('decideAct')}
-                className="w-full px-3.5 py-2.5 bg-gray-50/80 hover:bg-gray-100 flex justify-between items-center text-xs font-bold text-gray-800 transition-colors"
+                className="builder-group-toggle"
               >
                 <span>Decide and Act</span>
-                <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${expandedCategories.decideAct ? '' : '-rotate-90'}`} />
+                <ChevronDown style={{ transform: expandedCategories.decideAct ? 'none' : 'rotate(-90deg)' }} />
               </button>
               {expandedCategories.decideAct && (
-                <div className="p-2 space-y-1.5 bg-white">
-                  <button onClick={() => addComponentNode('singleChoice')} className="w-full text-left px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-indigo-50 rounded-lg">Branch by Choice</button>
-                  <button onClick={() => addComponentNode('aiResponse')} className="w-full text-left px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-indigo-50 rounded-lg">AI Smart Answer</button>
+                <div className="builder-group-body">
+                  <button onClick={() => addComponentNode('singleChoice')} className="component-tile-plain">Branch by choice</button>
+                  <button onClick={() => addComponentNode('aiResponse')} className="component-tile-plain">AI smart answer</button>
                 </div>
               )}
             </div>
@@ -579,23 +574,18 @@ export default function ClassicChatBuilder({
         </div>
 
         {/* ================= COLUMN 2: Create/Reorder Chat Flow ================= */}
-        <div className="builder-canvas flex-1 flex flex-col bg-[#f8fafc] bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:16px_16px] overflow-y-auto">
-          {/* Header Bar */}
-          <div className="bg-gray-100/80 px-4 py-3 border-b border-gray-200 text-center sticky top-0 z-10 backdrop-blur-xs">
-            <h2 className="text-xs font-bold text-gray-700 uppercase tracking-wide">Create/Reorder Chat Flow</h2>
-          </div>
+        <div className="classic-canvas">
+          <div className="builder-panel-head sticky top-0 z-10">Create &amp; reorder chat flow</div>
 
-          <div className="p-8 max-w-2xl mx-auto w-full space-y-6">
+          <div className="classic-canvas-inner">
             {safeNodes.length === 0 ? (
-              <div className="text-center py-16 bg-white/80 rounded-2xl border-2 border-dashed border-gray-300 p-8">
-                <MessageSquare className="w-12 h-12 text-indigo-400 mx-auto mb-3 animate-bounce" />
-                <h3 className="text-sm font-bold text-gray-800">Your Chat Flow is Empty</h3>
-                <p className="text-xs text-gray-500 mt-1 mb-4">Click components on the left sidebar to add bot messages and questions.</p>
-                <button
-                  onClick={() => addComponentNode('message')}
-                  className="px-4 py-2 bg-indigo-600 text-white font-bold text-xs rounded-xl hover:bg-indigo-700 transition-all shadow-md"
-                >
-                  + Add First Welcome Message
+              <div className="empty-state">
+                <div className="empty-icon"><MessageSquare /></div>
+                <h3>Your chat flow is empty</h3>
+                <p>Pick a component from the left sidebar to add bot messages and questions.</p>
+                <button onClick={() => addComponentNode('message')} className="button-primary">
+                  <Plus />
+                  Add a welcome message
                 </button>
               </div>
             ) : (
@@ -610,52 +600,46 @@ export default function ClassicChatBuilder({
                   <div
                     key={node.id}
                     onClick={() => setSelectedNodeId(node.id)}
-                    className={`group relative flex items-start gap-3 transition-all cursor-pointer ${
-                      isSelected ? 'scale-[1.01]' : 'opacity-90 hover:opacity-100'
-                    }`}
+                    className={`flow-step ${isSelected ? 'is-selected' : ''}`}
                   >
-                    {/* Left Icon Avatar */}
-                    <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 shadow-sm mt-1 ${getNodeBg(node.type)}`}>
+                    {/* Step icon */}
+                    <div className={`flow-step-avatar ${getNodeBg(node.type)}`}>
                       {getNodeIcon(node.type)}
                     </div>
 
-                    {/* Chat Bubble Card */}
-                    <div className={`flow-step-card flex-1 rounded-2xl p-4 transition-all shadow-xs border ${
-                      node.type === 'message' 
-                        ? 'bg-purple-50/60 border-purple-100 text-purple-950' 
-                        : 'bg-white border-gray-200/80 text-gray-900'
-                    } ${
-                      isSelected ? 'ring-2 ring-indigo-500 border-indigo-500 shadow-md' : 'hover:border-indigo-300'
-                    }`}>
+                    {/* Step card */}
+                    <div className="flow-step-card">
                       {/* Image preview if exists */}
                       {imageUrl && (
-                        <div className="mb-3 rounded-xl overflow-hidden max-h-48 bg-gray-100">
-                          <img src={imageUrl} alt="Bot attachment" className="w-full h-full object-cover" />
+                        <div className="flow-step-media">
+                          <img src={imageUrl} alt="" className="h-full w-full object-cover" />
                         </div>
                       )}
 
                       {/* Text label */}
-                      <p className="text-sm font-medium whitespace-pre-wrap leading-relaxed">
-                        {nodeLabel}
-                      </p>
+                      <p>{nodeLabel}</p>
 
                       {/* Choice options preview if single/multiple choice */}
                       {choices && choices.length > 0 && (
-                        <div className="mt-3 flex flex-wrap gap-2">
+                        <div className="flow-step-choices">
                           {choices.map((choice, idx) => {
                             const targetId = (node.data?.optionRoutes as Record<string, string>)?.[choice];
                             const targetIndex = targetId ? safeNodes.findIndex(n => n.id === targetId) : -1;
                             const targetNode = targetIndex !== -1 ? safeNodes[targetIndex] : null;
 
                             return (
-                              <span key={idx} className="px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-2xs">
+                              <span key={idx} className="tag">
                                 <span>{choice}</span>
                                 {targetNode ? (
-                                  <span className="text-[10px] bg-indigo-600 text-white px-1.5 py-0.5 rounded font-mono font-semibold">
-                                    <ArrowRight className="w-3 h-3" /> Step #{targetIndex + 1}: {((targetNode.data?.label as string) || targetNode.type).slice(0, 16)}
+                                  <span className="text-faint inline-flex items-center gap-1">
+                                    <ArrowRight className="h-3 w-3" />
+                                    Step {targetIndex + 1}
                                   </span>
                                 ) : (
-                                  <span className="text-[9px] text-gray-400 font-normal flex items-center gap-1"><ArrowRight className="w-3 h-3" /> Next</span>
+                                  <span className="text-faint inline-flex items-center gap-1">
+                                    <ArrowRight className="h-3 w-3" />
+                                    Next
+                                  </span>
                                 )}
                               </span>
                             );
@@ -664,67 +648,56 @@ export default function ClassicChatBuilder({
                       )}
 
                       {/* Next Step / Redirection Indicator Footer */}
-                      <div className="mt-3 pt-2 border-t border-gray-100/80 flex items-center justify-between text-[11px]">
-                        <span className="text-gray-400 font-semibold text-[10px]">Next Step:</span>
+                      <div className="flow-step-footer">
+                        <span>Next step</span>
                         {node.data?.nextStepId === 'END' ? (
-                          <span className="px-2 py-0.5 bg-red-50 text-red-600 border border-red-200 rounded-md font-bold text-[10px]">
-                            <X className="w-3 h-3 inline mr-1" /> End Chat Flow
-                          </span>
+                          <span className="tag tone-red"><X />End chat flow</span>
                         ) : node.data?.nextStepId ? (() => {
                           const targetIdx = safeNodes.findIndex(n => n.id === node.data.nextStepId);
                           const targetNode = targetIdx !== -1 ? safeNodes[targetIdx] : null;
                           return targetNode ? (
-                            <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-md font-bold text-[10px] flex items-center gap-1">
-                              <ArrowRight className="w-3 h-3" /> Step #{targetIdx + 1}: {((targetNode.data?.label as string) || targetNode.type).slice(0, 20)}
+                            <span className="tag tone-blue">
+                              <ArrowRight />
+                              Step {targetIdx + 1}: {((targetNode.data?.label as string) || targetNode.type).slice(0, 20)}
                             </span>
                           ) : (
-                            <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-[10px] flex items-center gap-1"><ArrowRight className="w-3 h-3" /> Next</span>
+                            <span className="tag"><ArrowRight />Next</span>
                           );
                         })() : index < safeNodes.length - 1 ? (
-                          <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded text-[10px] font-medium">
-                            <ArrowRight className="w-3 h-3 inline mr-1" /> Step #{index + 2} (Default Next)
-                          </span>
+                          <span className="tag"><ArrowRight />Step {index + 2} (default)</span>
                         ) : (
-                          <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-md font-bold text-[10px]">
-                            <Check className="w-3 h-3 inline mr-1" /> End of Flow
-                          </span>
+                          <span className="tag tone-yellow"><Check />End of flow</span>
                         )}
                       </div>
                     </div>
 
                     {/* Blue User Reply Badge on the right */}
-                    {showUserReplyTag && (
-                      <div className="shrink-0 self-center">
-                        <span className="px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-xl shadow-xs border border-blue-500">
-                          User Reply
-                        </span>
-                      </div>
-                    )}
+                    {showUserReplyTag && <span className="user-reply-chip">User reply</span>}
 
                     {/* Action buttons (Move Up, Move Down, Delete) */}
-                    <div className="absolute -top-3 right-2 hidden group-hover:flex items-center gap-1 bg-white border border-gray-200 rounded-lg p-1 shadow-md z-10">
+                    <div className="flow-step-tools">
                       <button
                         onClick={(e) => { e.stopPropagation(); moveNode(index, 'up'); }}
                         disabled={index === 0}
-                        className="p-1 hover:bg-gray-100 text-gray-600 rounded disabled:opacity-30"
-                        title="Move Up"
+                        className="icon-button"
+                        title="Move up"
                       >
-                        <ArrowUp className="w-3.5 h-3.5" />
+                        <ArrowUp />
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); moveNode(index, 'down'); }}
                         disabled={index === safeNodes.length - 1}
-                        className="p-1 hover:bg-gray-100 text-gray-600 rounded disabled:opacity-30"
-                        title="Move Down"
+                        className="icon-button"
+                        title="Move down"
                       >
-                        <ArrowDown className="w-3.5 h-3.5" />
+                        <ArrowDown />
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); deleteNode(node.id); }}
-                        className="p-1 hover:bg-red-50 text-red-600 rounded"
-                        title="Delete Step"
+                        className="icon-button danger"
+                        title="Delete step"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 />
                       </button>
                     </div>
                   </div>
@@ -733,93 +706,71 @@ export default function ClassicChatBuilder({
             )}
 
             {/* Bottom Add Component Quick Bar */}
-            <div className="pt-4 text-center">
-              <button
-                onClick={() => addComponentNode('message')}
-                className="px-5 py-2.5 bg-white hover:bg-indigo-50 border border-indigo-200 text-indigo-600 text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-2 mx-auto"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Add Component to Flow</span>
+            <div style={{ marginTop: '18px' }}>
+              <button onClick={() => addComponentNode('message')} className="add-dashed">
+                <Plus />
+                <span>Add component to flow</span>
               </button>
             </div>
           </div>
         </div>
 
         {/* ================= COLUMN 3: Customize Bot Messages ================= */}
-        <div className="builder-properties w-80 bg-white border-l border-gray-200 flex flex-col shrink-0 overflow-y-auto">
-          {/* Header Bar */}
-          <div className="bg-gray-100/80 px-4 py-3 border-b border-gray-200 text-center">
-            <h2 className="text-xs font-bold text-gray-700 uppercase tracking-wide">Customize Bot Messages</h2>
-          </div>
+        <div className="builder-properties">
+          <div className="builder-panel-head">Customize bot messages</div>
 
           {selectedNode ? (
-            <div className="flex-1 flex flex-col p-4 space-y-4">
-              {/* Customize / Advanced Sub-Tabs */}
-              <div className="flex border-b border-gray-200">
+            <div className="flex flex-1 flex-col">
+              <div className="sub-tabs">
                 <button
                   onClick={() => setActiveRightTab('customize')}
-                  className={`flex-1 py-2 text-xs font-bold transition-all border-b-2 ${
-                    activeRightTab === 'customize'
-                      ? 'border-indigo-600 text-indigo-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-800'
-                  }`}
+                  className={activeRightTab === 'customize' ? 'is-active' : ''}
                 >
                   Customize
                 </button>
                 <button
                   onClick={() => setActiveRightTab('advanced')}
-                  className={`flex-1 py-2 text-xs font-bold transition-all border-b-2 ${
-                    activeRightTab === 'advanced'
-                      ? 'border-indigo-600 text-indigo-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-800'
-                  }`}
+                  className={activeRightTab === 'advanced' ? 'is-active' : ''}
                 >
                   Advanced
                 </button>
               </div>
 
               {activeRightTab === 'customize' ? (
-                <div className="space-y-4">
-                  {/* Message Input Box */}
+                <div className="builder-scroll flex flex-col gap-4">
+                  {/* Message */}
                   <div>
-                    <label className="block text-xs font-bold text-gray-700 mb-1.5">
-                      Message
-                    </label>
+                    <label className="field-label">Message</label>
                     <textarea
                       rows={4}
                       value={(selectedNode.data?.label as string) || ''}
                       onChange={(e) => updateSelectedNodeData('label', e.target.value)}
-                      className="w-full text-xs p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 font-sans leading-relaxed resize-none"
+                      className="textarea"
                       placeholder="Welcome! Thanks for showing interest."
                     />
                   </div>
 
-                  {/* GIF / Image Input */}
+                  {/* Media */}
                   <div>
-                    <label className="block text-xs font-bold text-gray-700 mb-1.5">
-                      GIF or Image URL
-                    </label>
+                    <label className="field-label">GIF or image URL</label>
                     <input
                       type="text"
                       value={(selectedNode.data?.imageUrl as string) || ''}
                       onChange={(e) => updateSelectedNodeData('imageUrl', e.target.value)}
-                      className="w-full text-xs px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500"
+                      className="input"
                       placeholder="https://example.com/media.gif"
                     />
                   </div>
 
-                  {/* Emoji Picker Grid matching exact screenshot */}
+                  {/* Emoji picker */}
                   <div>
-                    <label className="block text-xs font-bold text-gray-600 mb-2">
-                      Add an emoji
-                    </label>
-                    <div className="emoji-picker-grid grid grid-cols-6 gap-1.5 p-2 bg-gray-50 rounded-2xl border border-gray-200 max-h-48 overflow-y-auto">
+                    <label className="field-label">Add an emoji</label>
+                    <div className="emoji-picker-grid">
                       {EMOJI_PALETTE.map((emoji, i) => (
                         <button
                           key={i}
                           type="button"
                           onClick={() => appendEmoji(emoji)}
-                          className="w-8 h-8 flex items-center justify-center text-lg hover:bg-white rounded-lg transition-all hover:scale-125 hover:shadow-2xs"
                         >
                           {emoji}
                         </button>
@@ -827,14 +778,14 @@ export default function ClassicChatBuilder({
                     </div>
                   </div>
 
-                  {/* Next Step Configuration for ALL Components */}
-                  <div className="pt-3 border-t border-gray-200 space-y-1.5">
-                    <label className="block text-xs font-bold text-indigo-700 flex items-center justify-between">
-                      <span>Next Step (Redirection)</span>
-                      <span className="text-[9px] bg-indigo-50 px-2 py-0.5 rounded text-indigo-700 font-bold border border-indigo-100">Step Flow</span>
-                    </label>
-                    <p className="text-[10px] text-gray-500">
-                      Select which step follows this component when user responds.
+                  {/* Next step */}
+                  <div className="modal-section" style={{ marginTop: 0 }}>
+                    <p className="modal-section-title" style={{ justifyContent: 'space-between' }}>
+                      <span>Next step</span>
+                      <span className="tag">Step flow</span>
+                    </p>
+                    <p className="field-hint" style={{ marginBottom: '8px', marginTop: 0 }}>
+                      Select which step follows this component.
                     </p>
                     <select
                       value={(selectedNode.data?.nextStepId as string) || ''}
@@ -855,9 +806,9 @@ export default function ClassicChatBuilder({
                         }
                         setEdges(updatedEdges);
                       }}
-                      className="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-xs font-semibold text-gray-800 focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 shadow-2xs"
+                      className="select"
                     >
-                      <option value="">Default Next Step (Sequential)</option>
+                      <option value="">Default next step (sequential)</option>
                       <option value="END">End chat flow here</option>
                       {safeNodes.filter(n => n.id !== selectedNode.id).map((n) => {
                         const stepIndex = safeNodes.findIndex(sn => sn.id === n.id) + 1;
@@ -873,19 +824,19 @@ export default function ClassicChatBuilder({
 
                   {/* Options Editor for Choice Nodes */}
                   {(selectedNode.type === 'singleChoice' || selectedNode.type === 'multipleChoice') && (
-                    <div className="pt-2 border-t border-gray-200">
-                      <label className="block text-xs font-bold text-gray-700 mb-1">
-                        Options & Step Redirection
-                      </label>
-                      <p className="text-[10px] text-gray-500 mb-3">Choose which step each option redirects the user to.</p>
-                      
-                      <div className="space-y-3">
+                    <div className="modal-section">
+                      <p className="modal-section-title">Options &amp; redirection</p>
+                      <p className="field-hint" style={{ marginBottom: '10px', marginTop: 0 }}>
+                        Choose which step each option redirects the user to.
+                      </p>
+
+                      <div>
                         {((selectedNode.data?.choices as string[]) || []).map((choice, idx) => {
                           const currentRoute = (selectedNode.data?.optionRoutes as Record<string, string>)?.[choice] || '';
 
                           return (
-                            <div key={idx} className="p-2.5 bg-gray-50 rounded-xl border border-gray-200 space-y-2 shadow-2xs">
-                              <div className="flex gap-2 items-center">
+                            <div key={idx} className="choice-editor">
+                              <div className="flex items-center gap-2">
                                 <input
                                   type="text"
                                   value={choice}
@@ -914,8 +865,8 @@ export default function ClassicChatBuilder({
                                       return n;
                                     }));
                                   }}
-                                  className="flex-1 text-xs px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 font-semibold text-gray-800"
-                                  placeholder="Option choice text"
+                                  className="input compact"
+                                  placeholder="Option text"
                                 />
                                 <button
                                   type="button"
@@ -938,15 +889,15 @@ export default function ClassicChatBuilder({
                                       return n;
                                     }));
                                   }}
-                                  className="text-gray-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors"
-                                  title="Remove choice option"
+                                  className="icon-button danger"
+                                  title="Remove option"
                                 >
-                                  <X className="w-3.5 h-3.5" />
+                                  <X />
                                 </button>
                               </div>
 
-                              <div className="flex items-center gap-2 pt-1 border-t border-gray-200/60">
-                                <span className="text-[11px] text-indigo-700 font-bold shrink-0 flex items-center gap-1"><ArrowRight className="w-3 h-3" /> Go to:</span>
+                              <div className="choice-editor-route">
+                                <span>Go to</span>
                                 <select
                                   value={currentRoute}
                                   onChange={(e) => {
@@ -985,9 +936,9 @@ export default function ClassicChatBuilder({
                                     }
                                     setEdges(updatedEdges);
                                   }}
-                                  className="flex-1 bg-white border border-gray-300 rounded-lg px-2 py-1 text-xs text-gray-800 font-medium focus:ring-2 focus:ring-indigo-200"
+                                  className="select compact"
                                 >
-                                  <option value="">Default Next Step</option>
+                                  <option value="">Default next step</option>
                                   {safeNodes.filter(n => n.id !== selectedNode.id).map((n) => {
                                     const stepNum = safeNodes.findIndex(sn => sn.id === n.id) + 1;
                                     const label = (n.data?.label as string) || n.type;
@@ -1008,9 +959,10 @@ export default function ClassicChatBuilder({
                             const newChoices = [...((selectedNode.data?.choices as string[]) || []), `Option ${((selectedNode.data?.choices as string[]) || []).length + 1}`];
                             updateSelectedNodeData('choices', newChoices);
                           }}
-                          className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1.5 mt-2 bg-indigo-50/60 hover:bg-indigo-100/60 px-3 py-2 rounded-xl transition-colors border border-indigo-100"
+                          className="add-dashed"
+                          style={{ marginTop: '8px' }}
                         >
-                          <Plus className="w-3.5 h-3.5" /> Add Choice
+                          <Plus /> Add choice
                         </button>
                       </div>
                     </div>
@@ -1018,35 +970,34 @@ export default function ClassicChatBuilder({
                 </div>
               ) : (
                 /* Advanced Tab */
-                <div className="space-y-4">
+                <div className="builder-scroll flex flex-col gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-gray-700 mb-1">
-                      Lead Key Variable Name
-                    </label>
+                    <label className="field-label">Lead key variable</label>
                     <input
                       type="text"
                       value={(selectedNode.data?.key as string) || ''}
                       onChange={(e) => updateSelectedNodeData('key', e.target.value)}
-                      className="w-full text-xs px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 font-mono"
+                      className="input input-mono"
                       placeholder="full_name, phone, email"
                     />
-                    <p className="text-[10px] text-gray-500 mt-1">This key is used to record lead answers into your database and Google Sheets.</p>
+                    <p className="field-hint">Records lead answers into your database and Google Sheets under this key.</p>
                   </div>
 
-                  <div className="pt-4 border-t border-gray-200">
-                    <button
-                      onClick={() => deleteNode(selectedNode.id)}
-                      className="w-full py-2 bg-red-50 hover:bg-red-100 text-red-600 font-bold text-xs rounded-xl border border-red-200 transition-colors flex items-center justify-center gap-2"
-                    >
-                      <Trash2 className="w-4 h-4" /> Delete Component
+                  <div className="modal-section">
+                    <button onClick={() => deleteNode(selectedNode.id)} className="button-danger button-block">
+                      <Trash2 /> Delete component
                     </button>
                   </div>
                 </div>
               )}
             </div>
           ) : (
-            <div className="p-8 text-center text-xs text-gray-400">
-              Select a component step from the center flow to customize text and emojis.
+            <div className="builder-scroll">
+              <div className="empty-state">
+                <div className="empty-icon"><Sparkles /></div>
+                <h4>Nothing selected</h4>
+                <p>Pick a step in the flow to customize its text, media and routing.</p>
+              </div>
             </div>
           )}
         </div>
@@ -1054,69 +1005,67 @@ export default function ClassicChatBuilder({
 
       {/* ================= MODAL: Test Chat Flow ================= */}
       {showTestModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-sm w-full h-[600px] flex flex-col shadow-2xl overflow-hidden border border-gray-100">
+        <div className="modal-backdrop">
+          <div className="transcript-modal" style={{ maxWidth: '390px', height: 'min(80vh, 620px)' }}>
             {/* Header */}
-            <div className="bg-indigo-600 p-4 text-white flex justify-between items-center">
-              <div className="flex items-center gap-2">
-                <Bot className="w-5 h-5 text-indigo-200" />
-                <div>
-                  <h3 className="text-sm font-bold">{botName}</h3>
-                  <p className="text-[10px] text-indigo-200">Live Simulator Test</p>
-                </div>
+            <div className="chat-widget-header">
+              <span className="icon-tile"><Bot /></span>
+              <div className="min-w-0 flex-1">
+                <h3 className="truncate">{botName}</h3>
+                <div className="chat-widget-status"><i /><span>Live simulator</span></div>
               </div>
-              <button onClick={() => setShowTestModal(false)} className="text-white/80 hover:text-white p-1">
-                <X className="w-5 h-5" />
+              <button onClick={() => setShowTestModal(false)} className="icon-button" aria-label="Close">
+                <X />
               </button>
             </div>
 
-            {/* Chat Body */}
-            <div className="flex-1 p-4 bg-slate-50 overflow-y-auto space-y-3">
+            {/* Chat body */}
+            <div className="chat-log">
               {testMessages.map((msg, i) => (
-                <div key={i} className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
-                  {msg.image && (
-                    <img src={msg.image} alt="bot media" className="w-48 h-32 object-cover rounded-xl mb-1 border border-gray-200" />
-                  )}
-                  <div className={`p-3 max-w-[80%] text-xs font-medium rounded-2xl whitespace-pre-wrap ${
-                    msg.sender === 'user'
-                      ? 'bg-indigo-600 text-white rounded-br-none shadow-xs'
-                      : 'bg-white text-gray-900 border border-gray-200 rounded-bl-none shadow-xs'
-                  }`}>
-                    {msg.text}
-                  </div>
-
-                  {msg.options && (
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {msg.options.map((opt, oIdx) => (
-                        <button
-                          key={oIdx}
-                          onClick={() => handleTestUserReply(opt)}
-                          className="px-3 py-1 bg-white hover:bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-bold rounded-lg shadow-2xs"
-                        >
-                          {opt}
-                        </button>
-                      ))}
+                <div key={i} className={`chat-row ${msg.sender === 'user' ? 'is-user' : 'is-bot'}`}>
+                  <div className="min-w-0">
+                    <div className="chat-bubble">
+                      {msg.image && (
+                        <img src={msg.image} alt="" className="chat-bubble-media" />
+                      )}
+                      <p>{msg.text}</p>
                     </div>
-                  )}
+
+                    {msg.options && (
+                      <div className="chat-choices">
+                        {msg.options.map((opt, oIdx) => (
+                          <button
+                            key={oIdx}
+                            onClick={() => handleTestUserReply(opt)}
+                            className="chat-choice"
+                          >
+                            <span>{opt}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
 
-            {/* Input Bar */}
-            <div className="p-3 bg-white border-t border-gray-200 flex gap-2">
+            {/* Input bar */}
+            <div className="chat-composer">
               <input
                 type="text"
                 value={testUserInput}
                 onChange={(e) => setTestUserInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleTestUserReply()}
-                placeholder="Type a message..."
-                className="flex-1 text-xs px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500"
+                placeholder="Type a message…"
+                className="input"
+                aria-label="Test message"
               />
               <button
                 onClick={() => handleTestUserReply()}
-                className="p-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors"
+                className="chat-send"
+                aria-label="Send"
               >
-                <Send className="w-4 h-4" />
+                <Send />
               </button>
             </div>
           </div>
@@ -1125,65 +1074,65 @@ export default function ClassicChatBuilder({
 
       {/* ================= MODAL: Install Embed Widget ================= */}
       {showInstallModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100">
-            <div className="flex justify-between items-start mb-4">
-              <div className="flex items-center gap-3">
-                <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl">
-                  <Code className="w-6 h-6" />
-                </div>
+        <div className="modal-backdrop">
+          <div className="notion-modal is-md">
+            <div className="modal-head">
+              <div className="modal-head-main">
+                <span className="icon-tile tile-lg tone-blue"><Code /></span>
                 <div>
-                  <h3 className="text-lg font-bold text-gray-900">Install Chatbot Widget</h3>
-                  <p className="text-xs text-gray-500">Paste this code snippet before the &lt;/body&gt; tag on your website.</p>
+                  <h3>Install chatbot widget</h3>
+                  <p>Paste this snippet before the &lt;/body&gt; tag on your website.</p>
                 </div>
               </div>
-              <button onClick={() => setShowInstallModal(false)} className="text-gray-400 hover:text-gray-600 p-1">
-                <X className="w-5 h-5" />
+              <button onClick={() => setShowInstallModal(false)} className="icon-button" aria-label="Close">
+                <X />
               </button>
             </div>
 
-            <div className="space-y-4 mb-5">
+            <div className="flex flex-col gap-5">
               <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
-                  Option 1: One-Line JS Script (Floating Chat Bubble)
-                </label>
-                <div className="bg-gray-900 text-gray-100 p-3.5 rounded-2xl font-mono text-xs overflow-x-auto relative group">
-                  <pre className="whitespace-pre-wrap leading-relaxed">{embedScriptCode}</pre>
+                <p className="modal-section-title">Option 1 · Floating chat bubble</p>
+                <div className="code-block">
+                  <pre>{embedScriptCode}</pre>
                   <button
                     onClick={() => {
                       navigator.clipboard.writeText(embedScriptCode);
                       setCopiedCode(true);
                       setTimeout(() => setCopiedCode(false), 2000);
                     }}
-                    className="absolute top-2 right-2 px-2.5 py-1 bg-indigo-600 text-white font-bold text-[10px] rounded-lg opacity-90 hover:opacity-100 transition-all flex items-center gap-1 shadow"
+                    className="button-secondary compact absolute right-2 top-2"
                   >
-                    {copiedCode ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                    <span>{copiedCode ? 'Copied' : 'Copy Script'}</span>
+                    {copiedCode ? <Check /> : <Copy />}
+                    <span>{copiedCode ? 'Copied' : 'Copy'}</span>
                   </button>
                 </div>
-                <p className="text-[10px] text-gray-500 mt-1">Works on any HTML, WordPress, Webflow, Shopify, or React site.</p>
+                <p className="field-hint">Works on HTML, WordPress, Webflow, Shopify and React sites.</p>
               </div>
 
               <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
-                  Option 2: Inline iFrame Embed
-                </label>
-                <div className="bg-gray-900 text-gray-100 p-3.5 rounded-2xl font-mono text-xs overflow-x-auto relative group">
-                  <pre className="whitespace-pre-wrap leading-relaxed">{embedIframeCode}</pre>
+                <p className="modal-section-title">Option 2 · Inline iframe</p>
+                <div className="code-block">
+                  <pre>{embedIframeCode}</pre>
                   <button
                     onClick={() => {
                       navigator.clipboard.writeText(embedIframeCode);
                       setCopiedCode(true);
                       setTimeout(() => setCopiedCode(false), 2000);
                     }}
-                    className="absolute top-2 right-2 px-2.5 py-1 bg-indigo-600 text-white font-bold text-[10px] rounded-lg opacity-90 hover:opacity-100 transition-all flex items-center gap-1 shadow"
+                    className="button-secondary compact absolute right-2 top-2"
                   >
-                    {copiedCode ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                    <span>{copiedCode ? 'Copied' : 'Copy iFrame'}</span>
+                    {copiedCode ? <Check /> : <Copy />}
+                    <span>{copiedCode ? 'Copied' : 'Copy'}</span>
                   </button>
                 </div>
-                <p className="text-[10px] text-gray-500 mt-1">Best for embedding directly inside a page layout or container.</p>
+                <p className="field-hint">Best for embedding inside an existing page layout.</p>
               </div>
+            </div>
+
+            <div className="modal-actions is-end">
+              <button onClick={() => setShowInstallModal(false)} className="button-secondary">
+                Done
+              </button>
             </div>
           </div>
         </div>
@@ -1191,41 +1140,47 @@ export default function ClassicChatBuilder({
 
       {/* ================= MODAL: Import Template ================= */}
       {showTemplateModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100">
-            <div className="flex justify-between items-start mb-4">
+        <div className="modal-backdrop">
+          <div className="notion-modal">
+            <div className="modal-head">
               <div>
-                <h3 className="text-lg font-bold text-gray-900">Import Preset Template</h3>
-                <p className="text-xs text-gray-500">Choose a pre-built chat sequence to jumpstart your flow.</p>
+                <h3>Import a template</h3>
+                <p>Start from a pre-built chat sequence.</p>
               </div>
-              <button onClick={() => setShowTemplateModal(false)} className="text-gray-400 hover:text-gray-600 p-1">
-                <X className="w-5 h-5" />
+              <button onClick={() => setShowTemplateModal(false)} className="icon-button" aria-label="Close">
+                <X />
               </button>
             </div>
 
-            <div className="space-y-3 mb-4">
-              <button
-                onClick={() => loadPresetTemplate('lead')}
-                className="w-full p-4 bg-gray-50 hover:bg-indigo-50 hover:border-indigo-200 border border-gray-200 rounded-2xl text-left transition-all"
-              >
-                <div className="font-bold text-sm text-gray-900 flex items-center gap-2"><TrendingUp className="w-4 h-4 text-indigo-600" /> Lead Generation Flow</div>
-                <div className="text-xs text-gray-500 mt-1">Welcomes visitors, collects Name, Phone Number, and Email.</div>
+            <div className="flex flex-col gap-2">
+              <button onClick={() => loadPresetTemplate('lead')} className="conversation-row">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="icon-tile tone-blue"><TrendingUp /></span>
+                  <div className="min-w-0 text-left">
+                    <strong>Lead generation</strong>
+                    <p>Welcomes visitors, then collects name, phone and email.</p>
+                  </div>
+                </div>
               </button>
 
-              <button
-                onClick={() => loadPresetTemplate('booking')}
-                className="w-full p-4 bg-gray-50 hover:bg-indigo-50 hover:border-indigo-200 border border-gray-200 rounded-2xl text-left transition-all"
-              >
-                <div className="font-bold text-sm text-gray-900 flex items-center gap-2"><CalendarDays className="w-4 h-4 text-indigo-600" /> Appointment Booking Flow</div>
-                <div className="text-xs text-gray-500 mt-1">Asks for service choice, user name, and booking email.</div>
+              <button onClick={() => loadPresetTemplate('booking')} className="conversation-row">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="icon-tile tone-green"><CalendarDays /></span>
+                  <div className="min-w-0 text-left">
+                    <strong>Appointment booking</strong>
+                    <p>Asks for a service choice, name and booking email.</p>
+                  </div>
+                </div>
               </button>
 
-              <button
-                onClick={() => loadPresetTemplate('support')}
-                className="w-full p-4 bg-gray-50 hover:bg-indigo-50 hover:border-indigo-200 border border-gray-200 rounded-2xl text-left transition-all"
-              >
-                <div className="font-bold text-sm text-gray-900 flex items-center gap-2"><LifeBuoy className="w-4 h-4 text-indigo-600" /> Customer Support & FAQ</div>
-                <div className="text-xs text-gray-500 mt-1">Collects detailed issue description and user contact.</div>
+              <button onClick={() => loadPresetTemplate('support')} className="conversation-row">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="icon-tile tone-purple"><LifeBuoy /></span>
+                  <div className="min-w-0 text-left">
+                    <strong>Support &amp; FAQ</strong>
+                    <p>Collects a detailed issue description and contact details.</p>
+                  </div>
+                </div>
               </button>
             </div>
           </div>

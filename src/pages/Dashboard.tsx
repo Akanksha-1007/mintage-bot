@@ -1,19 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { db, auth } from '../lib/firebase';
 import { collection, query, where, getDocs, limit, orderBy, onSnapshot } from 'firebase/firestore';
-import { 
-  Users, 
-  MessageSquare, 
-  TrendingUp, 
-  Bot, 
-  ArrowRight, 
-  GitBranch,
-  Sparkles,
-  Zap,
-  Activity,
+import {
+  ArrowRight,
+  Bot,
   CheckCircle2,
+  Clock,
   Code2,
-  Clock
+  GitBranch,
+  MessageSquare,
+  TrendingUp,
+  Users,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -185,7 +182,7 @@ export default function Dashboard() {
         </div>
         <div className="page-actions">
           <Link to="/integrations" className="button-secondary">
-            <Code2 className="h-4 w-4" />
+            <Code2 />
             Embed widget
           </Link>
           <Link to="/builder" className="button-primary">
@@ -225,7 +222,7 @@ export default function Dashboard() {
               <span className="feature-icon"><GitBranch /></span>
               <h3>Shape a conversation visually</h3>
               <p>Arrange messages, questions, conditions, and lead capture steps in the drag-and-drop builder.</p>
-              <Link to="/builder" className="button-primary">Open builder <ArrowRight className="h-4 w-4" /></Link>
+              <Link to="/builder" className="button-primary">Open builder <ArrowRight /></Link>
             </div>
             <div className="feature-canvas" aria-hidden="true">
               <div className="flow-card flow-card-a"><span />Welcome message</div>
@@ -256,7 +253,7 @@ export default function Dashboard() {
                   <div key={lead.id || idx} className="recent-item">
                     <div className="avatar-initial">{String(leadEmail).charAt(0).toUpperCase()}</div>
                     <div className="min-w-0 flex-1"><strong>{leadEmail}</strong><span><Clock /> Recent submission</span></div>
-                    <span className="status-pill">New</span>
+                    <span className="status-pill"><span />New</span>
                   </div>
                 );
               })}

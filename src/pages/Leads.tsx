@@ -521,189 +521,156 @@ export default function Leads() {
   };
 
   return (
-    <div className="leads-page p-8 max-w-7xl mx-auto space-y-8 font-sans">
-      {/* Toast Notification */}
+    <div className="leads-page workspace-page workspace-page--wide">
+      {/* Toast notification */}
       {toast && (
-        <div className={`fixed bottom-6 right-6 z-50 px-5 py-3 rounded-2xl shadow-2xl border text-xs font-bold flex items-center gap-2 animate-bounce ${toast.type === 'success'
-          ? 'bg-emerald-900 text-emerald-100 border-emerald-700'
-          : 'bg-red-900 text-red-100 border-red-700'
-          }`}>
-          {toast.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <AlertCircle className="w-4 h-4 text-red-400" />}
+        <div className={`toast ${toast.type === 'success' ? 'is-success' : 'is-error'}`}>
+          {toast.type === 'success' ? <CheckCircle2 /> : <AlertCircle />}
           <span>{toast.msg}</span>
         </div>
       )}
 
-      {/* Header & Controls */}
-      <div className="leads-page-header flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      {/* Header */}
+      <header className="page-heading">
         <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight">Leads Center</h2>
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              Real-Time Live
-            </span>
+          <div className="eyebrow-row">
+            <span className="eyebrow">Lead database</span>
+            <span className="status-pill status-live"><span />Live</span>
           </div>
-          <p className="text-gray-500 text-sm mt-1">
-            Dynamic lead capture dashboard with real-time Google Sheets synchronization status.
-          </p>
+          <h2>Leads</h2>
+          <p>Every captured submission, its source page, and its Google Sheets sync state.</p>
         </div>
-
-        <div className="leads-control-bar flex flex-wrap items-center gap-3">
-          {/* Bot Filter Dropdown */}
-          <div className="flex items-center gap-2 bg-white px-3.5 py-2 border border-gray-200 rounded-xl shadow-2xs">
-            <Bot className="w-4 h-4 text-indigo-600" />
-            <select
-              value={selectedBotFilter}
-              onChange={(e) => setSelectedBotFilter(e.target.value)}
-              className="bg-transparent text-xs font-bold text-gray-800 outline-none cursor-pointer"
-            >
-              <option value="ALL">All Chatbots ({leads.length} leads)</option>
-              {uniqueBotsList.map(b => (
-                <option key={b.id} value={b.id}>{b.name}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Status Filter Dropdown */}
-          <div className="flex items-center gap-2 bg-white px-3.5 py-2 border border-gray-200 rounded-xl shadow-2xs">
-            <Tag className="w-4 h-4 text-indigo-600" />
-            <select
-              value={selectedStatusFilter}
-              onChange={(e) => setSelectedStatusFilter(e.target.value)}
-              className="bg-transparent text-xs font-bold text-gray-800 outline-none cursor-pointer"
-            >
-              <option value="ALL">All Statuses ({leads.length})</option>
-              <option value="New">New ({leadStats.new})</option>
-              <option value="Contacted">Contacted ({leadStats.contacted})</option>
-              <option value="Qualified">Qualified ({leadStats.qualified})</option>
-              <option value="Converted">Converted ({leadStats.converted})</option>
-              <option value="Lost">Lost ({leadStats.lost})</option>
-            </select>
-          </div>
-
-          {/* Search Bar */}
-          <div className="relative">
-            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search leads, values, URL..."
-              className="pl-9 pr-4 py-2 bg-white border border-gray-200 rounded-xl text-xs font-medium text-gray-800 outline-none focus:ring-2 focus:ring-indigo-500 w-48 md:w-64"
-            />
-          </div>
-
-          {/* Export CSV Button */}
-          <button
-            onClick={exportLeads}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-xl text-xs font-bold hover:bg-black transition-all shadow-md"
-          >
-            <Download className="w-4 h-4" />
+        <div className="page-actions">
+          <button type="button" onClick={exportLeads} className="button-secondary">
+            <Download />
             Export CSV
           </button>
-
-          {/* Sync All Existing Leads to Google Sheets Button */}
           <button
+            type="button"
             onClick={handleSyncAllExistingLeads}
             disabled={isSyncingAll}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-all shadow-md disabled:opacity-50"
+            className="button-primary"
           >
-            <RefreshCw className={`w-4 h-4 ${isSyncingAll ? 'animate-spin' : ''}`} />
-            {isSyncingAll ? 'Syncing...' : 'Sync All to Google Sheet'}
+            <RefreshCw className={isSyncingAll ? 'animate-spin' : ''} />
+            {isSyncingAll ? 'Syncing…' : 'Sync to Google Sheet'}
           </button>
         </div>
+      </header>
+
+      {/* Filters */}
+      <div className="leads-control-bar">
+        <label className="inline-select">
+          <Bot />
+          <select
+            value={selectedBotFilter}
+            onChange={(e) => setSelectedBotFilter(e.target.value)}
+            aria-label="Filter by chatbot"
+          >
+            <option value="ALL">All chatbots ({leads.length})</option>
+            {uniqueBotsList.map(b => (
+              <option key={b.id} value={b.id}>{b.name}</option>
+            ))}
+          </select>
+        </label>
+
+        <label className="inline-select">
+          <Tag />
+          <select
+            value={selectedStatusFilter}
+            onChange={(e) => setSelectedStatusFilter(e.target.value)}
+            aria-label="Filter by status"
+          >
+            <option value="ALL">All statuses ({leads.length})</option>
+            <option value="New">New ({leadStats.new})</option>
+            <option value="Contacted">Contacted ({leadStats.contacted})</option>
+            <option value="Qualified">Qualified ({leadStats.qualified})</option>
+            <option value="Converted">Converted ({leadStats.converted})</option>
+            <option value="Lost">Lost ({leadStats.lost})</option>
+          </select>
+        </label>
+
+        <label className="search-field">
+          <Search />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search leads, values, URL…"
+            className="input"
+            aria-label="Search leads"
+          />
+        </label>
       </div>
 
-      {/* KPI Analytics Stat Cards */}
-      <div className="leads-stat-grid grid grid-cols-2 md:grid-cols-6 gap-4">
-        <div className="lead-stat-card is-total bg-white p-4 rounded-2xl border border-gray-100 shadow-2xs space-y-1">
-          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Total Leads</span>
-          <span className="text-2xl font-black text-slate-900">{leadStats.total}</span>
+      {/* Stat strip */}
+      <div className="leads-stat-grid">
+        <div className="lead-stat-card is-total">
+          <span>Total</span>
+          <span>{leadStats.total}</span>
         </div>
-
-        <div className="lead-stat-card is-new bg-blue-50/70 p-4 rounded-2xl border border-blue-100 shadow-2xs space-y-1">
-          <span className="text-[10px] font-bold text-blue-700 uppercase tracking-widest block">New</span>
-          <span className="text-2xl font-black text-blue-900">{leadStats.new}</span>
+        <div className="lead-stat-card is-new">
+          <span>New</span>
+          <span>{leadStats.new}</span>
         </div>
-
-        <div className="lead-stat-card is-contacted bg-amber-50/70 p-4 rounded-2xl border border-amber-100 shadow-2xs space-y-1">
-          <span className="text-[10px] font-bold text-amber-700 uppercase tracking-widest block">Contacted</span>
-          <span className="text-2xl font-black text-amber-900">{leadStats.contacted}</span>
+        <div className="lead-stat-card is-contacted">
+          <span>Contacted</span>
+          <span>{leadStats.contacted}</span>
         </div>
-
-        <div className="lead-stat-card is-qualified bg-indigo-50/70 p-4 rounded-2xl border border-indigo-100 shadow-2xs space-y-1">
-          <span className="text-[10px] font-bold text-indigo-700 uppercase tracking-widest block">Qualified</span>
-          <span className="text-2xl font-black text-indigo-900">{leadStats.qualified}</span>
+        <div className="lead-stat-card is-qualified">
+          <span>Qualified</span>
+          <span>{leadStats.qualified}</span>
         </div>
-
-        <div className="lead-stat-card is-converted bg-emerald-50/70 p-4 rounded-2xl border border-emerald-100 shadow-2xs space-y-1">
-          <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-widest block">Converted</span>
-          <span className="text-2xl font-black text-emerald-900">{leadStats.converted}</span>
+        <div className="lead-stat-card is-converted">
+          <span>Converted</span>
+          <span>{leadStats.converted}</span>
         </div>
-
-        <div className="lead-stat-card is-lost bg-rose-50/70 p-4 rounded-2xl border border-rose-100 shadow-2xs space-y-1">
-          <span className="text-[10px] font-bold text-rose-700 uppercase tracking-widest block">Lost</span>
-          <span className="text-2xl font-black text-rose-900">{leadStats.lost}</span>
+        <div className="lead-stat-card is-lost">
+          <span>Lost</span>
+          <span>{leadStats.lost}</span>
         </div>
       </div>
-
 
       {loadError && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-2xl flex items-center gap-3 text-red-800 text-xs font-bold">
-          <AlertCircle className="w-5 h-5 text-red-600 shrink-0" />
+        <div className="callout tone-red" style={{ marginBottom: '20px' }}>
+          <AlertCircle />
           <span>{loadError}</span>
         </div>
       )}
 
-
-      {/* Dynamic Table Section */}
-      <div className="leads-table-card bg-white rounded-[32px] shadow-xs border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
+      {/* Table */}
+      <div className="table-card">
+        <div className="table-scroll">
+          <table className="data-table">
             <thead>
-              <tr className="bg-slate-50/80">
-                <th className="px-6 py-4 text-left text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
-                  Submission Date
-                </th>
-                <th className="px-6 py-4 text-left text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
-                  Chatbot
-                </th>
-
-                {/* Dynamically Generated Field Columns */}
+              <tr>
+                <th>Submitted</th>
+                <th>Chatbot</th>
                 {dynamicColumnLabels.length > 0 ? (
-                  dynamicColumnLabels.map(label => (
-                    <th key={label} className="px-6 py-4 text-left text-[10px] font-extrabold text-gray-700 uppercase tracking-wider">
-                      {label}
-                    </th>
-                  ))
+                  dynamicColumnLabels.map(label => <th key={label}>{label}</th>)
                 ) : (
-                  <th className="px-6 py-4 text-left text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
-                    Captured Fields
-                  </th>
+                  <th>Captured fields</th>
                 )}
-
-                <th className="px-6 py-4 text-left text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
-                  Source Page URL
-                </th>
-                <th className="px-6 py-4 text-left text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
-                  Google Sheet Sync
-                </th>
-                <th className="px-6 py-4 text-right text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
-                  Action
-                </th>
+                <th>Source page</th>
+                <th>Sheet sync</th>
+                <th className="cell-right">Action</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100 bg-white">
+            <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={dynamicColumnLabels.length + 5} className="px-8 py-20 text-center">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto"></div>
+                  <td colSpan={dynamicColumnLabels.length + 5}>
+                    <div className="loading-state is-inline">
+                      <Loader2 className="animate-spin" />
+                      <span>Loading leads…</span>
+                    </div>
                   </td>
                 </tr>
               ) : filteredLeads.length === 0 ? (
                 <tr>
-                  <td colSpan={dynamicColumnLabels.length + 5} className="px-8 py-20 text-center text-gray-400 font-medium">
-                    No leads found matching your criteria.
+                  <td colSpan={dynamicColumnLabels.length + 5}>
+                    <div className="loading-state is-inline">
+                      <span>No leads match your current filters.</span>
+                    </div>
                   </td>
                 </tr>
               ) : (
@@ -718,106 +685,89 @@ export default function Leads() {
                     <tr
                       key={lead.id}
                       onClick={() => setSelectedLead(lead)}
-                      className="hover:bg-indigo-50/40 transition-colors cursor-pointer"
+                      style={{ cursor: 'pointer' }}
                     >
-                      {/* Date & Time */}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex flex-col">
-                          <span className="text-xs font-bold text-gray-900">
-                            {lead.submittedAt ? format(new Date(lead.submittedAt), 'MMM d, yyyy') : (lead.timestamp?.toDate ? format(lead.timestamp.toDate(), 'MMM d, yyyy') : 'Recently')}
-                          </span>
-                          <span className="text-[10px] text-gray-400 font-medium">
-                            {lead.submittedAt ? format(new Date(lead.submittedAt), 'HH:mm aaa') : (lead.timestamp?.toDate ? format(lead.timestamp.toDate(), 'HH:mm aaa') : '')}
-                          </span>
-                        </div>
+                      {/* Date & time */}
+                      <td>
+                        <span className="cell-title block whitespace-nowrap">
+                          {lead.submittedAt ? format(new Date(lead.submittedAt), 'MMM d, yyyy') : (lead.timestamp?.toDate ? format(lead.timestamp.toDate(), 'MMM d, yyyy') : 'Recently')}
+                        </span>
+                        <span className="cell-sub">
+                          {lead.submittedAt ? format(new Date(lead.submittedAt), 'HH:mm') : (lead.timestamp?.toDate ? format(lead.timestamp.toDate(), 'HH:mm') : '')}
+                        </span>
                       </td>
 
-                      {/* Chatbot Name */}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center gap-2 px-3 py-1 bg-indigo-50 border border-indigo-100 rounded-xl w-fit">
-                          <Bot className="w-3.5 h-3.5 text-indigo-600" />
-                          <span className="text-xs font-bold text-indigo-900">{bName}</span>
-                        </div>
+                      {/* Chatbot */}
+                      <td>
+                        <span className="tag"><Bot />{bName}</span>
                       </td>
 
-                      {/* Dynamic Field Values */}
+                      {/* Dynamic field values */}
                       {dynamicColumnLabels.length > 0 ? (
                         dynamicColumnLabels.map(label => {
-                          const val = String(fieldMap.get(String(label)) ?? ''); return (
-                            <td key={label} className="px-6 py-4 text-xs font-medium text-gray-800 max-w-[200px] truncate">
-                              {val ? (
-                                <span>{val}</span>
-                              ) : (
-                                <span className="text-gray-300 italic">-</span>
-                              )}
+                          const val = String(fieldMap.get(String(label)) ?? '');
+                          return (
+                            <td key={label} className="max-w-[200px] truncate">
+                              {val ? val : <span className="cell-empty">—</span>}
                             </td>
                           );
                         })
                       ) : (
-                        <td className="px-6 py-4">
+                        <td>
                           <div className="flex flex-wrap gap-1.5">
                             {fieldEntries.slice(0, 3).map((f, idx) => (
-                              <span key={idx} className="text-[10px] bg-gray-100 border border-gray-200 px-2 py-0.5 rounded-md font-medium text-gray-700">
-                                {f.label}: {f.value}
-                              </span>
+                              <span key={idx} className="tag">{f.label}: {f.value}</span>
                             ))}
                           </div>
                         </td>
                       )}
 
-                      {/* Source Page URL */}
-                      <td className="px-6 py-4 text-xs font-mono text-gray-500 max-w-[180px] truncate">
+                      {/* Source URL */}
+                      <td className="max-w-[190px] truncate">
                         {lead.sourceUrl ? (
                           <a
                             href={lead.sourceUrl}
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={(e) => e.stopPropagation()}
-                            className="text-indigo-600 hover:underline flex items-center gap-1 font-sans font-bold"
+                            className="text-accent inline-flex items-center gap-1"
                           >
-                            <span>{new URL(lead.sourceUrl).hostname || lead.sourceUrl}</span>
-                            <ExternalLink className="w-3 h-3" />
+                            <span className="truncate">{new URL(lead.sourceUrl).hostname || lead.sourceUrl}</span>
+                            <ExternalLink className="h-3 w-3" />
                           </a>
                         ) : (
-                          <span className="text-gray-400 italic">Direct Embed</span>
+                          <span className="cell-empty">Direct embed</span>
                         )}
                       </td>
 
-                      {/* Google Sheets Sync Status */}
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      {/* Sheet sync status */}
+                      <td>
                         {syncStatus === 'synced' ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-[11px] font-bold">
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                            Synced
-                          </span>
+                          <span className="status-pill tone-green"><CheckCircle2 />Synced</span>
                         ) : syncStatus === 'failed' ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-red-50 text-red-700 border border-red-200 rounded-full text-[11px] font-bold">
-                            <AlertCircle className="w-3.5 h-3.5 text-red-600" />
-                            Failed
-                          </span>
+                          <span className="status-pill tone-red"><AlertCircle />Failed</span>
                         ) : (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-[11px] font-bold">
-                            <Clock className="w-3.5 h-3.5 text-amber-600" />
-                            Pending
-                          </span>
+                          <span className="status-pill tone-yellow"><Clock />Pending</span>
                         )}
                       </td>
 
                       {/* Actions */}
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-xs">
-                        <div className="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+                      <td className="cell-right">
+                        <div className="row-actions" onClick={(e) => e.stopPropagation()}>
                           <button
+                            type="button"
                             onClick={() => setSelectedLead(lead)}
-                            className="px-3 py-1.5 bg-gray-100 hover:bg-indigo-600 hover:text-white text-gray-700 rounded-xl text-xs font-bold transition-all"
+                            className="button-secondary compact"
                           >
                             Details
                           </button>
                           <button
+                            type="button"
                             onClick={() => setDeletingLead(lead)}
-                            className="p-1.5 bg-red-50 hover:bg-red-600 text-red-600 hover:text-white rounded-xl transition-all"
-                            title="Delete Lead"
+                            className="icon-button danger"
+                            title="Delete lead"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 />
                           </button>
                         </div>
                       </td>
@@ -830,165 +780,138 @@ export default function Leads() {
         </div>
       </div>
 
-      {/* LEAD DETAILS MODAL */}
+      {/* Lead detail modal */}
       {selectedLead && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-gray-100 space-y-6 p-8 relative animate-in fade-in zoom-in-95">
-            {/* Close Button */}
-            <button
-              onClick={() => setSelectedLead(null)}
-              className="absolute top-6 right-6 p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            {/* Modal Header */}
-            <div className="flex items-center gap-4 border-b border-gray-100 pb-5">
-              <div className="p-3.5 bg-indigo-50 text-indigo-600 rounded-2xl">
-                <FileText className="w-7 h-7" />
+        <div className="modal-backdrop">
+          <div className="notion-modal is-lg">
+            <div className="modal-head">
+              <div className="modal-head-main">
+                <span className="icon-tile tile-lg"><FileText /></span>
+                <div className="min-w-0">
+                  <h3>Lead detail</h3>
+                  <p className="text-mono truncate">
+                    {selectedLead.id} · {botNames[selectedLead.botId || selectedLead.flowId] || selectedLead.botName || selectedLead.clientName || 'Chatbot'}
+                  </p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-xl font-extrabold text-gray-900">Lead Detail View</h3>
-                <p className="text-xs text-gray-500 font-mono mt-0.5">
-                  ID: {selectedLead.id} • Chatbot: {botNames[selectedLead.botId || selectedLead.flowId] || selectedLead.botName || selectedLead.clientName || 'Chatbot'}
-                </p>
-              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedLead(null)}
+                className="icon-button"
+                aria-label="Close"
+              >
+                <X />
+              </button>
             </div>
 
-            {/* Dynamic Captured Fields List */}
-            <div className="space-y-4">
-              <h4 className="text-xs font-extrabold text-gray-900 uppercase tracking-wider flex items-center gap-2">
-                <Layers className="w-4 h-4 text-indigo-600" />
-                Dynamically Captured Lead Fields
-              </h4>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Captured fields */}
+            <div className="modal-section" style={{ borderTop: 0, marginTop: 0, paddingTop: 0 }}>
+              <p className="modal-section-title"><Layers />Captured fields</p>
+              <div className="lead-detail-grid">
                 {getLeadFieldEntries(selectedLead).map((field, idx) => (
-                  <div key={idx} className="p-4 bg-slate-50 rounded-2xl border border-gray-100 space-y-1">
-                    <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">
-                      {field.label}
-                    </span>
-                    <span className="text-sm font-bold text-gray-900 break-words block">
-                      {field.value || <span className="text-gray-400 italic">Not provided</span>}
-                    </span>
+                  <div key={idx} className="lead-detail-field">
+                    <span>{field.label}</span>
+                    <strong>{field.value || <span className="cell-empty">Not provided</span>}</strong>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* Submission Metadata */}
-            <div className="p-5 bg-gray-50 rounded-2xl border border-gray-200/80 space-y-3 text-xs">
-              <h4 className="text-xs font-extrabold text-gray-900 uppercase tracking-wider">Submission Metadata</h4>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-gray-600 font-medium">
+            {/* Submission metadata */}
+            <div className="modal-section">
+              <p className="modal-section-title">Submission metadata</p>
+              <dl className="meta-grid">
                 <div>
-                  <span className="text-gray-400 font-bold block">Submission Date:</span>
-                  <span className="text-gray-900 font-bold">
-                    {selectedLead.submittedAt ? new Date(selectedLead.submittedAt).toLocaleString() : 'Recently'}
-                  </span>
+                  <dt>Submitted</dt>
+                  <dd>{selectedLead.submittedAt ? new Date(selectedLead.submittedAt).toLocaleString() : 'Recently'}</dd>
                 </div>
-
                 <div>
-                  <span className="text-gray-400 font-bold block">Client / Account ID:</span>
-                  <span className="text-gray-900 font-mono font-bold">
-                    {selectedLead.clientId || selectedLead.ownerId || 'demo_user'}
-                  </span>
+                  <dt>Client / account</dt>
+                  <dd className="text-mono">{selectedLead.clientId || selectedLead.ownerId || 'demo_user'}</dd>
                 </div>
-
-                <div className="sm:col-span-2">
-                  <span className="text-gray-400 font-bold block">Source URL:</span>
-                  {selectedLead.sourceUrl ? (
-                    <a
-                      href={selectedLead.sourceUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-indigo-600 font-mono font-bold hover:underline break-all"
-                    >
-                      {selectedLead.sourceUrl}
-                    </a>
-                  ) : (
-                    <span className="text-gray-500 italic">Direct Embed Widget</span>
-                  )}
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <dt>Source URL</dt>
+                  <dd>
+                    {selectedLead.sourceUrl ? (
+                      <a
+                        href={selectedLead.sourceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-accent text-mono break-all"
+                      >
+                        {selectedLead.sourceUrl}
+                      </a>
+                    ) : (
+                      <span className="cell-empty">Direct embed widget</span>
+                    )}
+                  </dd>
                 </div>
-              </div>
+              </dl>
             </div>
 
-            {/* Customer Conversation History Trigger */}
+            {/* Conversation transcript */}
             {selectedLead.conversationId && (
-              <div className="p-4 bg-indigo-50/70 border border-indigo-100 rounded-2xl flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-indigo-600 text-white rounded-xl flex items-center justify-center font-bold">
-                    <MessageSquare className="w-5 h-5" />
+              <div className="modal-section">
+                <div className="sync-row">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="icon-tile tone-blue"><MessageSquare /></span>
+                    <div className="min-w-0">
+                      <strong className="text-ink block text-[13px] font-semibold">Conversation history</strong>
+                      <span className="text-muted text-[12px]">See the exact messages exchanged before capture.</span>
+                    </div>
                   </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-indigo-950">Customer Conversation History</h4>
-                    <p className="text-[11px] text-indigo-700">View exact messages exchanged by visitor before lead capture.</p>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveConversationId(selectedLead.conversationId || selectedLead.id)}
+                    className="button-secondary compact"
+                  >
+                    <MessageSquare />
+                    View transcript
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setActiveConversationId(selectedLead.conversationId || selectedLead.id)}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition-all shadow-sm flex items-center gap-1.5"
-                >
-                  <MessageSquare className="w-3.5 h-3.5" />
-                  <span>View Full Transcript</span>
-                </button>
               </div>
             )}
 
-            {/* Google Sheets Synchronization Status & Retry */}
-            <div className="p-5 rounded-2xl border space-y-3 bg-slate-900 text-white">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 font-bold text-xs">
-                  <span className="text-slate-400">Google Sheets Sync Status:</span>
-                  {selectedLead.googleSheetSyncStatus === 'synced' ? (
-                    <span className="text-emerald-400 font-extrabold flex items-center gap-1">
-                      <CheckCircle2 className="w-4 h-4" /> Synced to Sheet
-                    </span>
-                  ) : selectedLead.googleSheetSyncStatus === 'failed' ? (
-                    <span className="text-red-400 font-extrabold flex items-center gap-1">
-                      <AlertCircle className="w-4 h-4" /> Failed Sync
-                    </span>
-                  ) : (
-                    <span className="text-amber-400 font-extrabold flex items-center gap-1">
-                      <Clock className="w-4 h-4" /> Pending Sync
-                    </span>
-                  )}
-                </div>
+            {/* Google Sheets sync */}
+            <div className="modal-section">
+              <p className="modal-section-title">Google Sheets sync</p>
+              <div className="sync-row">
+                {selectedLead.googleSheetSyncStatus === 'synced' ? (
+                  <span className="status-pill tone-green"><CheckCircle2 />Synced to sheet</span>
+                ) : selectedLead.googleSheetSyncStatus === 'failed' ? (
+                  <span className="status-pill tone-red"><AlertCircle />Sync failed</span>
+                ) : (
+                  <span className="status-pill tone-yellow"><Clock />Pending sync</span>
+                )}
 
                 <button
+                  type="button"
                   onClick={() => handleRetrySync(selectedLead)}
                   disabled={isRetryingSync}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition-all shadow-md flex items-center gap-1.5 disabled:opacity-50"
+                  className="button-secondary compact"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isRetryingSync ? 'animate-spin' : ''}`} />
-                  <span>{isRetryingSync ? 'Retrying...' : 'Retry Google Sheet Sync'}</span>
+                  <RefreshCw className={isRetryingSync ? 'animate-spin' : ''} />
+                  <span>{isRetryingSync ? 'Retrying…' : 'Retry sync'}</span>
                 </button>
               </div>
 
               {selectedLead.googleSheetSyncError && (
-                <div className="p-3.5 bg-red-950/60 rounded-xl border border-red-800 space-y-2">
-                  <p className="text-xs text-red-300 font-mono">
-                    Error: {selectedLead.googleSheetSyncError}
-                  </p>
+                <div className="callout tone-red" style={{ marginTop: '10px', flexDirection: 'column', alignItems: 'flex-start' }}>
+                  <span className="text-mono break-all">{selectedLead.googleSheetSyncError}</span>
                   {(selectedLead.googleSheetSyncError.toLowerCase().includes('expired') ||
                     selectedLead.googleSheetSyncError.toLowerCase().includes('re-authorize') ||
                     selectedLead.googleSheetSyncError.toLowerCase().includes('unauthorized') ||
                     selectedLead.googleSheetSyncError.toLowerCase().includes('invalid_grant')) && (
-                    <Link
-                      to="/integrations"
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      <span>Re-authorize Google Account in Integrations</span>
+                    <Link to="/integrations" className="button-secondary compact">
+                      <RefreshCw />
+                      Re-authorize Google account
                     </Link>
                   )}
                 </div>
               )}
             </div>
 
-            {/* Modal Footer with Delete Button */}
-            <div className="flex justify-between items-center pt-2 border-t border-gray-100">
+            <div className="modal-actions is-split">
               <button
                 type="button"
                 onClick={() => {
@@ -996,15 +919,15 @@ export default function Leads() {
                   setSelectedLead(null);
                   setDeletingLead(leadToDelete);
                 }}
-                className="px-4 py-2 bg-red-50 hover:bg-red-600 text-red-600 hover:text-white font-bold text-xs rounded-xl transition-all flex items-center gap-1.5"
+                className="button-danger"
               >
-                <Trash2 className="w-4 h-4" />
-                <span>Delete Lead Record</span>
+                <Trash2 />
+                <span>Delete lead</span>
               </button>
               <button
                 type="button"
                 onClick={() => setSelectedLead(null)}
-                className="px-6 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-xl transition-all"
+                className="button-secondary"
               >
                 Close
               </button>
@@ -1013,30 +936,27 @@ export default function Leads() {
         </div>
       )}
 
-      {/* DELETE LEAD CONFIRMATION MODAL */}
+      {/* Delete confirmation */}
       {deletingLead && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-[100] p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl max-w-md w-full p-8 shadow-2xl border border-gray-100 text-center space-y-6">
-            <div className="w-16 h-16 bg-red-50 text-red-600 rounded-3xl flex items-center justify-center mx-auto shrink-0">
-              <AlertTriangle className="w-8 h-8" />
+        <div className="modal-backdrop">
+          <div className="notion-modal is-centered">
+            <div className="modal-danger-icon">
+              <AlertTriangle />
             </div>
 
-            <div className="space-y-2">
-              <h3 className="text-xl font-bold text-gray-900">Delete Lead Record?</h3>
-              <p className="text-xs text-gray-500 leading-relaxed">
-                Are you sure you want to delete lead <strong className="text-gray-800 font-mono">"{deletingLead.id}"</strong>? This will permanently remove the lead entry from your dashboard and server storage.
-              </p>
-              <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 p-3 rounded-xl font-medium mt-2">
-                Warning: This action is permanent and cannot be undone.
-              </p>
-            </div>
+            <h3>Delete this lead?</h3>
+            <p className="mt-1.5">
+              <strong className="text-mono">{deletingLead.id}</strong> will be permanently removed from your
+              dashboard and server storage.
+            </p>
+            <p className="modal-note">This action cannot be undone.</p>
 
-            <div className="flex gap-3 pt-2">
+            <div className="modal-actions">
               <button
                 type="button"
                 onClick={() => setDeletingLead(null)}
                 disabled={isDeletingLead}
-                className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-xl transition-all"
+                className="button-secondary flex-1"
               >
                 Cancel
               </button>
@@ -1044,17 +964,17 @@ export default function Leads() {
                 type="button"
                 onClick={confirmDeleteLead}
                 disabled={isDeletingLead}
-                className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl transition-all shadow-lg shadow-red-100 flex items-center justify-center gap-2 disabled:opacity-50"
+                className="button-danger flex-1"
               >
-                {isDeletingLead ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                <span>{isDeletingLead ? 'Deleting...' : 'Delete Permanently'}</span>
+                {isDeletingLead ? <Loader2 className="animate-spin" /> : <Trash2 />}
+                <span>{isDeletingLead ? 'Deleting…' : 'Delete lead'}</span>
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* CONVERSATION TRANSCRIPT MODAL VIEWER */}
+      {/* Conversation transcript modal */}
       {activeConversationId && (
         <ConversationViewModal
           conversationId={activeConversationId}

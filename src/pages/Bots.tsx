@@ -196,29 +196,29 @@ export default function Bots() {
           <p>Open a flow, review its setup, or publish a new chatbot.</p>
         </div>
         <Link to="/builder" className="button-primary">
-          <Plus className="h-4 w-4" />
+          <Plus />
           New bot
         </Link>
       </header>
 
       <div className="database-toolbar">
         <div className="database-view is-active"><GitBranch /> All flows <span>{bots.length}</span></div>
-        <div className="database-toolbar-note">Updated automatically</div>
+        <p className="database-toolbar-note">Updated automatically</p>
       </div>
 
       {loading ? (
-        <div className="loading-state">
-          <Loader2 className="h-5 w-5 animate-spin" />
+        <div className="loading-state is-inline">
+          <Loader2 className="animate-spin" />
           <span>Loading bots…</span>
         </div>
       ) : bots.length === 0 ? (
-        <div className="empty-database">
+        <div className="empty-state">
           <div className="empty-icon">
             <GitBranch />
           </div>
           <h3>No bots in this workspace</h3>
           <p>Create your first conversational flow and publish it when you are ready.</p>
-          <Link to="/builder" className="button-primary"><Plus className="h-4 w-4" /> Create a bot</Link>
+          <Link to="/builder" className="button-primary"><Plus /> Create a bot</Link>
         </div>
       ) : (
         <div className="bot-card-grid">
@@ -238,7 +238,7 @@ export default function Bots() {
                 </div>
               </div>
               <div className="bot-title-row">
-                <div className="min-w-0"><h3>{bot.name}</h3><p>Updated {bot.updatedAt?.toDate ? format(bot.updatedAt.toDate(), 'MMM d, yyyy') : 'recently'}</p></div>
+                <div className="min-w-0 flex-1"><h3>{bot.name}</h3><p>Updated {bot.updatedAt?.toDate ? format(bot.updatedAt.toDate(), 'MMM d, yyyy') : 'recently'}</p></div>
                 <span className={`status-pill ${bot.leadsCount && bot.leadsCount > 0 ? 'status-live' : ''}`}><span />{bot.leadsCount && bot.leadsCount > 0 ? 'Active' : 'Draft'}</span>
               </div>
 
@@ -270,20 +270,18 @@ export default function Bots() {
       {/* Delete Bot Confirmation Modal */}
       {deletingBot && (
         <div className="modal-backdrop">
-          <div className="notion-modal text-center">
+          <div className="notion-modal is-centered">
             <div className="modal-danger-icon">
               <AlertTriangle />
             </div>
 
-            <div className="space-y-2">
-              <h3>Delete this bot?</h3>
-              <p>
-                <strong>“{deletingBot.name}”</strong> and its published widget endpoint will be permanently removed.
-              </p>
-              <p className="modal-note">
-                Previously captured leads will remain available in Lead data.
-              </p>
-            </div>
+            <h3>Delete this bot?</h3>
+            <p className="mt-1.5">
+              <strong>“{deletingBot.name}”</strong> and its published widget endpoint will be permanently removed.
+            </p>
+            <p className="modal-note">
+              Previously captured leads will remain available in Lead data.
+            </p>
 
             <div className="modal-actions">
               <button
@@ -300,7 +298,7 @@ export default function Bots() {
                 disabled={isDeleting}
                 className="button-danger flex-1"
               >
-                {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                {isDeleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
                 <span>{isDeleting ? 'Deleting…' : 'Delete bot'}</span>
               </button>
             </div>
