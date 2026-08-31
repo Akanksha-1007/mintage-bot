@@ -27,7 +27,7 @@ function BotSync() {
         const deletedIdsRaw = localStorage.getItem('mintage_deleted_bot_ids');
         let deletedIds: string[] = [];
         if (deletedIdsRaw) {
-          try { deletedIds = JSON.parse(deletedIdsRaw); } catch {}
+          try { deletedIds = JSON.parse(deletedIdsRaw); } catch { }
         }
 
         const localBotsRaw = localStorage.getItem('mintage_bots') || localStorage.getItem('botflow_local_bots');

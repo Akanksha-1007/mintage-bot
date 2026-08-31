@@ -1,23 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import ChatWidget from '../components/ChatWidget';
 import { db, auth } from '../lib/firebase';
 import { doc, getDoc, updateDoc, setDoc, serverTimestamp, collection, query, where, getDocs, deleteDoc, onSnapshot } from 'firebase/firestore';
 import {
-  AlertCircle,
-  AlertTriangle,
-  Bot,
-  Check,
-  CheckCircle2,
-  Copy,
-  ExternalLink,
-  FileSpreadsheet,
-  Link2,
-  Loader2,
-  Plus,
-  RefreshCw,
-  Send,
-  Sparkles,
-  Trash2,
+  Loader2, CheckCircle2, ExternalLink, AlertCircle, AlertTriangle, FileSpreadsheet,
+  Plus, Sparkles, Bot, Link2, RefreshCw, Send, Trash2, Check, Copy
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -30,7 +16,7 @@ interface BotInfo {
 }
 
 export default function Integrations() {
-  const { effectiveUserId, isAdmin } = useAuth();
+  const { effectiveUserId } = useAuth();
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [globalSpreadsheetId, setGlobalSpreadsheetId] = useState('');
@@ -75,7 +61,7 @@ export default function Integrations() {
   const directWebLinkTag = `<a href="${activeOrigin}/widget/${activeBotId}" target="_blank" rel="noopener noreferrer" class="chat-btn">Chat with Us</a>`;
 
   const copyScriptToClipboard = () => {
-    navigator.clipboard.writeText(embedScriptTag);
+    navigator.clipboard?.writeText(embedScriptTag).catch(() => { });
     setCopiedScript(true);
     setTimeout(() => setCopiedScript(false), 2000);
   };
@@ -84,19 +70,19 @@ export default function Integrations() {
   const [copiedDirectLink, setCopiedDirectLink] = useState(false);
 
   const copyPopupScriptToClipboard = () => {
-    navigator.clipboard.writeText(embedPopupScriptTag);
+    navigator.clipboard?.writeText(embedPopupScriptTag).catch(() => { });
     setCopiedPopupScript(true);
     setTimeout(() => setCopiedPopupScript(false), 2000);
   };
 
   const copyIframeToClipboard = () => {
-    navigator.clipboard.writeText(embedIframeTag);
+    navigator.clipboard?.writeText(embedIframeTag).catch(() => { });
     setCopiedIframe(true);
     setTimeout(() => setCopiedIframe(false), 2000);
   };
 
   const copyDirectLinkToClipboard = () => {
-    navigator.clipboard.writeText(directWebLinkTag);
+    navigator.clipboard?.writeText(directWebLinkTag).catch(() => { });
     setCopiedDirectLink(true);
     setTimeout(() => setCopiedDirectLink(false), 2000);
   };
@@ -148,7 +134,14 @@ export default function Integrations() {
       const deletedIdsRaw = localStorage.getItem('mintage_deleted_bot_ids');
       let deletedIds: string[] = [];
       if (deletedIdsRaw) {
-        try { deletedIds = JSON.parse(deletedIdsRaw); } catch { }
+        try {
+          const parsed = JSON.parse(deletedIdsRaw);
+          if (Array.isArray(parsed)) {
+            deletedIds = parsed.filter((id): id is string => typeof id === 'string');
+          }
+        } catch {
+          deletedIds = [];
+        }
       }
 
       // Fetch user's bots from Firestore
@@ -400,7 +393,7 @@ export default function Integrations() {
             setIsConnected(true);
             setGoogleTokens(tokens);
             fetchUserSheets(tokens);
-            showToast('Google Account connected successfully!');
+            showToast('🎉 Google Account connected successfully!');
           } catch (error) {
             console.error('Error saving tokens:', error);
             showToast('Failed to connect Google account.', 'error');
@@ -815,8 +808,8 @@ export default function Integrations() {
 
         showToast(
           action === 'updated'
-            ? `Test lead updated in Google Sheet${location}`
-            : `Test lead appended to Google Sheet${location}`
+            ? `✅ Test lead updated in Google Sheet${location}`
+            : `🎉 Test lead appended to Google Sheet${location}`
         );
       } else {
         showToast(data.error || 'Failed to sync test lead', 'error');
@@ -830,594 +823,636 @@ export default function Integrations() {
 
   if (isLoading) {
     return (
-      <div className="loading-state">
-        <Loader2 className="animate-spin" />
-        <span>Loading integrations…</span>
+      <div className="h-full flex items-center justify-center p-12">
+        <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="integrations-page workspace-page workspace-page--wide">
-      {/* Toast */}
+    <div className="p-8 max-w-6xl mx-auto space-y-8 font-sans">
+      {/* Toast Banner */}
       {toast && (
-        <div className={`toast ${toast.type === 'success' ? 'is-success' : 'is-error'}`}>
-          {toast.type === 'success' ? <Check /> : <AlertCircle />}
+        <div className={`fixed bottom-6 right-6 z-50 px-5 py-3 rounded-2xl shadow-2xl border text-xs font-bold flex items-center gap-2 animate-bounce ${toast.type === 'success'
+            ? 'bg-emerald-900 text-emerald-100 border-emerald-700'
+            : 'bg-red-900 text-red-100 border-red-700'
+          }`}>
+          {toast.type === 'success' ? <Check className="w-4 h-4 text-emerald-400" /> : <AlertCircle className="w-4 h-4 text-red-400" />}
           <span>{toast.msg}</span>
         </div>
       )}
 
-      {/* Header */}
-      <header className="page-heading">
-        <div>
-          <span className="eyebrow">Connect</span>
-          <h2>Integrations</h2>
-          <p>Publish your chatbot to any website and stream captured leads straight into Google Sheets.</p>
-        </div>
-        {isConnected && activeTab === 'sheets' && (
-          <div className="page-actions">
-            <button
-              type="button"
-              onClick={() => fetchUserSheets(googleTokens)}
-              className="button-secondary"
-            >
-              <RefreshCw />
-              Refresh Drive sheets
-            </button>
+      {/* Header & Navigation Tabs */}
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <div>
+            <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight">Integrations & Website Embed</h2>
+            <p className="text-gray-500 text-sm mt-1">Connect your chatbots to websites, custom apps, and Google Sheets easily.</p>
           </div>
-        )}
-      </header>
 
-      {/* Tabs */}
-      <div className="tab-strip" style={{ marginBottom: '28px' }}>
-        <button
-          type="button"
-          onClick={() => setActiveTab('embed')}
-          className={`tab ${activeTab === 'embed' ? 'is-active' : ''}`}
-        >
-          <Bot />
-          <span>Website embed</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('sheets')}
-          className={`tab ${activeTab === 'sheets' ? 'is-active' : ''}`}
-        >
-          <FileSpreadsheet />
-          <span>Google Sheets sync</span>
-        </button>
+          {isConnected && activeTab === 'sheets' && (
+            <button
+              onClick={() => fetchUserSheets(googleTokens)}
+              className="flex items-center gap-2 px-3.5 py-2 bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 rounded-xl text-xs font-bold transition-all shadow-2xs"
+            >
+              <RefreshCw className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Refresh Google Drive Sheets</span>
+            </button>
+          )}
+        </div>
+
+        {/* Navigation Tabs */}
+        <div className="flex items-center gap-2 border-b border-gray-200 pb-1">
+          <button
+            onClick={() => setActiveTab('embed')}
+            className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${activeTab === 'embed'
+                ? 'bg-slate-900 text-white shadow-md'
+                : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
+              }`}
+          >
+            <Bot className="w-4 h-4 text-indigo-400" />
+            <span>Website Embed Code</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('sheets')}
+            className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${activeTab === 'sheets'
+                ? 'bg-emerald-700 text-white shadow-md'
+                : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
+              }`}
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-300" />
+            <span>Google Sheets Live Sync</span>
+          </button>
+        </div>
       </div>
 
       {activeTab === 'embed' ? (
-        /* ================= EMBED CODE ================= */
-        <div className="flex flex-col gap-5">
-          <section className="panel">
-            <div className="panel-head">
+        /* ================= EMBED CODE SECTION ================= */
+        <div className="space-y-8">
+          <div className="bg-white p-8 rounded-3xl shadow-xs border border-gray-200 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-gray-100">
               <div>
-                <h3>Embed code</h3>
-                <p>Pick a chatbot and copy the snippet that fits your site.</p>
+                <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                  <Bot className="w-6 h-6 text-indigo-600" />
+                  Connect Chatbot to Your Website Code
+                </h3>
+                <p className="text-xs text-gray-500 mt-1">
+                  Select a chatbot below to generate its unique, ready-to-use embed script.
+                </p>
               </div>
 
-              <div className="flex items-center gap-2">
-                <label className="inline-select">
-                  <Bot />
-                  <select
-                    value={activeBotId}
-                    onChange={(e) => setSelectedBotIdForEmbed(e.target.value)}
-                    aria-label="Select chatbot"
-                  >
-                    {bots.length > 0 ? (
-                      bots.map((b) => (
-                        <option key={b.id} value={b.id}>{b.name}</option>
-                      ))
-                    ) : (
-                      <option value="demo_bot_id">Demo starter bot</option>
-                    )}
-                  </select>
-                </label>
+              {/* Bot Selector */}
+              <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-2xl border border-gray-200">
+                <span className="text-xs font-bold text-gray-500 pl-2">Select Bot:</span>
+                <select
+                  value={activeBotId}
+                  onChange={(e) => setSelectedBotIdForEmbed(e.target.value)}
+                  className="bg-white text-xs font-bold text-gray-900 px-3 py-1.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
+                >
+                  {bots.length > 0 ? (
+                    bots.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name} (ID: {b.id.substring(0, 8)}...)
+                      </option>
+                    ))
+                  ) : (
+                    <option value="demo_bot_id">Demo Starter Bot</option>
+                  )}
+                </select>
                 {bots.length > 0 && activeBotId && activeBotId !== 'demo_bot_id' && (
                   <button
-                    type="button"
                     onClick={() => {
                       const target = bots.find(b => b.id === activeBotId);
                       if (target) setDeletingBot(target);
                     }}
-                    className="icon-button danger bordered"
-                    title="Delete the selected bot"
+                    className="p-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl transition-all border border-red-200"
+                    title="Delete Currently Selected Bot"
                   >
-                    <Trash2 />
+                    <Trash2 className="w-4 h-4" />
                   </button>
                 )}
               </div>
             </div>
 
-            <div className="panel-body flex flex-col gap-5">
-              {/* Preview vs production notice */}
-              <div className="callout tone-yellow">
-                <AlertTriangle />
+            {/* Preview URL vs Production Callout Banner */}
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4.5 space-y-2">
+              <div className="flex items-center gap-2 font-bold text-amber-900 text-xs">
+                <span className="flex h-2 w-2 rounded-full bg-amber-500 animate-pulse"></span>
+                Why is the bot iframe blank or not loading on external sites like mintagemarkcomm.com?
+              </div>
+              <p className="text-xs text-amber-800 leading-relaxed">
+                The current URL (<code className="bg-amber-100/80 px-1 py-0.5 rounded text-amber-950 font-mono text-[11px]">{activeOrigin}</code>) is a <strong>temporary AI Studio development preview environment</strong>. Modern web browsers automatically block third-party <code className="bg-amber-100/80 px-1 py-0.5 rounded text-amber-950 font-mono text-[11px]">&lt;iframe&gt;</code> embeds from sandboxed dev preview proxies due to cross-site cookie and framing security policies.
+              </p>
+              <div className="pt-1 flex flex-wrap gap-2 text-[11px]">
+                <span className="bg-amber-100 text-amber-900 font-bold px-2.5 py-1 rounded-lg">
+                  💡 Fix 1: Use Option 2 (Popup Window) or Option 3 (Direct Link) on external sites
+                </span>
+                <span className="bg-amber-100 text-amber-900 font-bold px-2.5 py-1 rounded-lg">
+                  🚀 Fix 2: Deploy app to production to unlock seamless cross-domain inline iframe embedding
+                </span>
+              </div>
+            </div>
+
+            {/* Snippet Option 1: JS Script */}
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
                 <div>
-                  <strong>Iframe embeds are blocked on development preview URLs</strong>
-                  <p>
-                    <code className="code-inline">{activeOrigin}</code> is a temporary preview environment.
-                    Browsers block third-party <code className="code-inline">&lt;iframe&gt;</code> embeds from
-                    sandboxed preview proxies. Use option 2 or 3 on external sites, or deploy to production for
-                    inline iframe support.
+                  <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-indigo-600"></span>
+                    Option 1: Floating Chat Widget Script
+                  </h4>
+                  <p className="text-[11px] text-gray-500">
+                    Renders a floating widget icon in the bottom corner of your website.
                   </p>
                 </div>
+                <button
+                  onClick={copyScriptToClipboard}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition-all shadow-md shadow-indigo-100 flex items-center gap-1.5"
+                >
+                  {copiedScript ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedScript ? 'Copied Script!' : 'Copy Script Tag'}</span>
+                </button>
               </div>
 
-              {/* Option 1 */}
-              <div className="embed-option-card option-widget">
-                <div className="embed-option-head">
-                  <div>
-                    <h4><i />Floating chat widget</h4>
-                    <p>Renders a floating chat bubble in the corner of your site.</p>
-                  </div>
-                  <button type="button" onClick={copyScriptToClipboard} className="button-secondary compact">
-                    {copiedScript ? <Check /> : <Copy />}
-                    <span>{copiedScript ? 'Copied' : 'Copy script'}</span>
-                  </button>
-                </div>
-                <div className="code-block">
-                  <pre>{embedScriptTag}</pre>
-                </div>
-              </div>
-
-              {/* Option 2 */}
-              <div className="embed-option-card option-popup">
-                <div className="embed-option-head">
-                  <div>
-                    <h4><i />Popup window</h4>
-                    <p>
-                      Opens the chatbot in a clean popup. Recommended for local development and strict sites
-                      such as <code className="code-inline">127.0.0.1:5500</code>.
-                    </p>
-                  </div>
-                  <button type="button" onClick={copyPopupScriptToClipboard} className="button-secondary compact">
-                    {copiedPopupScript ? <Check /> : <Copy />}
-                    <span>{copiedPopupScript ? 'Copied' : 'Copy script'}</span>
-                  </button>
-                </div>
-                <div className="code-block">
-                  <pre>{embedPopupScriptTag}</pre>
-                </div>
-              </div>
-
-              {/* Option 3 */}
-              <div className="embed-option-card option-link">
-                <div className="embed-option-head">
-                  <div>
-                    <h4><i />Direct link</h4>
-                    <p>Point an existing “Contact us” or “Book a demo” button straight at your chatbot.</p>
-                  </div>
-                  <button type="button" onClick={copyDirectLinkToClipboard} className="button-secondary compact">
-                    {copiedDirectLink ? <Check /> : <Copy />}
-                    <span>{copiedDirectLink ? 'Copied' : 'Copy link'}</span>
-                  </button>
-                </div>
-                <div className="code-block">
-                  <pre>{directWebLinkTag}</pre>
-                </div>
-              </div>
-
-              {/* Option 4 */}
-              <div className="embed-option-card option-frame">
-                <div className="embed-option-head">
-                  <div>
-                    <h4><i />Inline iframe</h4>
-                    <p>Embeds the chatbot inside a container on your page.</p>
-                  </div>
-                  <button type="button" onClick={copyIframeToClipboard} className="button-secondary compact">
-                    {copiedIframe ? <Check /> : <Copy />}
-                    <span>{copiedIframe ? 'Copied' : 'Copy iframe'}</span>
-                  </button>
-                </div>
-                <div className="code-block">
-                  <pre>{embedIframeTag}</pre>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          {/* Platform guides */}
-          <div>
-            <div className="section-title-row">
-              <div>
-                <p className="eyebrow">Installation</p>
-                <h2>Where to paste the snippet</h2>
+              <div className="bg-slate-900 text-slate-100 p-4 rounded-2xl font-mono text-xs overflow-x-auto border border-slate-800 shadow-inner">
+                <pre className="whitespace-pre-wrap leading-relaxed">{embedScriptTag}</pre>
               </div>
             </div>
 
-            <div className="platform-guide-grid">
-              <article className="platform-guide">
-                <div className="platform-guide-head">
-                  <span className="platform-chip">HTML</span>
-                  <h4>Static website</h4>
+            {/* Snippet Option 2: Popup Window Mode */}
+            <div className="space-y-3 pt-4 border-t border-gray-100">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                    Option 2: Popup Window Mode (Recommended for Local Dev & Strict Sites)
+                  </h4>
+                  <p className="text-[11px] text-gray-500">
+                    Opens the chatbot in a clean popup window when clicked. Bypasses third-party cookie/iframe restrictions on local servers (like <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-800">127.0.0.1:5500</code>).
+                  </p>
                 </div>
-                <ol>
-                  <li>Open your HTML file, for example <code className="code-inline">index.html</code>.</li>
-                  <li>Scroll to the bottom, just before the closing <code className="code-inline">&lt;/body&gt;</code> tag.</li>
-                  <li>Paste the <code className="code-inline">&lt;script&gt;</code> tag and save.</li>
-                </ol>
-              </article>
+                <button
+                  onClick={copyPopupScriptToClipboard}
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl transition-all shadow-md shadow-amber-100 flex items-center gap-1.5"
+                >
+                  {copiedPopupScript ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedPopupScript ? 'Copied Popup Tag!' : 'Copy Popup Script'}</span>
+                </button>
+              </div>
 
-              <article className="platform-guide">
-                <div className="platform-guide-head">
-                  <span className="platform-chip">WP</span>
-                  <h4>WordPress</h4>
-                </div>
-                <ol>
-                  <li>Log in to your WordPress dashboard.</li>
-                  <li>Go to <strong>Plugins → Add New</strong> and install “Insert Headers and Footers” or “WPCode”.</li>
-                  <li>Paste the script into <strong>Footer Scripts</strong> and save.</li>
-                </ol>
-              </article>
+              <div className="bg-slate-900 text-slate-100 p-4 rounded-2xl font-mono text-xs overflow-x-auto border border-slate-800 shadow-inner">
+                <pre className="whitespace-pre-wrap leading-relaxed">{embedPopupScriptTag}</pre>
+              </div>
+            </div>
 
-              <article className="platform-guide">
-                <div className="platform-guide-head">
-                  <span className="platform-chip">WF</span>
-                  <h4>Webflow, Shopify, Wix</h4>
+            {/* Snippet Option 3: Direct Web Link */}
+            <div className="space-y-3 pt-4 border-t border-gray-100">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-blue-600"></span>
+                    Option 3: Direct Link for "Enquire Now" / "Contact Us" Buttons
+                  </h4>
+                  <p className="text-[11px] text-gray-500">
+                    Link your website's existing "Contact Us", "Enquire Now", or "Book Demo" buttons directly to your live chatbot.
+                  </p>
                 </div>
-                <ol>
-                  <li>Open <strong>Site settings → Custom code</strong> or your theme editor.</li>
-                  <li>Find the <strong>Footer code</strong> field.</li>
-                  <li>Paste the script and publish.</li>
-                </ol>
-              </article>
+                <button
+                  onClick={copyDirectLinkToClipboard}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl transition-all shadow-md shadow-blue-100 flex items-center gap-1.5"
+                >
+                  {copiedDirectLink ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedDirectLink ? 'Copied Button Link!' : 'Copy Link Code'}</span>
+                </button>
+              </div>
 
-              <article className="platform-guide">
-                <div className="platform-guide-head">
-                  <span className="platform-chip">REACT</span>
-                  <h4>React and Next.js</h4>
+              <div className="bg-slate-900 text-slate-100 p-4 rounded-2xl font-mono text-xs overflow-x-auto border border-slate-800 shadow-inner">
+                <pre className="whitespace-pre-wrap leading-relaxed">{directWebLinkTag}</pre>
+              </div>
+            </div>
+
+            {/* Snippet Option 4: iFrame */}
+            <div className="space-y-3 pt-4 border-t border-gray-100">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
+                    Option 4: Inline iFrame Embed
+                  </h4>
+                  <p className="text-[11px] text-gray-500">
+                    Embeds the chatbot directly inside a container on your webpage.
+                  </p>
                 </div>
-                <ol>
-                  <li>
-                    In Next.js, add <code className="code-inline">&lt;Script src="{activeOrigin}/widget.js" data-bot-id="{activeBotId}" /&gt;</code> to your layout.
-                  </li>
-                  <li>In plain React, add the script tag to <code className="code-inline">public/index.html</code>.</li>
-                </ol>
-              </article>
+                <button
+                  onClick={copyIframeToClipboard}
+                  className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl transition-all shadow-md shadow-emerald-100 flex items-center gap-1.5"
+                >
+                  {copiedIframe ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedIframe ? 'Copied iFrame!' : 'Copy iFrame Code'}</span>
+                </button>
+              </div>
+
+              <div className="bg-slate-900 text-slate-100 p-4 rounded-2xl font-mono text-xs overflow-x-auto border border-slate-800 shadow-inner">
+                <pre className="whitespace-pre-wrap leading-relaxed">{embedIframeTag}</pre>
+              </div>
+            </div>
+          </div>
+
+          {/* Platform Step-by-Step Installation Guides */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-white p-6 rounded-3xl border border-gray-200 space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl font-bold text-xs">HTML</div>
+                <h4 className="text-sm font-bold text-gray-900">Standard HTML Website</h4>
+              </div>
+              <ol className="text-xs text-gray-600 space-y-2 list-decimal pl-4 leading-relaxed">
+                <li>Open your HTML file (e.g., <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-800">index.html</code>).</li>
+                <li>Scroll down to the bottom of the file right before the closing <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-800">&lt;/body&gt;</code> tag.</li>
+                <li>Paste the copied <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-800">&lt;script&gt;</code> tag and save your file.</li>
+              </ol>
+            </div>
+
+            <div className="bg-white p-6 rounded-3xl border border-gray-200 space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl font-bold text-xs">WP</div>
+                <h4 className="text-sm font-bold text-gray-900">WordPress</h4>
+              </div>
+              <ol className="text-xs text-gray-600 space-y-2 list-decimal pl-4 leading-relaxed">
+                <li>Log in to your WordPress Dashboard.</li>
+                <li>Go to <strong>Plugins &gt; Add New</strong> and install "Insert Headers and Footers" or "WPCode".</li>
+                <li>Paste the script tag into the <strong>Footer Scripts</strong> section and save changes.</li>
+              </ol>
+            </div>
+
+            <div className="bg-white p-6 rounded-3xl border border-gray-200 space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-cyan-50 text-cyan-600 rounded-xl font-bold text-xs">WF</div>
+                <h4 className="text-sm font-bold text-gray-900">Webflow / Shopify / Wix</h4>
+              </div>
+              <ol className="text-xs text-gray-600 space-y-2 list-decimal pl-4 leading-relaxed">
+                <li>Open <strong>Site Settings &gt; Custom Code</strong> or Theme Editor.</li>
+                <li>Locate the <strong>Footer Code</strong> or Custom Head/Body field.</li>
+                <li>Paste the script tag and publish your site.</li>
+              </ol>
+            </div>
+
+            <div className="bg-white p-6 rounded-3xl border border-gray-200 space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl font-bold text-xs">REACT</div>
+                <h4 className="text-sm font-bold text-gray-900">React / Next.js</h4>
+              </div>
+              <ol className="text-xs text-gray-600 space-y-2 list-decimal pl-4 leading-relaxed">
+                <li>In Next.js, place <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-800">&lt;Script src="{activeOrigin}/widget.js" data-bot-id="{activeBotId}" /&gt;</code> in layout.</li>
+                <li>In standard React, add the script tag to <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-800">public/index.html</code>.</li>
+              </ol>
             </div>
           </div>
         </div>
       ) : (
-        /* ================= GOOGLE SHEETS ================= */
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-          <div className="flex flex-col gap-5 lg:col-span-2">
-            <section className="panel">
-              <div className="panel-head">
-                <div className="flex min-w-0 items-center gap-3">
-                  <span className="icon-tile tile-lg tone-green"><FileSpreadsheet /></span>
-                  <div className="min-w-0">
-                    <h3>Google Sheets</h3>
-                    <p>Link any chatbot flow directly to a spreadsheet in your account.</p>
+        /* ================= GOOGLE SHEETS SECTION ================= */
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-2 space-y-8">
+
+            {/* SECTION 1: Google OAuth Connection */}
+            <div className="bg-white p-8 rounded-3xl shadow-xs border border-gray-100 space-y-6">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-600 shadow-2xs">
+                    <FileSpreadsheet className="w-8 h-8" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900">Google Sheets Integration</h3>
+                    <p className="text-xs text-gray-500 mt-0.5">Link any chatbot flow directly to any Google Sheet in your account.</p>
                   </div>
                 </div>
-
                 {isConnected ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="status-pill tone-green"><CheckCircle2 />Connected</span>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-2 px-3.5 py-1.5 bg-emerald-50 text-emerald-700 rounded-full text-xs font-bold border border-emerald-200 shadow-2xs">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      Connected
+                    </div>
                     <button
-                      type="button"
                       onClick={handleConnect}
                       disabled={isConnecting}
-                      className="button-secondary compact"
-                      title="Re-authorize the existing Google account connection"
+                      className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 disabled:opacity-50"
+                      title="Re-authorize existing Google Account connection"
                     >
-                      <RefreshCw className={isConnecting ? 'animate-spin' : ''} />
-                      <span>{isConnecting ? 'Re-authorizing…' : 'Re-authorize'}</span>
+                      <RefreshCw className={`w-3.5 h-3.5 ${isConnecting ? 'animate-spin' : ''}`} />
+                      <span>{isConnecting ? 'Re-authorizing...' : 'Re-authorize Google Account'}</span>
                     </button>
-                    <button type="button" onClick={handleDisconnect} className="button-ghost compact">
+                    <button
+                      onClick={handleDisconnect}
+                      className="px-3 py-1.5 bg-gray-100 hover:bg-red-50 text-gray-600 hover:text-red-600 rounded-xl text-xs font-bold transition-all border border-gray-200"
+                    >
                       Disconnect
                     </button>
                   </div>
                 ) : (
+
                   <button
-                    type="button"
                     onClick={handleConnect}
                     disabled={isConnecting}
-                    className="button-primary"
+                    className="px-6 py-2.5 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-md shadow-indigo-100 disabled:opacity-50"
                   >
-                    {isConnecting ? 'Connecting…' : 'Connect Google account'}
+                    {isConnecting ? 'Connecting...' : 'Connect Google Account'}
                   </button>
                 )}
               </div>
 
-              <div className="panel-body">
-                {isConnected ? (
-                  <div className="flex flex-col gap-5">
+              {/* SECTION 2: Per-Bot Google Sheet Integrations */}
+              {isConnected ? (
+                <div className="space-y-6 pt-4 border-t border-gray-100">
+                  <div className="flex justify-between items-center">
                     <div>
-                      <h4 className="text-ink text-[13.5px] font-semibold">Per-bot spreadsheets</h4>
-                      <p className="text-muted mt-0.5 text-[12.5px]">
-                        Paste a sheet URL, pick one from Drive, or generate a new sheet automatically.
-                      </p>
+                      <h4 className="text-sm font-extrabold text-gray-900">Connect Chatbots to Any Google Sheet</h4>
+                      <p className="text-xs text-gray-500">Paste any Google Sheet URL, select from Drive, or generate a new sheet automatically.</p>
                     </div>
+                  </div>
 
-                    {bots.length === 0 ? (
-                      <div className="empty-state">
-                        <div className="empty-icon"><Bot /></div>
-                        <h4>No chatbots yet</h4>
-                        <p>Create your first chatbot to start linking Google Sheets.</p>
-                        <Link to="/builder/new" className="button-primary">
-                          <Plus />
-                          Create a chatbot
-                        </Link>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col gap-3">
-                        {bots.map((bot) => {
-                          const currentInput = botInputs[bot.id] || '';
-                          const isBusy = !!botLoading[bot.id];
-                          const testRes = botTestResults[bot.id];
-                          const hasSheetLinked = !!bot.spreadsheetId;
+                  {bots.length === 0 ? (
+                    <div className="p-8 text-center bg-gray-50 rounded-2xl border border-gray-200/80">
+                      <Bot className="w-10 h-10 text-indigo-400 mx-auto mb-2" />
+                      <p className="text-xs font-bold text-gray-700">No Chatbots Created Yet</p>
+                      <p className="text-[11px] text-gray-400 mt-1 mb-4">Create your first chatbot to start linking Google Sheets.</p>
+                      <Link
+                        to="/builder/new"
+                        className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 transition-all inline-block shadow-sm"
+                      >
+                        + Create New Chatbot
+                      </Link>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {bots.map((bot) => {
+                        const currentInput = botInputs[bot.id] || '';
+                        const isBusy = !!botLoading[bot.id];
+                        const testRes = botTestResults[bot.id];
+                        const hasSheetLinked = !!bot.spreadsheetId;
 
-                          return (
-                            <div key={bot.id} className="bot-sheet-row">
-                              <div className="bot-sheet-head">
-                                <div className="flex min-w-0 items-center gap-3">
-                                  <span className="icon-tile"><Bot /></span>
-                                  <div className="min-w-0">
-                                    <h5>{bot.name}</h5>
-                                    <p className="truncate">
-                                      {bot.id} · {hasSheetLinked ? 'Sheet linked' : 'Using default sheet'}
-                                    </p>
-                                  </div>
+                        return (
+                          <div key={bot.id} className="p-5 bg-slate-50/80 hover:bg-slate-50 rounded-2xl border border-gray-200 transition-all space-y-4">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex items-center gap-3">
+                                <div className="p-2.5 bg-indigo-100 text-indigo-700 rounded-xl">
+                                  <Bot className="w-5 h-5" />
                                 </div>
-
-                                <div className="flex items-center gap-2">
-                                  {hasSheetLinked && (
-                                    <a
-                                      href={`https://docs.google.com/spreadsheets/d/${bot.spreadsheetId}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="button-secondary compact"
-                                    >
-                                      Open sheet <ExternalLink />
-                                    </a>
-                                  )}
-                                  <button
-                                    type="button"
-                                    onClick={() => setDeletingBot(bot)}
-                                    className="icon-button danger bordered"
-                                    title="Delete this chatbot flow"
-                                  >
-                                    <Trash2 />
-                                  </button>
+                                <div>
+                                  <h5 className="text-xs font-extrabold text-gray-900">{bot.name}</h5>
+                                  <p className="text-[10px] text-gray-400 font-mono mt-0.5">
+                                    ID: {bot.id} {hasSheetLinked ? '• Sheet Active' : '• Using Default Sheet'}
+                                  </p>
                                 </div>
                               </div>
 
-                              {/* Quick select from Drive */}
-                              {userSheets.length > 0 && (
-                                <div style={{ marginBottom: '12px' }}>
-                                  <label className="field-label" htmlFor={`drive-${bot.id}`}>
-                                    Choose from Google Drive
-                                  </label>
-                                  <select
-                                    id={`drive-${bot.id}`}
-                                    className="select"
-                                    onChange={(e) => {
-                                      if (e.target.value) {
-                                        setBotInputs(prev => ({ ...prev, [bot.id]: e.target.value }));
-                                      }
-                                    }}
+                              <div className="flex items-center gap-2">
+                                {hasSheetLinked && (
+                                  <a
+                                    href={`https://docs.google.com/spreadsheets/d/${bot.spreadsheetId}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-3 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5"
                                   >
-                                    <option value="">Select a spreadsheet…</option>
-                                    {userSheets.map((s) => (
-                                      <option key={s.id} value={s.id}>{s.name}</option>
-                                    ))}
-                                  </select>
-                                </div>
-                              )}
+                                    Open Google Sheet <ExternalLink className="w-3 h-3" />
+                                  </a>
+                                )}
+                                <button
+                                  onClick={() => setDeletingBot(bot)}
+                                  className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-bold transition-all flex items-center gap-1 border border-red-200"
+                                  title="Delete Chatbot Flow Permanently"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Delete Bot</span>
+                                </button>
+                              </div>
+                            </div>
 
-                              {/* Paste URL or ID */}
-                              <label className="field-label" htmlFor={`sheet-${bot.id}`}>
-                                Or paste a sheet URL / spreadsheet ID
+                            {/* Quick Select from Drive Dropdown */}
+                            {userSheets.length > 0 && (
+                              <div>
+                                <label className="block text-[11px] font-bold text-gray-600 mb-1">
+                                  Choose from your Google Drive Spreadsheets:
+                                </label>
+                                <select
+                                  onChange={(e) => {
+                                    if (e.target.value) {
+                                      setBotInputs(prev => ({ ...prev, [bot.id]: e.target.value }));
+                                    }
+                                  }}
+                                  className="w-full text-xs px-3 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 font-sans text-gray-700 outline-none"
+                                >
+                                  <option value="">-- Select a Google Sheet from Drive --</option>
+                                  {userSheets.map((s) => (
+                                    <option key={s.id} value={s.id}>
+                                      📊 {s.name} ({s.id.slice(0, 10)}...)
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+
+                            {/* Paste URL or ID Input */}
+                            <div className="space-y-2">
+                              <label className="block text-[11px] font-bold text-gray-600">
+                                Or Paste Any Google Sheet URL / Spreadsheet ID:
                               </label>
-                              <div className="field-row">
+                              <div className="flex flex-wrap gap-2">
                                 <input
-                                  id={`sheet-${bot.id}`}
                                   type="text"
                                   value={currentInput}
                                   onChange={(e) => setBotInputs(prev => ({ ...prev, [bot.id]: e.target.value }))}
-                                  placeholder="https://docs.google.com/spreadsheets/d/…"
-                                  className="input input-mono"
+                                  placeholder="https://docs.google.com/spreadsheets/d/1aBcDeFg... or Spreadsheet ID"
+                                  className="flex-1 min-w-[220px] text-xs px-3.5 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-mono"
                                 />
 
                                 <button
-                                  type="button"
                                   onClick={() => handleLinkBotToSheet(bot.id)}
                                   disabled={isBusy}
-                                  className="button-primary"
+                                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all shadow-xs flex items-center gap-1.5 disabled:opacity-50"
                                 >
-                                  {isBusy ? <Loader2 className="animate-spin" /> : <Link2 />}
-                                  <span>Link sheet</span>
+                                  {isBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link2 className="w-3.5 h-3.5" />}
+                                  <span>Link Sheet</span>
                                 </button>
 
                                 <button
-                                  type="button"
                                   onClick={() => handleCreateDedicatedSheetForBot(bot.id, bot.name)}
                                   disabled={isBusy}
-                                  className="button-secondary"
-                                  title="Create a new Google Sheet for this bot"
+                                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-all shadow-xs flex items-center gap-1.5 disabled:opacity-50"
+                                  title="Create a brand new Google Sheet specifically for this bot"
                                 >
-                                  {isBusy ? <Loader2 className="animate-spin" /> : <Plus />}
-                                  <span>Auto-create</span>
+                                  {isBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                                  <span>Auto-Create Sheet</span>
                                 </button>
 
                                 <button
-                                  type="button"
                                   onClick={() => handleTestBotSheet(bot.id)}
                                   disabled={isBusy || !currentInput}
-                                  className="button-secondary"
+                                  className="px-3 py-2 bg-white hover:bg-gray-100 text-gray-700 border border-gray-200 text-xs font-bold rounded-xl transition-all shadow-2xs disabled:opacity-40"
                                 >
-                                  Test access
+                                  Test Access
                                 </button>
 
                                 {hasSheetLinked && (
                                   <button
-                                    type="button"
                                     onClick={() => handleUnlinkBotSheet(bot.id)}
                                     disabled={isBusy}
-                                    className="icon-button danger"
-                                    title="Unlink sheet from bot"
+                                    className="p-2 text-red-500 hover:bg-red-50 rounded-xl transition-colors border border-transparent hover:border-red-200"
+                                    title="Unlink Sheet from Bot"
                                   >
-                                    <Trash2 />
+                                    <Trash2 className="w-4 h-4" />
                                   </button>
                                 )}
                               </div>
-
-                              {/* Connection result */}
-                              {testRes && (
-                                <div className={`result-banner ${testRes.success ? 'tone-green' : 'tone-red'}`}>
-                                  <span>{testRes.msg}</span>
-                                  {testRes.success && (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleSendTestLead(bot.id, bot.name)}
-                                      disabled={isBusy}
-                                      className="button-secondary compact"
-                                    >
-                                      <Send /> Send test row
-                                    </button>
-                                  )}
-                                </div>
-                              )}
                             </div>
-                          );
-                        })}
+
+                            {/* Connection Status Indicator */}
+                            {testRes && (
+                              <div className={`p-2.5 rounded-xl text-xs font-bold flex items-center justify-between ${testRes.success ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+                                }`}>
+                                <span>{testRes.msg}</span>
+                                {testRes.success && (
+                                  <button
+                                    onClick={() => handleSendTestLead(bot.id, bot.name)}
+                                    disabled={isBusy}
+                                    className="px-3 py-1 bg-emerald-700 hover:bg-emerald-800 text-white text-[10px] font-bold rounded-lg transition-all flex items-center gap-1"
+                                  >
+                                    <Send className="w-3 h-3" /> Send Test Row
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Default Fallback Sheet Config */}
+                  <div className="mt-8 p-5 bg-gray-50 rounded-2xl border border-gray-200 space-y-3">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider">Default Global Fallback Sheet</h4>
+                        <p className="text-[11px] text-gray-500">Used if a chatbot does not have a dedicated Google Sheet linked above.</p>
+                      </div>
+                      <button
+                        onClick={handleCreateDefaultSheet}
+                        disabled={isCreatingGlobal}
+                        className="px-3.5 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-xl hover:bg-emerald-700 transition-all flex items-center gap-1.5 disabled:opacity-50"
+                      >
+                        {isCreatingGlobal ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                        Create Default Sheet
+                      </button>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={globalSpreadsheetId}
+                        onChange={(e) => setGlobalSpreadsheetId(e.target.value)}
+                        placeholder="Paste default Google Sheet URL or ID"
+                        className="flex-1 px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 outline-none font-mono"
+                      />
+                      <button
+                        onClick={handleSaveGlobalSpreadsheet}
+                        disabled={isConnecting}
+                        className="px-5 py-2.5 bg-gray-900 text-white text-xs font-bold rounded-xl hover:bg-black transition-all"
+                      >
+                        Save Default
+                      </button>
+                    </div>
+
+                    {globalSpreadsheetId && (
+                      <div className="flex justify-between items-center text-[11px] text-gray-500 font-mono pt-1">
+                        <span>Linked ID: {globalSpreadsheetId}</span>
+                        <a
+                          href={`https://docs.google.com/spreadsheets/d/${globalSpreadsheetId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-indigo-600 font-bold hover:underline flex items-center gap-1 font-sans"
+                        >
+                          Open Default Sheet <ExternalLink className="w-3 h-3" />
+                        </a>
                       </div>
                     )}
-
-                    {/* Default fallback sheet */}
-                    <div className="subtle-card">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <h4 className="text-ink text-[13px] font-semibold">Default fallback sheet</h4>
-                          <p className="text-muted mt-0.5 text-[12px]">
-                            Used when a chatbot has no dedicated sheet linked above.
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={handleCreateDefaultSheet}
-                          disabled={isCreatingGlobal}
-                          className="button-secondary compact"
-                        >
-                          {isCreatingGlobal ? <Loader2 className="animate-spin" /> : <Sparkles />}
-                          Create default sheet
-                        </button>
-                      </div>
-
-                      <div className="field-row" style={{ marginTop: '12px' }}>
-                        <input
-                          type="text"
-                          value={globalSpreadsheetId}
-                          onChange={(e) => setGlobalSpreadsheetId(e.target.value)}
-                          placeholder="Paste default Google Sheet URL or ID"
-                          className="input input-mono"
-                          aria-label="Default Google Sheet"
-                        />
-                        <button
-                          type="button"
-                          onClick={handleSaveGlobalSpreadsheet}
-                          disabled={isConnecting}
-                          className="button-inverse"
-                        >
-                          Save default
-                        </button>
-                      </div>
-
-                      {globalSpreadsheetId && (
-                        <div className="text-faint mt-2.5 flex flex-wrap items-center justify-between gap-2 text-[11.5px]">
-                          <span className="text-mono truncate">{globalSpreadsheetId}</span>
-                          <a
-                            href={`https://docs.google.com/spreadsheets/d/${globalSpreadsheetId}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-accent inline-flex items-center gap-1 font-medium"
-                          >
-                            Open default sheet <ExternalLink className="h-3 w-3" />
-                          </a>
-                        </div>
-                      )}
-                    </div>
                   </div>
-                ) : (
-                  <div className="empty-state">
-                    <div className="empty-icon"><FileSpreadsheet /></div>
-                    <h4>Google account not connected</h4>
-                    <p>Authorize Mintage to write captured leads directly into your Google Sheets.</p>
-                    <button
-                      type="button"
-                      onClick={handleConnect}
-                      disabled={isConnecting}
-                      className="button-primary"
-                    >
-                      Connect Google account
-                    </button>
-                  </div>
-                )}
-              </div>
-            </section>
+                </div>
+              ) : (
+                <div className="p-8 text-center bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                  <FileSpreadsheet className="w-12 h-12 text-gray-400 mx-auto mb-2" />
+                  <h4 className="text-sm font-bold text-gray-800">Google Account Not Connected</h4>
+                  <p className="text-xs text-gray-500 mt-1 mb-4">Connect your Google Account to authorize BotFlow to write leads directly to Google Sheets.</p>
+                  <button
+                    onClick={handleConnect}
+                    disabled={isConnecting}
+                    className="px-6 py-2.5 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-md"
+                  >
+                    Connect Google Account Now
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Side documentation */}
-          <aside>
-            <section className="panel">
-              <div className="panel-body">
-                <span className="icon-tile tone-blue"><Sparkles /></span>
-                <h3 className="mt-3.5 text-[15px] font-semibold">How the sync works</h3>
-                <ul className="feature-list" style={{ marginTop: '14px' }}>
-                  <li>
-                    <Check />
-                    <span><strong>Connect any sheet.</strong> Paste a Google Sheet URL to link it instantly.</span>
-                  </li>
-                  <li>
-                    <Check />
-                    <span><strong>Pick from Drive.</strong> Select an existing spreadsheet in one click.</span>
-                  </li>
-                  <li>
-                    <Check />
-                    <span><strong>Auto-create.</strong> Generate a formatted sheet with prepared headers.</span>
-                  </li>
-                  <li>
-                    <Check />
-                    <span><strong>Live sync.</strong> Each answer is appended as a row the moment it is submitted.</span>
-                  </li>
-                </ul>
-                <Link to="/bots" className="button-secondary button-block">
-                  Manage my chatbots
-                  <ExternalLink />
-                </Link>
-              </div>
-            </section>
-          </aside>
+          {/* SECTION 3: Integration Documentation / Guidance */}
+          <div className="space-y-6">
+            <div className="bg-gradient-to-br from-indigo-900 via-slate-900 to-indigo-950 p-7 rounded-[32px] text-white shadow-xl shadow-indigo-100">
+              <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-indigo-300" />
+                Flexible Google Sheets Integration
+              </h3>
+              <ul className="text-indigo-200 text-xs leading-relaxed space-y-3 mb-6">
+                <li className="flex items-start gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mt-1.5 shrink-0"></span>
+                  <span><strong>Connect Any Sheet</strong>: Simply paste any Google Sheet URL from your browser to link it instantly.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mt-1.5 shrink-0"></span>
+                  <span><strong>Drive Picker</strong>: Select any existing spreadsheet from your Google Drive with one click.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mt-1.5 shrink-0"></span>
+                  <span><strong>One-Click Auto Creation</strong>: Generate a formatted spreadsheet with pre-populated headers for any chatbot.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mt-1.5 shrink-0"></span>
+                  <span><strong>Real-time Live Sync</strong>: Every conversation answer is appended as a row the second the user submits.</span>
+                </li>
+              </ul>
+              <Link
+                to="/bots"
+                className="w-full py-3 bg-white text-indigo-900 font-bold rounded-xl hover:bg-indigo-50 transition-all flex items-center justify-center gap-2 text-xs"
+              >
+                Manage My Chatbots
+                <ExternalLink className="w-4 h-4" />
+              </Link>
+            </div>
+          </div>
         </div>
       )}
-
-      {/* Delete bot confirmation */}
+      {/* Delete Bot Confirmation Modal */}
       {deletingBot && (
-        <div className="modal-backdrop">
-          <div className="app-modal is-centered">
-            <div className="modal-danger-icon">
-              <AlertTriangle />
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-[100] p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-md w-full p-8 shadow-2xl border border-gray-100 text-center space-y-6">
+            <div className="w-16 h-16 bg-red-50 text-red-600 rounded-3xl flex items-center justify-center mx-auto shrink-0">
+              <AlertTriangle className="w-8 h-8" />
             </div>
 
-            <h3>Delete this chatbot?</h3>
-            <p className="mt-1.5">
-              <strong>“{deletingBot.name}”</strong> will be permanently removed, along with its embed endpoints
-              and Google Sheet link.
-            </p>
-            <p className="modal-note">
-              Leads already captured by this bot stay available in Lead data.
-            </p>
+            <div className="space-y-2">
+              <h3 className="text-xl font-bold text-gray-900">Delete Chatbot Flow?</h3>
+              <p className="text-xs text-gray-500 leading-relaxed">
+                Are you sure you want to delete <strong className="text-gray-800">"{deletingBot.name}"</strong>? This will permanently remove the bot configuration, embed script endpoints, and Google Sheet link.
+              </p>
+              <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-100 p-2.5 rounded-xl font-medium mt-2">
+                Note: Any lead data previously captured by this bot will remain safely saved in your Lead Data section.
+              </p>
+            </div>
 
-            <div className="modal-actions">
+            <div className="flex gap-3 pt-2">
               <button
                 type="button"
                 onClick={() => setDeletingBot(null)}
                 disabled={isDeletingBot}
-                className="button-secondary flex-1"
+                className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-xl transition-all"
               >
                 Cancel
               </button>
@@ -1425,10 +1460,10 @@ export default function Integrations() {
                 type="button"
                 onClick={confirmDeleteBot}
                 disabled={isDeletingBot}
-                className="button-danger flex-1"
+                className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl transition-all shadow-lg shadow-red-100 flex items-center justify-center gap-2 disabled:opacity-50"
               >
-                {isDeletingBot ? <Loader2 className="animate-spin" /> : <Trash2 />}
-                <span>{isDeletingBot ? 'Deleting…' : 'Delete bot'}</span>
+                {isDeletingBot ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                <span>{isDeletingBot ? 'Deleting...' : 'Delete Permanently'}</span>
               </button>
             </div>
           </div>
@@ -1437,3 +1472,4 @@ export default function Integrations() {
     </div>
   );
 }
+

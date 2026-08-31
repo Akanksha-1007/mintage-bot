@@ -1,35 +1,21 @@
 import React, { useCallback, useState, useMemo, useEffect } from 'react';
-import { ReactFlow, Controls, Background, Panel, Node, Edge, Connection, addEdge, ReactFlowProvider } from '@xyflow/react';
+import { ReactFlow, Controls, Background, Node, Edge, ReactFlowProvider } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useBotStore } from '../store/useBotStore';
 import {
-  AlertCircle,
-  CheckCircle2,
-  CheckSquare,
-  ChevronRight,
-  ExternalLink,
-  FileSpreadsheet,
-  HelpCircle,
-  Layers,
-  List,
-  Loader2,
-  Mail,
-  MessageSquare,
-  Phone,
-  Plus,
-  Save,
-  Send,
-  Sparkles,
-  Trash2,
-  User,
+  AlertCircle, CheckCircle2, CheckSquare, ChevronRight, ExternalLink,
+  FileSpreadsheet, HelpCircle, Layers, List, Loader2, Mail, MessageSquare,
+  Phone, Plus, Save, Send, Sparkles, Trash2, User,
 } from 'lucide-react';
 import { db, auth } from '../lib/firebase';
-import { collection, addDoc, serverTimestamp, doc, updateDoc, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
+import { serverTimestamp, doc, updateDoc, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ImageNode, MessageNode, NameNode, PhoneNode, EmailNode, SingleChoiceNode, MultipleChoiceNode, TextQuestionNode, AiResponseNode, ApiNode, SaveNode } from '../components/CustomNodes';
+import {
+  ImageNode, MessageNode, NameNode, PhoneNode, EmailNode, SingleChoiceNode,
+  MultipleChoiceNode, TextQuestionNode, AiResponseNode, ApiNode, SaveNode,
+} from '../components/CustomNodes';
 import { Check, Copy, Database, Share2, X } from 'lucide-react';
 import ClassicChatBuilder from '../components/ClassicChatBuilder';
-
 import { useAuth } from '../context/AuthContext';
 
 const nodeTypes = {
@@ -74,7 +60,7 @@ function BuilderContent() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id })
         });
-      } catch (e) {}
+      } catch (e) { }
 
       // 2. Delete from Firestore
       await deleteDoc(doc(db, 'bot_configurations', id)).catch(() => null);
@@ -83,7 +69,7 @@ function BuilderContent() {
       const deletedIdsRaw = localStorage.getItem('mintage_deleted_bot_ids');
       let deletedIds: string[] = [];
       if (deletedIdsRaw) {
-        try { deletedIds = JSON.parse(deletedIdsRaw); } catch {}
+        try { deletedIds = JSON.parse(deletedIdsRaw); } catch { }
       }
       if (!deletedIds.includes(id)) {
         deletedIds.push(id);
@@ -99,7 +85,7 @@ function BuilderContent() {
             if (Array.isArray(parsed)) {
               localStorage.setItem(key, JSON.stringify(parsed.filter((b: any) => b && b.id !== id)));
             }
-          } catch {}
+          } catch { }
         }
       });
 
@@ -136,7 +122,7 @@ function BuilderContent() {
     if (localTokens) {
       try {
         setGoogleTokens(JSON.parse(localTokens));
-      } catch {}
+      } catch { }
     }
 
     // 2. Fetch from Firestore users collection if logged in
@@ -221,7 +207,7 @@ function BuilderContent() {
           const parsed = JSON.parse(localBotsRaw);
           const updated = parsed.map((b: any) => b.id === id ? { ...b, spreadsheetId: cleanId } : b);
           localStorage.setItem('mintage_bots', JSON.stringify(updated));
-        } catch {}
+        } catch { }
       }
     }
     showToast('Google Sheet linked to Chatbot!');
@@ -399,6 +385,7 @@ function BuilderContent() {
   const onSave = async () => {
     const targetUserId = effectiveUserId || auth.currentUser?.uid || 'guest_user';
 
+
     setIsSaving(true);
     try {
       let cleanSpreadsheetId = botSpreadsheetId.trim();
@@ -461,7 +448,7 @@ function BuilderContent() {
       const existingBotsRaw = localStorage.getItem('mintage_bots');
       let existingBots: any[] = [];
       if (existingBotsRaw) {
-        try { existingBots = JSON.parse(existingBotsRaw); } catch {}
+        try { existingBots = JSON.parse(existingBotsRaw); } catch { }
       }
 
       const existingIdx = existingBots.findIndex(b => b.id === savedId);
@@ -503,6 +490,7 @@ function BuilderContent() {
     container.id = 'botflow-widget-container';
     container.style.cssText = 'position:fixed; bottom:20px; right:20px; z-index:2147483647; font-family:sans-serif;';
 
+
     var button = document.createElement('button');
     button.id = 'botflow-widget-button';
     button.innerHTML = '💬';
@@ -510,15 +498,18 @@ function BuilderContent() {
     button.onmouseover = function() { this.style.transform = 'scale(1.1)'; };
     button.onmouseout = function() { this.style.transform = 'scale(1)'; };
 
+
     var iframe = document.createElement('iframe');
     iframe.id = 'botflow-widget-iframe';
     iframe.src = '${activeOrigin}/widget/${id || 'SAVE_FIRST'}';
     iframe.style.cssText = 'display:none; position:absolute; bottom:80px; right:0; width:400px; height:600px; border:none; border-radius:20px; box-shadow:0 10px 40px rgba(0,0,0,0.15); background:white; transition: opacity 0.3s ease; opacity:0; z-index:2147483647;';
 
+
     if (window.innerWidth < 480) {
       iframe.style.width = 'calc(100vw - 40px)';
       iframe.style.height = 'calc(100vh - 120px)';
     }
+
 
     var isOpen = false;
     button.onclick = function() {
@@ -533,6 +524,7 @@ function BuilderContent() {
         button.innerHTML = '💬';
       }
     };
+
 
     container.appendChild(iframe);
     container.appendChild(button);
@@ -552,9 +544,9 @@ function BuilderContent() {
       type,
       data: {
         label: type === 'message' ? 'Welcome! Thanks for showing interest! 🚀' :
-               type === 'singleChoice' || type === 'multipleChoice' ? 'Please select an option:' :
-               type === 'textQuestion' ? 'To start, could you share your full name with us? ✨' :
-               'New Node',
+          type === 'singleChoice' || type === 'multipleChoice' ? 'Please select an option:' :
+            type === 'textQuestion' ? 'To start, could you share your full name with us? ✨' :
+              'New Node',
         choices: (type === 'singleChoice' || type === 'multipleChoice') ? ['Option 1', 'Option 2'] : undefined,
       },
       position: { x: 400, y: 200 },
@@ -568,242 +560,14 @@ function BuilderContent() {
     setSelectedNode(null);
   };
 
+
   return (
     <div className="builder-page relative">
-      {/* Visual Elegant Toast Notification */}
+
       {toast && (
         <div className={`toast toast-center ${toast.type === 'success' ? 'is-success' : 'is-error'}`}>
           {toast.type === 'success' ? <Check /> : <AlertCircle />}
           <span>{toast.message}</span>
-        </div>
-      )}
-
-      {/* Google Sheets Modal */}
-      {showSheetsModal && (
-        <div className="modal-backdrop">
-          <div className="app-modal is-xl">
-            <div className="modal-head">
-              <div className="modal-head-main">
-                <span className="icon-tile tile-lg tone-green"><FileSpreadsheet /></span>
-                <div>
-                  <h3>Google Sheets</h3>
-                  <p>Connect this chatbot to a Google Sheet to log new leads automatically.</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowSheetsModal(false)}
-                className="icon-button"
-                aria-label="Close"
-              >
-                <X />
-              </button>
-            </div>
-
-            {/* Step 1: Account Auth Status */}
-            <div className="sync-row">
-              <div>
-                <p className="text-ink text-[13px] font-semibold">
-                  {googleTokens ? 'Google account connected' : 'Google account required'}
-                </p>
-                <p className="text-muted mt-0.5 text-[12px]">
-                  {googleTokens ? 'Authorized to sync spreadsheet leads.' : 'Connect your account to select or create sheets.'}
-                </p>
-              </div>
-              {!googleTokens ? (
-                <button onClick={handleConnectGoogle} className="button-primary">
-                  Connect Google account
-                </button>
-              ) : (
-                <span className="status-pill tone-green">
-                  <CheckCircle2 />
-                  Connected
-                </span>
-              )}
-            </div>
-
-            {googleTokens && (
-              <div className="space-y-6">
-                {/* 1-Click Quick Action: Create New Sheet */}
-                <div className="sync-row">
-                  <div>
-                    <p className="text-ink inline-flex items-center gap-2 text-[13px] font-semibold">
-                      <Sparkles className="h-4 w-4" />
-                      Create a dedicated sheet
-                    </p>
-                    <p className="text-muted mt-0.5 text-[12px]">
-                      Generates "Leads - {botName}" with prepared column headers.
-                    </p>
-                  </div>
-                  <button
-                    onClick={handleCreateNewSheet}
-                    disabled={isCreatingSheet}
-                    className="button-secondary"
-                  >
-                    {isCreatingSheet ? (
-                      <>
-                        <Loader2 className="animate-spin" />
-                        Creating…
-                      </>
-                    ) : (
-                      <>
-                        <Plus />
-                        Create sheet
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                {/* Option 2: Select from existing Drive sheets */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="modal-section-title" style={{ marginBottom: 0 }}>Select from Google Drive</span>
-                    <button
-                      onClick={loadUserGoogleSheets}
-                      disabled={isLoadingSheets}
-                      className="link-button inline-flex items-center gap-1"
-                    >
-                      {isLoadingSheets && <Loader2 className="h-3 w-3 animate-spin" />}
-                      Refresh list
-                    </button>
-                  </div>
-
-                  {isLoadingSheets ? (
-                    <div className="loading-state">
-                      <Loader2 className="animate-spin" />
-                      <span>Fetching sheets from Drive…</span>
-                    </div>
-                  ) : userSheets.length > 0 ? (
-                    <div className="table-card" style={{ maxHeight: '190px', overflowY: 'auto' }}>
-                      {userSheets.map((sheet) => {
-                        const isSelected = botSpreadsheetId === sheet.id;
-                        return (
-                          <div key={sheet.id} className="conversation-row" style={{ border: 0, borderRadius: 0 }}>
-                            <div className="mr-3 min-w-0 truncate">
-                              <strong className="block truncate">{sheet.name}</strong>
-                              <p className="text-mono truncate">{sheet.id}</p>
-                            </div>
-                            <button
-                              onClick={async () => {
-                                await saveBotSpreadsheetId(sheet.id);
-                                setSheetTestResult({
-                                  success: true,
-                                  message: `Selected & linked sheet: "${sheet.name}"`
-                                });
-                              }}
-                              className={isSelected ? 'button-primary compact' : 'button-secondary compact'}
-                            >
-                              {isSelected ? 'Linked' : 'Select'}
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className="subtle-card text-muted text-[12.5px]">No spreadsheets found in Drive. Create one above to get started.</p>
-                  )}
-                </div>
-
-                {/* Option 3: Manual Spreadsheet ID or URL */}
-                <div className="modal-section">
-                  <p className="modal-section-title">Or enter a sheet ID / URL</p>
-                  <div className="field-row">
-                    <input
-                      type="text"
-                      value={botSpreadsheetId}
-                      onChange={(e) => setBotSpreadsheetId(e.target.value)}
-                      placeholder="Spreadsheet ID or full sheet URL"
-                      className="input input-mono"
-                    />
-                    <button
-                      onClick={handleTestConnection}
-                      disabled={isTestingSheet}
-                      className="button-inverse"
-                    >
-                      {isTestingSheet ? <Loader2 className="animate-spin" /> : null}
-                      Save &amp; link
-                    </button>
-                  </div>
-
-                  {/* Feedback Banner */}
-                  {sheetTestResult && (
-                    <div className={`callout ${sheetTestResult.success ? 'tone-green' : 'tone-red'}`} style={{ marginTop: '10px' }}>
-                      {sheetTestResult.success ? <CheckCircle2 /> : <AlertCircle />}
-                      <span>{sheetTestResult.message}</span>
-                    </div>
-                  )}
-
-                  {botSpreadsheetId && googleTokens && (
-                    <div className="sync-row" style={{ marginTop: '10px' }}>
-                      <div className="min-w-0">
-                        <span className="text-mono text-faint block truncate">{botSpreadsheetId}</span>
-                        <a
-                          href={`https://docs.google.com/spreadsheets/d/${botSpreadsheetId}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-accent mt-0.5 inline-flex items-center gap-1 text-[12px] font-medium"
-                        >
-                          Open sheet <ExternalLink className="h-3 w-3" />
-                        </a>
-                      </div>
-                      <button
-                        onClick={async () => {
-                          try {
-                            const res = await fetch('/api/sync-lead', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({
-                                tokens: googleTokens,
-                                spreadsheetId: botSpreadsheetId,
-                                leadData: {
-                                  fullName: 'Sample Test Lead',
-                                  email: 'testlead@example.com',
-                                  phone: '+1 (555) 019-2831',
-                                  sourceBot: botName || 'BotFlow Chatbot',
-                                  status: 'Verified from Builder'
-                                }
-                              }),
-                            });
-                            const data = await res.json();
-                            if (res.ok && data.success) {
-                              showToast('🎉 Test row appended to Google Sheet successfully!');
-                            } else {
-                              showToast(data.error || 'Failed to append test row', 'error');
-                            }
-                          } catch (err: any) {
-                            showToast(`Error syncing: ${err.message}`, 'error');
-                          }
-                        }}
-                        className="button-secondary compact"
-                      >
-                        <Send /> Send test row
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            <div className="modal-actions is-end">
-              <button
-                onClick={() => setShowSheetsModal(false)}
-                className="button-secondary"
-              >
-                Close
-              </button>
-              <button
-                onClick={async () => {
-                  if (botSpreadsheetId) {
-                    await saveBotSpreadsheetId(botSpreadsheetId);
-                  }
-                  await onSave();
-                  setShowSheetsModal(false);
-                }}
-                className="button-primary"
-              >
-                Done
-              </button>
-            </div>
-          </div>
         </div>
       )}
 
@@ -820,74 +584,43 @@ function BuilderContent() {
             <div className="flex flex-col gap-5">
               <div>
                 <p className="modal-section-title">Option 1 · Script tag (recommended)</p>
-                <div className="code-block">
+                <div className="code-block relative">
                   <pre>{embedScriptTag}</pre>
-                  <button
-                    onClick={() => copyToClipboard(embedScriptTag)}
-                    className="icon-button bordered absolute right-2 top-2"
-                    aria-label="Copy script"
-                  >
+                  <button onClick={() => copyToClipboard(embedScriptTag)} className="icon-button bordered absolute right-2 top-2" aria-label="Copy script">
                     {copied ? <Check /> : <Copy />}
                   </button>
                 </div>
                 <p className="field-hint">Renders a floating chat bubble on any website.</p>
               </div>
-
               <div>
                 <p className="modal-section-title">Option 2 · Inline iframe</p>
-                <div className="code-block">
+                <div className="code-block relative">
                   <pre>{embedIframeTag}</pre>
-                  <button
-                    onClick={() => copyToClipboard(embedIframeTag)}
-                    className="icon-button bordered absolute right-2 top-2"
-                    aria-label="Copy iframe"
-                  >
+                  <button onClick={() => copyToClipboard(embedIframeTag)} className="icon-button bordered absolute right-2 top-2" aria-label="Copy iframe">
                     {copied ? <Check /> : <Copy />}
                   </button>
                 </div>
                 <p className="field-hint">Best for embedding into an existing page layout.</p>
               </div>
-            </div>
-            <div className="modal-actions is-end">
-              <button onClick={() => setShowShareModal(false)} className="button-secondary">
-                Done
-              </button>
+              <div className="modal-actions is-end">
+                <button onClick={() => setShowShareModal(false)} className="button-secondary">Done</button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Delete Bot Confirmation Modal in Builder */}
+      {/* Delete Bot Confirmation Modal */}
       {showDeleteModal && (
         <div className="modal-backdrop">
           <div className="app-modal is-centered">
-            <div className="modal-danger-icon">
-              <AlertCircle />
-            </div>
-
+            <div className="modal-danger-icon"><AlertCircle /></div>
             <h3>Delete this bot?</h3>
-            <p className="mt-1.5">
-              <strong>"{botName}"</strong> and its live widget endpoint will be permanently removed.
-            </p>
-            <p className="modal-note">
-              Captured lead data for this bot stays in your Lead data logs.
-            </p>
-
+            <p className="mt-1.5"><strong>"{botName}"</strong> and its live widget endpoint will be permanently removed.</p>
+            <p className="modal-note">Captured lead data for this bot stays in your Lead data logs.</p>
             <div className="modal-actions">
-              <button
-                type="button"
-                onClick={() => setShowDeleteModal(false)}
-                disabled={isDeletingBot}
-                className="button-secondary flex-1"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleDeleteBotInBuilder}
-                disabled={isDeletingBot}
-                className="button-danger flex-1"
-              >
+              <button type="button" onClick={() => setShowDeleteModal(false)} disabled={isDeletingBot} className="button-secondary flex-1">Cancel</button>
+              <button type="button" onClick={handleDeleteBotInBuilder} disabled={isDeletingBot} className="button-danger flex-1">
                 {isDeletingBot ? <Loader2 className="animate-spin" /> : <Trash2 />}
                 <span>{isDeletingBot ? 'Deleting…' : 'Delete bot'}</span>
               </button>
@@ -895,7 +628,6 @@ function BuilderContent() {
           </div>
         </div>
       )}
-
       {builderMode === 'classic' ? (
         <ClassicChatBuilder
           nodes={safeNodes}
@@ -917,600 +649,597 @@ function BuilderContent() {
       ) : (
         <>
           {/* Builder Header */}
-      <header className="builder-toolbar">
-        <div className="min-w-0">
-          <input
-            type="text"
-            value={botName}
-            onChange={(e) => setBotName(e.target.value)}
-            className="builder-title-input"
-            placeholder="Untitled bot"
-            aria-label="Bot name"
-          />
-          <p className="builder-subtitle">
-            {id ? 'Published' : 'Draft'} · Last saved {id ? 'just now' : 'never'}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => setBuilderMode('classic')}
-            className="button-secondary"
-            title="Switch to the linear chat flow builder"
-          >
-            <Layers />
-            <span>Classic builder</span>
-          </button>
-
-          <button
-            onClick={() => setShowSheetsModal(true)}
-            className="button-secondary"
-          >
-            <FileSpreadsheet />
-            <span>{botSpreadsheetId ? 'Sheet linked' : 'Connect sheet'}</span>
-            {botSpreadsheetId && <span className="status-pill status-live"><span /></span>}
-          </button>
-
-          {id && (
-            <>
-              <button onClick={() => setShowShareModal(true)} className="button-ghost">
-                <Share2 />
-                Share
-              </button>
-              <button
-                onClick={() => setShowDeleteModal(true)}
-                className="icon-button danger bordered"
-                title="Delete bot"
-              >
-                <Trash2 />
-              </button>
-            </>
-          )}
-          <button onClick={onSave} disabled={isSaving} className="button-primary">
-            <Save />
-            {isSaving ? 'Saving…' : 'Publish'}
-          </button>
-        </div>
-      </header>
-
-      {/* Google Sheets Modal */}
-      {showSheetsModal && (
-        <div className="modal-backdrop">
-          <div className="app-modal is-xl">
-            <div className="modal-head">
-              <div className="modal-head-main">
-                <span className="icon-tile tile-lg tone-green"><FileSpreadsheet /></span>
-                <div>
-                  <h3>Google Sheets</h3>
-                  <p>Connect this chatbot to a Google Sheet to log new leads automatically.</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowSheetsModal(false)}
-                className="icon-button"
-                aria-label="Close"
-              >
-                <X />
-              </button>
+          <header className="builder-toolbar">
+            <div className="min-w-0">
+              <input
+                type="text"
+                value={botName}
+                onChange={(e) => setBotName(e.target.value)}
+                className="builder-title-input"
+                placeholder="Untitled bot"
+                aria-label="Bot name"
+              />
+              <p className="builder-subtitle">
+                {id ? 'Published' : 'Draft'} · Last saved {id ? 'just now' : 'never'}
+              </p>
             </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => setBuilderMode('classic')}
+                className="button-secondary"
+                title="Switch to the linear chat flow builder"
+              >
+                <Layers />
+                <span>Classic builder</span>
+              </button>
 
-            {/* Step 1: Account Auth Status */}
-            <div className="sync-row">
-              <div>
-                <p className="text-ink text-[13px] font-semibold">
-                  {googleTokens ? 'Google account connected' : 'Google account required'}
-                </p>
-                <p className="text-muted mt-0.5 text-[12px]">
-                  {googleTokens ? 'Authorized to sync spreadsheet leads.' : 'Connect your account to select or create sheets.'}
-                </p>
-              </div>
-              {!googleTokens ? (
-                <button onClick={handleConnectGoogle} className="button-primary">
-                  Connect Google account
-                </button>
-              ) : (
-                <span className="status-pill tone-green">
-                  <CheckCircle2 />
-                  Connected
-                </span>
+              <button
+                onClick={() => setShowSheetsModal(true)}
+                className="button-secondary"
+              >
+                <FileSpreadsheet />
+                <span>{botSpreadsheetId ? 'Sheet linked' : 'Connect sheet'}</span>
+                {botSpreadsheetId && <span className="status-pill status-live"><span /></span>}
+              </button>
+
+              {id && (
+                <>
+                  <button onClick={() => setShowShareModal(true)} className="button-ghost">
+                    <Share2 />
+                    Share
+                  </button>
+                  <button
+                    onClick={() => setShowDeleteModal(true)}
+                    className="icon-button danger bordered"
+                    title="Delete bot"
+                  >
+                    <Trash2 />
+                  </button>
+                </>
               )}
+              <button onClick={onSave} disabled={isSaving} className="button-primary">
+                <Save />
+                {isSaving ? 'Saving…' : 'Publish'}
+              </button>
             </div>
-
-            {googleTokens && (
-              <div className="space-y-6">
-                {/* 1-Click Quick Action: Create New Sheet */}
-                <div className="sync-row">
-                  <div>
-                    <p className="text-ink inline-flex items-center gap-2 text-[13px] font-semibold">
-                      <Sparkles className="h-4 w-4" />
-                      Create a dedicated sheet
-                    </p>
-                    <p className="text-muted mt-0.5 text-[12px]">
-                      Generates "Leads - {botName}" with prepared column headers.
-                    </p>
+          </header>
+          {showSheetsModal && (
+            <div className="modal-backdrop">
+              <div className="app-modal is-xl">
+                <div className="modal-head">
+                  <div className="modal-head-main">
+                    <span className="icon-tile tile-lg tone-green"><FileSpreadsheet /></span>
+                    <div>
+                      <h3>Google Sheets</h3>
+                      <p>Connect this chatbot to a Google Sheet to log new leads automatically.</p>
+                    </div>
                   </div>
                   <button
-                    onClick={handleCreateNewSheet}
-                    disabled={isCreatingSheet}
-                    className="button-secondary"
+                    onClick={() => setShowSheetsModal(false)}
+                    className="icon-button"
+                    aria-label="Close"
                   >
-                    {isCreatingSheet ? (
-                      <>
-                        <Loader2 className="animate-spin" />
-                        Creating…
-                      </>
-                    ) : (
-                      <>
-                        <Plus />
-                        Create sheet
-                      </>
-                    )}
+                    <X />
                   </button>
                 </div>
 
-                {/* Option 2: Select from existing Drive sheets */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="modal-section-title" style={{ marginBottom: 0 }}>Select from Google Drive</span>
-                    <button
-                      onClick={loadUserGoogleSheets}
-                      disabled={isLoadingSheets}
-                      className="link-button inline-flex items-center gap-1"
-                    >
-                      {isLoadingSheets && <Loader2 className="h-3 w-3 animate-spin" />}
-                      Refresh list
-                    </button>
+                {/* Step 1: Account Auth Status */}
+                <div className="sync-row">
+                  <div>
+                    <p className="text-ink text-[13px] font-semibold">
+                      {googleTokens ? 'Google account connected' : 'Google account required'}
+                    </p>
+                    <p className="text-muted mt-0.5 text-[12px]">
+                      {googleTokens ? 'Authorized to sync spreadsheet leads.' : 'Connect your account to select or create sheets.'}
+                    </p>
                   </div>
-
-                  {isLoadingSheets ? (
-                    <div className="loading-state">
-                      <Loader2 className="animate-spin" />
-                      <span>Fetching sheets from Drive…</span>
-                    </div>
-                  ) : userSheets.length > 0 ? (
-                    <div className="table-card" style={{ maxHeight: '190px', overflowY: 'auto' }}>
-                      {userSheets.map((sheet) => {
-                        const isSelected = botSpreadsheetId === sheet.id;
-                        return (
-                          <div key={sheet.id} className="conversation-row" style={{ border: 0, borderRadius: 0 }}>
-                            <div className="mr-3 min-w-0 truncate">
-                              <strong className="block truncate">{sheet.name}</strong>
-                              <p className="text-mono truncate">{sheet.id}</p>
-                            </div>
-                            <button
-                              onClick={() => {
-                                setBotSpreadsheetId(sheet.id);
-                                setSheetTestResult({
-                                  success: true,
-                                  message: `Selected sheet: "${sheet.name}"`
-                                });
-                              }}
-                              className={isSelected ? 'button-primary compact' : 'button-secondary compact'}
-                            >
-                              {isSelected ? 'Selected' : 'Select'}
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
+                  {!googleTokens ? (
+                    <button onClick={handleConnectGoogle} className="button-primary">
+                      Connect Google account
+                    </button>
                   ) : (
-                    <p className="subtle-card text-muted text-[12.5px]">No spreadsheets found in Drive. Create one above to get started.</p>
+                    <span className="status-pill tone-green">
+                      <CheckCircle2 />
+                      Connected
+                    </span>
                   )}
                 </div>
 
-                {/* Option 3: Manual Spreadsheet ID or URL */}
-                <div className="modal-section">
-                  <p className="modal-section-title">Or enter a sheet ID / URL</p>
-                  <div className="field-row">
-                    <input
-                      type="text"
-                      value={botSpreadsheetId}
-                      onChange={(e) => setBotSpreadsheetId(e.target.value)}
-                      placeholder="Spreadsheet ID or full sheet URL"
-                      className="input input-mono"
-                    />
-                    <button
-                      onClick={handleTestConnection}
-                      disabled={isTestingSheet}
-                      className="button-inverse"
-                    >
-                      {isTestingSheet ? <Loader2 className="animate-spin" /> : null}
-                      Test link
-                    </button>
-                  </div>
-
-                  {/* Feedback Banner */}
-                  {sheetTestResult && (
-                    <div className={`callout ${sheetTestResult.success ? 'tone-green' : 'tone-red'}`} style={{ marginTop: '10px' }}>
-                      {sheetTestResult.success ? <CheckCircle2 /> : <AlertCircle />}
-                      <span>{sheetTestResult.message}</span>
-                    </div>
-                  )}
-
-                  {botSpreadsheetId && (
-                    <div className="sync-row" style={{ marginTop: '10px' }}>
-                      <span className="text-mono text-faint truncate">{botSpreadsheetId}</span>
-                      <a
-                        href={`https://docs.google.com/spreadsheets/d/${botSpreadsheetId}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-accent inline-flex items-center gap-1 text-[12px] font-medium"
-                      >
-                        Open sheet <ExternalLink className="h-3 w-3" />
-                      </a>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            <div className="modal-actions is-end">
-              <button
-                onClick={() => setShowSheetsModal(false)}
-                className="button-secondary"
-              >
-                Close
-              </button>
-              <button
-                onClick={() => {
-                  onSave();
-                  setShowSheetsModal(false);
-                }}
-                className="button-primary"
-              >
-                Save &amp; link
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left Sidebar: Node Library */}
-        <aside className="builder-library">
-          <div className="builder-panel-head">Add chat component</div>
-          <div className="builder-scroll flex-1 overflow-y-auto">
-            <div className="builder-group">
-              <div className="builder-group-toggle" role="presentation">
-                <span>Frequently used</span>
-              </div>
-              <div className="builder-group-body">
-                <button onClick={() => addNode('message')} className="component-tile">
-                  <span className="icon-tile tone-blue"><MessageSquare /></span>
-                  <span>Message</span>
-                </button>
-                <button onClick={() => addNode('name')} className="component-tile">
-                  <span className="icon-tile tone-green"><User /></span>
-                  <span>Name</span>
-                </button>
-                <button onClick={() => addNode('phone')} className="component-tile">
-                  <span className="icon-tile tone-green"><Phone /></span>
-                  <span>Phone number</span>
-                </button>
-                <button onClick={() => addNode('email')} className="component-tile">
-                  <span className="icon-tile tone-blue"><Mail /></span>
-                  <span>Email</span>
-                </button>
-                <button onClick={() => addNode('singleChoice')} className="component-tile">
-                  <span className="icon-tile tone-purple"><CheckSquare /></span>
-                  <span>Single choice</span>
-                </button>
-                <button onClick={() => addNode('multipleChoice')} className="component-tile">
-                  <span className="icon-tile tone-purple"><List /></span>
-                  <span>Multiple choice</span>
-                </button>
-                <button onClick={() => addNode('textQuestion')} className="component-tile">
-                  <span className="icon-tile tone-orange"><HelpCircle /></span>
-                  <span>Text question</span>
-                </button>
-                <button onClick={() => addNode('aiResponse')} className="component-tile">
-                  <span className="icon-tile tone-pink"><Sparkles /></span>
-                  <span>AI response</span>
-                </button>
-                <button onClick={() => addNode('saveLead')} className="component-tile">
-                  <span className="icon-tile tone-yellow"><Database /></span>
-                  <span>Save lead</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="builder-group">
-              <div className="builder-group-toggle" role="presentation">
-                <span>Request information</span>
-                <ChevronRight />
-              </div>
-              <div className="builder-group-body">
-                <button onClick={() => addNode('name')} className="component-tile-plain">Name input</button>
-                <button onClick={() => addNode('phone')} className="component-tile-plain">Phone input</button>
-                <button onClick={() => addNode('email')} className="component-tile-plain">Email input</button>
-              </div>
-            </div>
-
-            <div className="builder-group">
-              <div className="builder-group-toggle" role="presentation">
-                <span>Decide and act</span>
-                <ChevronRight />
-              </div>
-              <div className="builder-group-body">
-                <button onClick={() => addNode('singleChoice')} className="component-tile-plain">Branch by choice</button>
-                <button onClick={() => addNode('saveLead')} className="component-tile-plain">Save lead checkpoint</button>
-              </div>
-            </div>
-          </div>
-        </aside>
-
-        {/* Canvas Area */}
-        <div className="builder-canvas">
-          <ReactFlow
-            nodes={safeNodes}
-            edges={safeEdges}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onConnect={onConnect}
-            onNodeClick={(_, node) => setSelectedNode(node)}
-            nodeTypes={nodeTypes}
-            fitView
-          >
-            <Background color="var(--line-strong)" gap={20} size={1} />
-            <Controls />
-          </ReactFlow>
-        </div>
-
-        {/* Right Sidebar: Properties Panel */}
-        {selectedNode && (
-          <aside className="builder-properties">
-            <div className="builder-panel-head is-row">
-              <span>Properties</span>
-              <button onClick={() => setSelectedNode(null)} className="icon-button" aria-label="Close properties">
-                <ChevronRight />
-              </button>
-            </div>
-            <div className="builder-scroll flex flex-1 flex-col gap-5 overflow-y-auto">
-              <div>
-                <label className="field-label">{selectedNode.type === 'saveLead' ? 'Action label' : 'Bot message'}</label>
-                <textarea
-                  className="textarea"
-                  value={selectedNode.data.label as string}
-                  onChange={(e) => {
-                    const newLabel = e.target.value;
-                    setNodes(safeNodes.map(n => n.id === selectedNode.id ? { ...n, data: { ...n.data, label: newLabel } } : n));
-                    setSelectedNode({ ...selectedNode, data: { ...selectedNode.data, label: newLabel } });
-                  }}
-                  placeholder={selectedNode.type === 'saveLead' ? 'e.g. Save after welcome' : 'Type message here...'}
-                />
-                {selectedNode.type !== 'saveLead' && (
-                  <div className="emoji-picker-grid" style={{ marginTop: '10px' }}>
-                    {['👋', '😊', '🔥', '🚀', '✨', '💡', '✅', '❌', '📞', '📧', '👤', '🤖'].map(emoji => (
+                {googleTokens && (
+                  <div className="space-y-6">
+                    {/* 1-Click Quick Action: Create New Sheet */}
+                    <div className="sync-row">
+                      <div>
+                        <p className="text-ink inline-flex items-center gap-2 text-[13px] font-semibold">
+                          <Sparkles className="h-4 w-4" />
+                          Create a dedicated sheet
+                        </p>
+                        <p className="text-muted mt-0.5 text-[12px]">
+                          Generates "Leads - {botName}" with prepared column headers.
+                        </p>
+                      </div>
                       <button
-                        key={emoji}
-                        onClick={() => {
-                          const newLabel = (selectedNode.data.label as string || '') + emoji;
-                          setNodes(safeNodes.map(n => n.id === selectedNode.id ? { ...n, data: { ...n.data, label: newLabel } } : n));
-                          setSelectedNode({ ...selectedNode, data: { ...selectedNode.data, label: newLabel } });
-                        }}
+                        onClick={handleCreateNewSheet}
+                        disabled={isCreatingSheet}
+                        className="button-secondary"
                       >
-                        {emoji}
+                        {isCreatingSheet ? (
+                          <>
+                            <Loader2 className="animate-spin" />
+                            Creating…
+                          </>
+                        ) : (
+                          <>
+                            <Plus />
+                            Create sheet
+                          </>
+                        )}
                       </button>
-                    ))}
+                    </div>
+
+                    {/* Option 2: Select from existing Drive sheets */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="modal-section-title" style={{ marginBottom: 0 }}>Select from Google Drive</span>
+                        <button
+                          onClick={loadUserGoogleSheets}
+                          disabled={isLoadingSheets}
+                          className="link-button inline-flex items-center gap-1"
+                        >
+                          {isLoadingSheets && <Loader2 className="h-3 w-3 animate-spin" />}
+                          Refresh list
+                        </button>
+                      </div>
+
+                      {isLoadingSheets ? (
+                        <div className="loading-state">
+                          <Loader2 className="animate-spin" />
+                          <span>Fetching sheets from Drive…</span>
+                        </div>
+                      ) : userSheets.length > 0 ? (
+                        <div className="table-card" style={{ maxHeight: '190px', overflowY: 'auto' }}>
+                          {userSheets.map((sheet) => {
+                            const isSelected = botSpreadsheetId === sheet.id;
+                            return (
+                              <div key={sheet.id} className="conversation-row" style={{ border: 0, borderRadius: 0 }}>
+                                <div className="mr-3 min-w-0 truncate">
+                                  <strong className="block truncate">{sheet.name}</strong>
+                                  <p className="text-mono truncate">{sheet.id}</p>
+                                </div>
+                                <button
+                                  onClick={() => {
+                                    setBotSpreadsheetId(sheet.id);
+                                    setSheetTestResult({
+                                      success: true,
+                                      message: `Selected sheet: "${sheet.name}"`
+                                    });
+                                  }}
+                                  className={isSelected ? 'button-primary compact' : 'button-secondary compact'}
+                                >
+                                  {isSelected ? 'Selected' : 'Select'}
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="subtle-card text-muted text-[12.5px]">No spreadsheets found in Drive. Create one above to get started.</p>
+                      )}
+                    </div>
+
+                    {/* Option 3: Manual Spreadsheet ID or URL */}
+                    <div className="modal-section">
+                      <p className="modal-section-title">Or enter a sheet ID / URL</p>
+                      <div className="field-row">
+                        <input
+                          type="text"
+                          value={botSpreadsheetId}
+                          onChange={(e) => setBotSpreadsheetId(e.target.value)}
+                          placeholder="Spreadsheet ID or full sheet URL"
+                          className="input input-mono"
+                        />
+                        <button
+                          onClick={handleTestConnection}
+                          disabled={isTestingSheet}
+                          className="button-inverse"
+                        >
+                          {isTestingSheet ? <Loader2 className="animate-spin" /> : null}
+                          Test link
+                        </button>
+                      </div>
+
+                      {/* Feedback Banner */}
+                      {sheetTestResult && (
+                        <div className={`callout ${sheetTestResult.success ? 'tone-green' : 'tone-red'}`} style={{ marginTop: '10px' }}>
+                          {sheetTestResult.success ? <CheckCircle2 /> : <AlertCircle />}
+                          <span>{sheetTestResult.message}</span>
+                        </div>
+                      )}
+
+                      {botSpreadsheetId && (
+                        <div className="sync-row" style={{ marginTop: '10px' }}>
+                          <span className="text-mono text-faint truncate">{botSpreadsheetId}</span>
+                          <a
+                            href={`https://docs.google.com/spreadsheets/d/${botSpreadsheetId}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-accent inline-flex items-center gap-1 text-[12px] font-medium"
+                          >
+                            Open sheet <ExternalLink className="h-3 w-3" />
+                          </a>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
-              </div>
 
-              {['name', 'email', 'phone', 'textQuestion', 'singleChoice', 'multipleChoice'].includes(selectedNode.type!) && (
-                <div>
-                  <label className="field-label">Lead data key</label>
-                  <input
-                    type="text"
-                    className="input input-mono"
-                    value={selectedNode.data.leadKey as string || ''}
-                    onChange={(e) => {
-                      const newKey = e.target.value;
-                      setNodes(safeNodes.map(n => n.id === selectedNode.id ? { ...n, data: { ...n.data, leadKey: newKey } } : n));
-                      setSelectedNode({ ...selectedNode, data: { ...selectedNode.data, leadKey: newKey } });
+                <div className="modal-actions is-end">
+                  <button
+                    onClick={() => setShowSheetsModal(false)}
+                    className="button-secondary"
+                  >
+                    Close
+                  </button>
+                  <button
+                    onClick={() => {
+                      onSave();
+                      setShowSheetsModal(false);
                     }}
-                    placeholder="Auto-generated if empty"
-                  />
-                  <p className="field-hint">Links this answer to a column in your dashboard and spreadsheet.</p>
+                    className="button-primary"
+                  >
+                    Save &amp; link
+                  </button>
                 </div>
-              )}
-
-              {/* Next Step Configuration for ALL Component Types */}
-              <div className="modal-section" style={{ marginTop: 0 }}>
-                <p className="modal-section-title" style={{ justifyContent: 'space-between' }}>
-                  <span>Next step</span>
-                  <span className="tag">Flow control</span>
-                </p>
-                <p className="field-hint" style={{ marginBottom: '8px', marginTop: 0 }}>Choose which step follows this one.</p>
-                <select
-                  value={(selectedNode.data.nextStepId as string) || ''}
-                  onChange={(e) => {
-                    const targetId = e.target.value;
-                    const updatedNode = {
-                      ...selectedNode,
-                      data: { ...selectedNode.data, nextStepId: targetId }
-                    };
-                    setNodes(safeNodes.map(n => n.id === selectedNode.id ? updatedNode : n));
-                    setSelectedNode(updatedNode);
-
-                    // Sync edges
-                    let otherEdges = safeEdges.filter(ed => ed.source !== selectedNode.id || ed.sourceHandle);
-                    if (targetId && targetId !== 'END') {
-                      otherEdges.push({
-                        id: `e_${selectedNode.id}-${targetId}`,
-                        source: selectedNode.id,
-                        target: targetId,
-                        type: 'smoothstep',
-                        style: { stroke: '#6366f1', strokeWidth: 2 }
-                      });
-                    }
-                    setEdges(otherEdges);
-                  }}
-                  className="select"
-                >
-                  <option value="">Default next step (sequential)</option>
-                  <option value="END">End chat flow here</option>
-                  {safeNodes.filter(n => n.id !== selectedNode.id).map((n) => {
-                    const idx = safeNodes.findIndex(sn => sn.id === n.id) + 1;
-                    const label = (n.data?.label as string) || n.type;
-                    return (
-                      <option key={n.id} value={n.id}>
-                        Step #{idx}: {label.length > 22 ? label.slice(0, 22) + '...' : label}
-                      </option>
-                    );
-                  })}
-                </select>
               </div>
+            </div>
+          )}
+          <div className="flex-1 flex overflow-hidden">
+            {/* Left Sidebar: Node Library */}
+            <aside className="builder-library">
+              <div className="builder-panel-head">Add chat component</div>
+              <div className="builder-scroll flex-1 overflow-y-auto">
+                <div className="builder-group">
+                  <div className="builder-group-toggle" role="presentation">
+                    <span>Frequently used</span>
+                  </div>
+                  <div className="builder-group-body">
+                    <button onClick={() => addNode('message')} className="component-tile">
+                      <span className="icon-tile tone-blue"><MessageSquare /></span>
+                      <span>Message</span>
+                    </button>
+                    <button onClick={() => addNode('name')} className="component-tile">
+                      <span className="icon-tile tone-green"><User /></span>
+                      <span>Name</span>
+                    </button>
+                    <button onClick={() => addNode('phone')} className="component-tile">
+                      <span className="icon-tile tone-green"><Phone /></span>
+                      <span>Phone number</span>
+                    </button>
+                    <button onClick={() => addNode('email')} className="component-tile">
+                      <span className="icon-tile tone-blue"><Mail /></span>
+                      <span>Email</span>
+                    </button>
+                    <button onClick={() => addNode('singleChoice')} className="component-tile">
+                      <span className="icon-tile tone-purple"><CheckSquare /></span>
+                      <span>Single choice</span>
+                    </button>
+                    <button onClick={() => addNode('multipleChoice')} className="component-tile">
+                      <span className="icon-tile tone-purple"><List /></span>
+                      <span>Multiple choice</span>
+                    </button>
+                    <button onClick={() => addNode('textQuestion')} className="component-tile">
+                      <span className="icon-tile tone-orange"><HelpCircle /></span>
+                      <span>Text question</span>
+                    </button>
+                    <button onClick={() => addNode('aiResponse')} className="component-tile">
+                      <span className="icon-tile tone-pink"><Sparkles /></span>
+                      <span>AI response</span>
+                    </button>
+                    <button onClick={() => addNode('saveLead')} className="component-tile">
+                      <span className="icon-tile tone-yellow"><Database /></span>
+                      <span>Save lead</span>
+                    </button>
+                  </div>
+                </div>
 
-              {(selectedNode.type === 'singleChoice' || selectedNode.type === 'multipleChoice') && (
-                <div>
-                  <p className="modal-section-title">Options &amp; redirection</p>
-                  <p className="field-hint" style={{ marginBottom: '10px', marginTop: 0 }}>Connect each option to a specific next step, or leave it sequential.</p>
+                <div className="builder-group">
+                  <div className="builder-group-toggle" role="presentation">
+                    <span>Request information</span>
+                    <ChevronRight />
+                  </div>
+                  <div className="builder-group-body">
+                    <button onClick={() => addNode('name')} className="component-tile-plain">Name input</button>
+                    <button onClick={() => addNode('phone')} className="component-tile-plain">Phone input</button>
+                    <button onClick={() => addNode('email')} className="component-tile-plain">Email input</button>
+                  </div>
+                </div>
 
+                <div className="builder-group">
+                  <div className="builder-group-toggle" role="presentation">
+                    <span>Decide and act</span>
+                    <ChevronRight />
+                  </div>
+                  <div className="builder-group-body">
+                    <button onClick={() => addNode('singleChoice')} className="component-tile-plain">Branch by choice</button>
+                    <button onClick={() => addNode('saveLead')} className="component-tile-plain">Save lead checkpoint</button>
+                  </div>
+                </div>
+              </div>
+            </aside>
+
+            {/* Canvas Area */}
+            <div className="builder-canvas">
+              <ReactFlow
+                nodes={safeNodes}
+                edges={safeEdges}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                onConnect={onConnect}
+                onNodeClick={(_, node) => setSelectedNode(node)}
+                nodeTypes={nodeTypes}
+                fitView
+              >
+                <Background color="var(--line-strong)" gap={20} size={1} />
+                <Controls />
+              </ReactFlow>
+            </div>
+
+            {/* Right Sidebar: Properties Panel */}
+            {selectedNode && (
+              <aside className="builder-properties">
+                <div className="builder-panel-head is-row">
+                  <span>Properties</span>
+                  <button onClick={() => setSelectedNode(null)} className="icon-button" aria-label="Close properties">
+                    <ChevronRight />
+                  </button>
+                </div>
+                <div className="builder-scroll flex flex-1 flex-col gap-5 overflow-y-auto">
                   <div>
-                    {(selectedNode.data.choices as string[] || []).map((choice, i) => {
-                      const currentRoute = (selectedNode.data.optionRoutes as Record<string, string>)?.[choice] || '';
+                    <label className="field-label">{selectedNode.type === 'saveLead' ? 'Action label' : 'Bot message'}</label>
+                    <textarea
+                      className="textarea"
+                      value={selectedNode.data.label as string}
+                      onChange={(e) => {
+                        const newLabel = e.target.value;
+                        setNodes(safeNodes.map(n => n.id === selectedNode.id ? { ...n, data: { ...n.data, label: newLabel } } : n));
+                        setSelectedNode({ ...selectedNode, data: { ...selectedNode.data, label: newLabel } });
+                      }}
+                      placeholder={selectedNode.type === 'saveLead' ? 'e.g. Save after welcome' : 'Type message here...'}
+                    />
+                    {selectedNode.type !== 'saveLead' && (
+                      <div className="emoji-picker-grid" style={{ marginTop: '10px' }}>
+                        {['👋', '😊', '🔥', '🚀', '✨', '💡', '✅', '❌', '📞', '📧', '👤', '🤖'].map(emoji => (
+                          <button
+                            key={emoji}
+                            onClick={() => {
+                              const newLabel = (selectedNode.data.label as string || '') + emoji;
+                              setNodes(safeNodes.map(n => n.id === selectedNode.id ? { ...n, data: { ...n.data, label: newLabel } } : n));
+                              setSelectedNode({ ...selectedNode, data: { ...selectedNode.data, label: newLabel } });
+                            }}
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
 
-                      return (
-                        <div key={i} className="choice-editor">
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="text"
-                              className="input compact"
-                              value={choice}
-                              onChange={(e) => {
-                                const newChoiceName = e.target.value;
-                                const oldChoices = [...(selectedNode.data.choices as string[])];
-                                oldChoices[i] = newChoiceName;
+                  {['name', 'email', 'phone', 'textQuestion', 'singleChoice', 'multipleChoice'].includes(selectedNode.type!) && (
+                    <div>
+                      <label className="field-label">Lead data key</label>
+                      <input
+                        type="text"
+                        className="input input-mono"
+                        value={selectedNode.data.leadKey as string || ''}
+                        onChange={(e) => {
+                          const newKey = e.target.value;
+                          setNodes(safeNodes.map(n => n.id === selectedNode.id ? { ...n, data: { ...n.data, leadKey: newKey } } : n));
+                          setSelectedNode({ ...selectedNode, data: { ...selectedNode.data, leadKey: newKey } });
+                        }}
+                        placeholder="Auto-generated if empty"
+                      />
+                      <p className="field-hint">Links this answer to a column in your dashboard and spreadsheet.</p>
+                    </div>
+                  )}
 
-                                const oldRoutes = { ...((selectedNode.data.optionRoutes as Record<string, string>) || {}) };
-                                if (oldRoutes[choice] && choice !== newChoiceName) {
-                                  oldRoutes[newChoiceName] = oldRoutes[choice];
-                                  delete oldRoutes[choice];
-                                }
-
-                                const updatedNode = {
-                                  ...selectedNode,
-                                  data: { ...selectedNode.data, choices: oldChoices, optionRoutes: oldRoutes }
-                                };
-                                setNodes(safeNodes.map(n => n.id === selectedNode.id ? updatedNode : n));
-                                setSelectedNode(updatedNode);
-                              }}
-                            />
-                            <button
-                              onClick={() => {
-                                const newChoices = (selectedNode.data.choices as string[]).filter((_, idx) => idx !== i);
-                                const oldRoutes = { ...((selectedNode.data.optionRoutes as Record<string, string>) || {}) };
-                                delete oldRoutes[choice];
-
-                                const updatedNode = {
-                                  ...selectedNode,
-                                  data: { ...selectedNode.data, choices: newChoices, optionRoutes: oldRoutes }
-                                };
-                                setNodes(safeNodes.map(n => n.id === selectedNode.id ? updatedNode : n));
-                                setSelectedNode(updatedNode);
-
-                                const updatedEdges = safeEdges.filter(ed => !(ed.source === selectedNode.id && (ed.label === choice || ed.sourceHandle === choice)));
-                                setEdges(updatedEdges);
-                              }}
-                              className="icon-button danger"
-                              title="Remove option"
-                            >
-                              <X />
-                            </button>
-                          </div>
-
-                          <div className="choice-editor-route">
-                            <span>Connects to</span>
-                            <select
-                              value={currentRoute}
-                              onChange={(e) => {
-                                const targetId = e.target.value;
-                                const oldRoutes = { ...((selectedNode.data.optionRoutes as Record<string, string>) || {}) };
-                                if (targetId) {
-                                  oldRoutes[choice] = targetId;
-                                } else {
-                                  delete oldRoutes[choice];
-                                }
-
-                                const updatedNode = {
-                                  ...selectedNode,
-                                  data: { ...selectedNode.data, optionRoutes: oldRoutes }
-                                };
-                                setNodes(safeNodes.map(n => n.id === selectedNode.id ? updatedNode : n));
-                                setSelectedNode(updatedNode);
-
-                                let updatedEdges = safeEdges.filter(ed => !(ed.source === selectedNode.id && (ed.label === choice || ed.sourceHandle === choice)));
-                                if (targetId) {
-                                  updatedEdges.push({
-                                    id: `e_${selectedNode.id}_${choice}_${targetId}`,
-                                    source: selectedNode.id,
-                                    target: targetId,
-                                    label: choice,
-                                    sourceHandle: choice,
-                                    type: 'smoothstep',
-                                    style: { stroke: '#6366f1', strokeWidth: 2 }
-                                  });
-                                }
-                                setEdges(updatedEdges);
-                              }}
-                              className="select compact"
-                            >
-                              <option value="">Default next step</option>
-                              {safeNodes.filter(n => n.id !== selectedNode.id).map((n) => {
-                                const idx = safeNodes.findIndex(sn => sn.id === n.id) + 1;
-                                const label = (n.data?.label as string) || n.type;
-                                return (
-                                  <option key={n.id} value={n.id}>
-                                    Step #{idx}: {label.length > 20 ? label.slice(0, 20) + '...' : label}
-                                  </option>
-                                );
-                              })}
-                            </select>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    <button
-                      onClick={() => {
-                        const newChoices = [...(selectedNode.data.choices as string[] || []), `Option ${(selectedNode.data.choices as string[] || []).length + 1}`];
+                  {/* Next Step Configuration for ALL Component Types */}
+                  <div className="modal-section" style={{ marginTop: 0 }}>
+                    <p className="modal-section-title" style={{ justifyContent: 'space-between' }}>
+                      <span>Next step</span>
+                      <span className="tag">Flow control</span>
+                    </p>
+                    <p className="field-hint" style={{ marginBottom: '8px', marginTop: 0 }}>Choose which step follows this one.</p>
+                    <select
+                      value={(selectedNode.data.nextStepId as string) || ''}
+                      onChange={(e) => {
+                        const targetId = e.target.value;
                         const updatedNode = {
                           ...selectedNode,
-                          data: { ...selectedNode.data, choices: newChoices }
+                          data: { ...selectedNode.data, nextStepId: targetId }
                         };
                         setNodes(safeNodes.map(n => n.id === selectedNode.id ? updatedNode : n));
                         setSelectedNode(updatedNode);
+
+                        // Sync edges
+                        let otherEdges = safeEdges.filter(ed => ed.source !== selectedNode.id || ed.sourceHandle);
+                        if (targetId && targetId !== 'END') {
+                          otherEdges.push({
+                            id: `e_${selectedNode.id}-${targetId}`,
+                            source: selectedNode.id,
+                            target: targetId,
+                            type: 'smoothstep',
+                            style: { stroke: '#6366f1', strokeWidth: 2 }
+                          });
+                        }
+                        setEdges(otherEdges);
                       }}
-                      className="add-dashed"
-                      style={{ marginTop: '8px' }}
+                      className="select"
                     >
-                      <Plus /> Add option
+                      <option value="">Default next step (sequential)</option>
+                      <option value="END">End chat flow here</option>
+                      {safeNodes.filter(n => n.id !== selectedNode.id).map((n) => {
+                        const idx = safeNodes.findIndex(sn => sn.id === n.id) + 1;
+                        const label = (n.data?.label as string) || n.type;
+                        return (
+                          <option key={n.id} value={n.id}>
+                            Step #{idx}: {label.length > 22 ? label.slice(0, 22) + '...' : label}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+
+                  {(selectedNode.type === 'singleChoice' || selectedNode.type === 'multipleChoice') && (
+                    <div>
+                      <p className="modal-section-title">Options &amp; redirection</p>
+                      <p className="field-hint" style={{ marginBottom: '10px', marginTop: 0 }}>Connect each option to a specific next step, or leave it sequential.</p>
+
+                      <div>
+                        {(selectedNode.data.choices as string[] || []).map((choice, i) => {
+                          const currentRoute = (selectedNode.data.optionRoutes as Record<string, string>)?.[choice] || '';
+
+                          return (
+                            <div key={i} className="choice-editor">
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="text"
+                                  className="input compact"
+                                  value={choice}
+                                  onChange={(e) => {
+                                    const newChoiceName = e.target.value;
+                                    const oldChoices = [...(selectedNode.data.choices as string[])];
+                                    oldChoices[i] = newChoiceName;
+
+                                    const oldRoutes = { ...((selectedNode.data.optionRoutes as Record<string, string>) || {}) };
+                                    if (oldRoutes[choice] && choice !== newChoiceName) {
+                                      oldRoutes[newChoiceName] = oldRoutes[choice];
+                                      delete oldRoutes[choice];
+                                    }
+
+                                    const updatedNode = {
+                                      ...selectedNode,
+                                      data: { ...selectedNode.data, choices: oldChoices, optionRoutes: oldRoutes }
+                                    };
+                                    setNodes(safeNodes.map(n => n.id === selectedNode.id ? updatedNode : n));
+                                    setSelectedNode(updatedNode);
+                                  }}
+                                />
+                                <button
+                                  onClick={() => {
+                                    const newChoices = (selectedNode.data.choices as string[]).filter((_, idx) => idx !== i);
+                                    const oldRoutes = { ...((selectedNode.data.optionRoutes as Record<string, string>) || {}) };
+                                    delete oldRoutes[choice];
+
+                                    const updatedNode = {
+                                      ...selectedNode,
+                                      data: { ...selectedNode.data, choices: newChoices, optionRoutes: oldRoutes }
+                                    };
+                                    setNodes(safeNodes.map(n => n.id === selectedNode.id ? updatedNode : n));
+                                    setSelectedNode(updatedNode);
+
+                                    const updatedEdges = safeEdges.filter(ed => !(ed.source === selectedNode.id && (ed.label === choice || ed.sourceHandle === choice)));
+                                    setEdges(updatedEdges);
+                                  }}
+                                  className="icon-button danger"
+                                  title="Remove option"
+                                >
+                                  <X />
+                                </button>
+                              </div>
+
+                              <div className="choice-editor-route">
+                                <span>Connects to</span>
+                                <select
+                                  value={currentRoute}
+                                  onChange={(e) => {
+                                    const targetId = e.target.value;
+                                    const oldRoutes = { ...((selectedNode.data.optionRoutes as Record<string, string>) || {}) };
+                                    if (targetId) {
+                                      oldRoutes[choice] = targetId;
+                                    } else {
+                                      delete oldRoutes[choice];
+                                    }
+
+                                    const updatedNode = {
+                                      ...selectedNode,
+                                      data: { ...selectedNode.data, optionRoutes: oldRoutes }
+                                    };
+                                    setNodes(safeNodes.map(n => n.id === selectedNode.id ? updatedNode : n));
+                                    setSelectedNode(updatedNode);
+
+                                    let updatedEdges = safeEdges.filter(ed => !(ed.source === selectedNode.id && (ed.label === choice || ed.sourceHandle === choice)));
+                                    if (targetId) {
+                                      updatedEdges.push({
+                                        id: `e_${selectedNode.id}_${choice}_${targetId}`,
+                                        source: selectedNode.id,
+                                        target: targetId,
+                                        label: choice,
+                                        sourceHandle: choice,
+                                        type: 'smoothstep',
+                                        style: { stroke: '#6366f1', strokeWidth: 2 }
+                                      });
+                                    }
+                                    setEdges(updatedEdges);
+                                  }}
+                                  className="select compact"
+                                >
+                                  <option value="">Default next step</option>
+                                  {safeNodes.filter(n => n.id !== selectedNode.id).map((n) => {
+                                    const idx = safeNodes.findIndex(sn => sn.id === n.id) + 1;
+                                    const label = (n.data?.label as string) || n.type;
+                                    return (
+                                      <option key={n.id} value={n.id}>
+                                        Step #{idx}: {label.length > 20 ? label.slice(0, 20) + '...' : label}
+                                      </option>
+                                    );
+                                  })}
+                                </select>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        <button
+                          onClick={() => {
+                            const newChoices = [...(selectedNode.data.choices as string[] || []), `Option ${(selectedNode.data.choices as string[] || []).length + 1}`];
+                            const updatedNode = {
+                              ...selectedNode,
+                              data: { ...selectedNode.data, choices: newChoices }
+                            };
+                            setNodes(safeNodes.map(n => n.id === selectedNode.id ? updatedNode : n));
+                            setSelectedNode(updatedNode);
+                          }}
+                          className="add-dashed"
+                          style={{ marginTop: '8px' }}
+                        >
+                          <Plus /> Add option
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="modal-section flex flex-col gap-2">
+                    <button
+                      onClick={() => {
+                        showToast('Node properties updated successfully!');
+                        setSelectedNode(null); // Closes properties sidebar and indicates node update is saved and confirmed
+                      }}
+                      className="button-primary button-block"
+                    >
+                      <Check />
+                      Apply changes
+                    </button>
+                    <button
+                      onClick={() => deleteNode(selectedNode.id)}
+                      className="button-danger button-block"
+                    >
+                      <Trash2 />
+                      Delete node
                     </button>
                   </div>
                 </div>
-              )}
-
-              <div className="modal-section flex flex-col gap-2">
-                <button
-                  onClick={() => {
-                    showToast('Node properties updated successfully!');
-                    setSelectedNode(null); // Closes properties sidebar and indicates node update is saved and confirmed
-                  }}
-                  className="button-primary button-block"
-                >
-                  <Check />
-                  Apply changes
-                </button>
-                <button
-                  onClick={() => deleteNode(selectedNode.id)}
-                  className="button-danger button-block"
-                >
-                  <Trash2 />
-                  Delete node
-                </button>
-              </div>
-            </div>
-          </aside>
-        )}
-      </div>
+              </aside>
+            )}
+          </div>
         </>
       )}
     </div>

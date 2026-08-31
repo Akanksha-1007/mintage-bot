@@ -1,7 +1,24 @@
 import React, { useEffect, useState } from 'react';
 import { db, auth } from '../lib/firebase';
-import { collection, query, where, onSnapshot, deleteDoc, doc, getDocs } from 'firebase/firestore';
-import { GitBranch, Plus, Trash2, Edit2, ExternalLink, FileSpreadsheet, AlertTriangle, Loader2, X } from 'lucide-react';
+import {
+  collection,
+  query,
+  where,
+  onSnapshot,
+  deleteDoc,
+  doc,
+  getDocs,
+} from 'firebase/firestore';
+import {
+  GitBranch,
+  Plus,
+  Trash2,
+  Edit2,
+  ExternalLink,
+  FileSpreadsheet,
+  AlertTriangle,
+  Loader2,
+} from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { useAuth } from '../context/AuthContext';
@@ -9,8 +26,8 @@ import { useAuth } from '../context/AuthContext';
 interface BotConfig {
   id: string;
   name: string;
-  createdAt: any;
-  updatedAt: any;
+  createdAt?: any;
+  updatedAt?: any;
   createdBy?: string;
   spreadsheetId?: string;
   leadsCount?: number;
@@ -26,159 +43,353 @@ export default function Bots() {
 
   useEffect(() => {
     const targetUserId = effectiveUserId || auth.currentUser?.uid;
-    if (!targetUserId && !isAdmin) return;
+
+    if (!targetUserId && !isAdmin) {
+      setBots([]);
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
 
     const isGlobalAdminView = isAdmin && !impersonatedClient;
+
     const q = isGlobalAdminView
       ? query(collection(db, 'bot_configurations'))
-      : query(collection(db, 'bot_configurations'), where('createdBy', '==', targetUserId));
+      : targetUserId
+        ? query(
+          collection(db, 'bot_configurations'),
+          where('createdBy', '==', targetUserId),
+        )
+        : null;
 
-    const unsubscribe = onSnapshot(q, async (snapshot) => {
-      let firestoreBots = await Promise.all(snapshot.docs.map(async (botDoc) => {
-        // Fetch leads count for each bot
-        let leadsCount = 0;
+    if (!q) {
+      setBots([]);
+      setLoading(false);
+      return;
+    }
+
+    const unsubscribe = onSnapshot(
+      q,
+      async (snapshot) => {
+        let firestoreBots: BotConfig[] = await Promise.all(
+          snapshot.docs.map(async (botDoc) => {
+            let leadsCount = 0;
+
+            try {
+              const leadsQ = query(
+                collection(db, 'leads'),
+                where('flowId', '==', botDoc.id),
+              );
+
+              const leadsSnap = await getDocs(leadsQ).catch(() => null);
+
+              if (leadsSnap) {
+                leadsCount = leadsSnap.size;
+              }
+            } catch {
+              // Keep leadsCount at zero if the leads query fails.
+            }
+
+            return {
+              id: botDoc.id,
+              ...botDoc.data(),
+              leadsCount,
+            } as BotConfig;
+          }),
+        );
+
+        // Fetch bots from the server API as well.
+        let serverBots: BotConfig[] = [];
+
         try {
-          const leadsQ = query(
-            collection(db, 'leads'),
-            where('flowId', '==', botDoc.id)
-          );
-          const leadsSnap = await getDocs(leadsQ).catch(() => null);
-          if (leadsSnap) leadsCount = leadsSnap.size;
-        } catch {}
-        
-        return {
-          id: botDoc.id,
-          ...botDoc.data(),
-          leadsCount
-        };
-      })) as BotConfig[];
+          const response = await fetch('/api/bots');
 
-      // Fetch server bots
-      let serverBots: BotConfig[] = [];
-      try {
-        const sRes = await fetch('/api/bots');
-        if (sRes.ok) {
-          const sData = await sRes.json();
-          if (sData.success && Array.isArray(sData.bots)) {
-            serverBots = sData.bots;
+          if (response.ok) {
+            const data = await response.json();
+
+            if (data.success && Array.isArray(data.bots)) {
+              serverBots = data.bots as BotConfig[];
+            }
+          }
+        } catch {
+          // Firestore/local storage can still provide the bot list.
+        }
+
+        // Restrict server bots when the current user is not in the global
+        // administrator view.
+        if (!isGlobalAdminView && targetUserId) {
+          serverBots = serverBots.filter((bot) => {
+            if (
+              !bot.createdBy ||
+              bot.createdBy === 'demo_user' ||
+              bot.createdBy === 'guest_user'
+            ) {
+              const botName = (bot.name || '').toLowerCase();
+              const botId = (bot.id || '').toLowerCase();
+              const userId = targetUserId.toLowerCase();
+
+              // Preserve the existing compatibility behavior for legacy
+              // seeded/demo records.
+              if (userId.includes('risinia')) {
+                return (
+                  botName.includes('risinia') ||
+                  botId.includes('risinia')
+                );
+              }
+
+              if (userId.includes('river')) {
+                return (
+                  botName.includes('river') ||
+                  botId.includes('river')
+                );
+              }
+
+              return true;
+            }
+
+            return bot.createdBy === targetUserId;
+          });
+        }
+
+        // Read deleted bot IDs so deleted bots do not reappear from another
+        // data source.
+        const deletedIdsRaw = localStorage.getItem(
+          'mintage_deleted_bot_ids',
+        );
+
+        let deletedIds: string[] = [];
+
+        if (deletedIdsRaw) {
+          try {
+            const parsed = JSON.parse(deletedIdsRaw);
+            if (Array.isArray(parsed)) {
+              deletedIds = parsed.filter(
+                (value): value is string => typeof value === 'string',
+              );
+            }
+          } catch {
+            deletedIds = [];
           }
         }
-      } catch {}
 
-      if (!isGlobalAdminView && targetUserId) {
-        serverBots = serverBots.filter(b => {
-          if (!b.createdBy || b.createdBy === 'demo_user' || b.createdBy === 'guest_user') {
-            const bName = (b.name || '').toLowerCase();
-            const bId = (b.id || '').toLowerCase();
-            const tId = targetUserId.toLowerCase();
-            if (tId.includes('risinia')) return bName.includes('risinia') || bId.includes('risinia');
-            if (tId.includes('river')) return bName.includes('river') || bId.includes('river');
-            return true;
+        // Merge locally cached bots as a third source.
+        const localBotsRaw =
+          localStorage.getItem('mintage_bots') ||
+          localStorage.getItem('botflow_local_bots');
+
+        let localBots: BotConfig[] = [];
+
+        if (localBotsRaw) {
+          try {
+            const parsed = JSON.parse(localBotsRaw);
+
+            if (Array.isArray(parsed)) {
+              localBots = parsed.filter(
+                (bot): bot is BotConfig =>
+                  Boolean(bot && typeof bot === 'object' && bot.id),
+              );
+
+              if (!isGlobalAdminView && targetUserId) {
+                localBots = localBots.filter(
+                  (bot) =>
+                    bot.createdBy === targetUserId || !bot.createdBy,
+                );
+              }
+            }
+          } catch {
+            localBots = [];
           }
-          return b.createdBy === targetUserId;
+        }
+
+        // Merge all sources by bot ID. Later sources take precedence.
+        const botMap = new Map<string, BotConfig>();
+
+        localBots.forEach((bot) => {
+          if (bot.id && !deletedIds.includes(bot.id)) {
+            botMap.set(bot.id, bot);
+          }
         });
-      }
 
-      // Read deleted bot IDs blacklist
-      const deletedIdsRaw = localStorage.getItem('mintage_deleted_bot_ids');
-      let deletedIds: string[] = [];
-      if (deletedIdsRaw) {
-        try { deletedIds = JSON.parse(deletedIdsRaw); } catch {}
-      }
-
-      // Merge with local storage cached flows so saved flows are always visible
-      const localBotsRaw = localStorage.getItem('mintage_bots') || localStorage.getItem('botflow_local_bots');
-      let localBots: BotConfig[] = [];
-      if (localBotsRaw) {
-        try { 
-          localBots = JSON.parse(localBotsRaw); 
-          if (!isGlobalAdminView && targetUserId) {
-            localBots = localBots.filter(b => b.createdBy === targetUserId || !b.createdBy);
+        serverBots.forEach((bot) => {
+          if (bot.id && !deletedIds.includes(bot.id)) {
+            botMap.set(bot.id, bot);
           }
-        } catch {}
-      }
+        });
 
-      const botMap = new Map<string, BotConfig>();
-      localBots.forEach(b => { if (b && b.id && !deletedIds.includes(b.id)) botMap.set(b.id, b); });
-      serverBots.forEach(b => { if (b && b.id && !deletedIds.includes(b.id)) botMap.set(b.id, b); });
-      firestoreBots.forEach(b => { if (b && b.id && !deletedIds.includes(b.id)) botMap.set(b.id, b); });
+        firestoreBots.forEach((bot) => {
+          if (bot.id && !deletedIds.includes(bot.id)) {
+            botMap.set(bot.id, bot);
+          }
+        });
 
-      const mergedBots = Array.from(botMap.values());
-      
-      setBots(mergedBots.sort((a, b) => {
-        const timeA = a.updatedAt?.seconds ? a.updatedAt.seconds * 1000 : new Date(a.updatedAt || 0).getTime();
-        const timeB = b.updatedAt?.seconds ? b.updatedAt.seconds * 1000 : new Date(b.updatedAt || 0).getTime();
-        return timeB - timeA;
-      }));
-      setLoading(false);
-    }, (error) => {
-      console.warn('Snapshot listener error on bots, relying on local cache:', error);
-      const localBotsRaw = localStorage.getItem('mintage_bots') || localStorage.getItem('botflow_local_bots');
-      if (localBotsRaw) {
-        try {
-          const parsed = JSON.parse(localBotsRaw);
-          const deletedIdsRaw = localStorage.getItem('mintage_deleted_bot_ids');
-          const deletedIds: string[] = deletedIdsRaw ? JSON.parse(deletedIdsRaw) : [];
-          setBots(parsed.filter((b: any) => b && b.id && !deletedIds.includes(b.id)));
-        } catch {}
-      }
-      setLoading(false);
-    });
+        const mergedBots = Array.from(botMap.values());
+
+        mergedBots.sort((a, b) => {
+          const timeA = getTimestampMs(a.updatedAt);
+          const timeB = getTimestampMs(b.updatedAt);
+          return timeB - timeA;
+        });
+
+        setBots(mergedBots);
+        setLoading(false);
+      },
+      (error) => {
+        console.warn(
+          'Snapshot listener error on bots, relying on local cache:',
+          error,
+        );
+
+        const localBotsRaw =
+          localStorage.getItem('mintage_bots') ||
+          localStorage.getItem('botflow_local_bots');
+
+        if (localBotsRaw) {
+          try {
+            const parsed = JSON.parse(localBotsRaw);
+            const deletedIdsRaw = localStorage.getItem(
+              'mintage_deleted_bot_ids',
+            );
+
+            let deletedIds: string[] = [];
+
+            if (deletedIdsRaw) {
+              try {
+                const deletedParsed = JSON.parse(deletedIdsRaw);
+                if (Array.isArray(deletedParsed)) {
+                  deletedIds = deletedParsed.filter(
+                    (value): value is string =>
+                      typeof value === 'string',
+                  );
+                }
+              } catch {
+                deletedIds = [];
+              }
+            }
+
+            if (Array.isArray(parsed)) {
+              setBots(
+                parsed.filter(
+                  (bot: any) =>
+                    bot &&
+                    bot.id &&
+                    !deletedIds.includes(bot.id),
+                ),
+              );
+            } else {
+              setBots([]);
+            }
+          } catch {
+            setBots([]);
+          }
+        } else {
+          setBots([]);
+        }
+
+        setLoading(false);
+      },
+    );
 
     return () => unsubscribe();
   }, [effectiveUserId, isAdmin, impersonatedClient]);
 
   const confirmDeleteBot = async () => {
-    if (!deletingBot) return;
+    if (!deletingBot) {
+      return;
+    }
+
     setIsDeleting(true);
     const targetId = deletingBot.id;
 
     try {
-      // 1. Delete from Server API backend
+      // 1. Delete from the server API.
       try {
-        await fetch(`/api/bots/${encodeURIComponent(targetId)}`, { method: 'DELETE' });
+        await fetch(`/api/bots/${encodeURIComponent(targetId)}`, {
+          method: 'DELETE',
+        });
+
         await fetch('/api/bots/delete', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: targetId })
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ id: targetId }),
         });
-      } catch (apiErr) {
-        console.warn('Server bot delete API error:', apiErr);
+      } catch (apiError) {
+        console.warn('Server bot delete API error:', apiError);
       }
 
-      // 2. Delete from Firestore
-      await deleteDoc(doc(db, 'bot_configurations', targetId)).catch(() => null);
-      
-      // 3. Update localStorage blacklist
-      const deletedIdsRaw = localStorage.getItem('mintage_deleted_bot_ids');
+      // 2. Delete from Firestore.
+      await deleteDoc(
+        doc(db, 'bot_configurations', targetId),
+      ).catch(() => null);
+
+      // 3. Add the ID to the local deletion blacklist.
+      const deletedIdsRaw = localStorage.getItem(
+        'mintage_deleted_bot_ids',
+      );
+
       let deletedIds: string[] = [];
+
       if (deletedIdsRaw) {
-        try { deletedIds = JSON.parse(deletedIdsRaw); } catch {}
+        try {
+          const parsed = JSON.parse(deletedIdsRaw);
+
+          if (Array.isArray(parsed)) {
+            deletedIds = parsed.filter(
+              (value): value is string => typeof value === 'string',
+            );
+          }
+        } catch {
+          deletedIds = [];
+        }
       }
+
       if (!deletedIds.includes(targetId)) {
         deletedIds.push(targetId);
-        localStorage.setItem('mintage_deleted_bot_ids', JSON.stringify(deletedIds));
+        localStorage.setItem(
+          'mintage_deleted_bot_ids',
+          JSON.stringify(deletedIds),
+        );
       }
 
-      // 4. Clean up all localStorage bot caches
-      ['mintage_bots', 'botflow_local_bots', 'mintage_bot_configurations'].forEach(key => {
+      // 4. Remove the bot from all local caches.
+      [
+        'mintage_bots',
+        'botflow_local_bots',
+        'mintage_bot_configurations',
+      ].forEach((key) => {
         const raw = localStorage.getItem(key);
-        if (raw) {
-          try {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed)) {
-              const filtered = parsed.filter((b: any) => b && b.id !== targetId);
-              localStorage.setItem(key, JSON.stringify(filtered));
-            }
-          } catch {}
+
+        if (!raw) {
+          return;
+        }
+
+        try {
+          const parsed = JSON.parse(raw);
+
+          if (Array.isArray(parsed)) {
+            const filtered = parsed.filter(
+              (bot: any) => bot && bot.id !== targetId,
+            );
+
+            localStorage.setItem(key, JSON.stringify(filtered));
+          }
+        } catch {
+          // Ignore malformed local cache entries.
         }
       });
 
-      window.dispatchEvent(new CustomEvent('mintage_bot_deleted', { detail: { id: targetId } }));
+      window.dispatchEvent(
+        new CustomEvent('mintage_bot_deleted', {
+          detail: { id: targetId },
+        }),
+      );
 
-      setBots(prev => prev.filter(b => b.id !== targetId));
+      setBots((previousBots) =>
+        previousBots.filter((bot) => bot.id !== targetId),
+      );
+
       setDeletingBot(null);
     } catch (error) {
       console.error('Error deleting bot:', error);
@@ -193,8 +404,11 @@ export default function Bots() {
         <div>
           <span className="eyebrow">Chatbot library</span>
           <h1>My bots</h1>
-          <p>Open a flow, review its setup, or publish a new chatbot.</p>
+          <p>
+            Open a flow, review its setup, or publish a new chatbot.
+          </p>
         </div>
+
         <Link to="/builder" className="button-primary">
           <Plus />
           New bot
@@ -202,8 +416,15 @@ export default function Bots() {
       </header>
 
       <div className="database-toolbar">
-        <div className="database-view is-active"><GitBranch /> All flows <span>{bots.length}</span></div>
-        <p className="database-toolbar-note">Updated automatically</p>
+        <div className="database-view is-active">
+          <GitBranch />
+          All flows
+          <span>{bots.length}</span>
+        </div>
+
+        <p className="database-toolbar-note">
+          Updated automatically
+        </p>
       </div>
 
       {loading ? (
@@ -216,9 +437,18 @@ export default function Bots() {
           <div className="empty-icon">
             <GitBranch />
           </div>
+
           <h3>No bots in this workspace</h3>
-          <p>Create your first conversational flow and publish it when you are ready.</p>
-          <Link to="/builder" className="button-primary"><Plus /> Create a bot</Link>
+
+          <p>
+            Create your first conversational flow and publish it
+            when you are ready.
+          </p>
+
+          <Link to="/builder" className="button-primary">
+            <Plus />
+            Create a bot
+          </Link>
         </div>
       ) : (
         <div className="bot-card-grid">
@@ -226,40 +456,99 @@ export default function Bots() {
             <article key={bot.id} className="bot-card">
               <div className="bot-card-head">
                 <div className="bot-icon">
-                  <BotIcon />
+                  <GitBranch aria-hidden="true" />
                 </div>
+
                 <div className="bot-card-actions">
-                  <button onClick={() => navigate(`/builder/${bot.id}`)} className="icon-button" title="Edit bot flow">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      navigate(`/builder/${bot.id}`)
+                    }
+                    className="icon-button"
+                    title="Edit bot flow"
+                    aria-label={`Edit ${bot.name}`}
+                  >
                     <Edit2 />
                   </button>
-                  <button onClick={() => setDeletingBot(bot)} className="icon-button danger" title="Delete bot">
+
+                  <button
+                    type="button"
+                    onClick={() => setDeletingBot(bot)}
+                    className="icon-button danger"
+                    title="Delete bot"
+                    aria-label={`Delete ${bot.name}`}
+                  >
                     <Trash2 />
                   </button>
                 </div>
               </div>
+
               <div className="bot-title-row">
-                <div className="min-w-0 flex-1"><h3>{bot.name}</h3><p>Updated {bot.updatedAt?.toDate ? format(bot.updatedAt.toDate(), 'MMM d, yyyy') : 'recently'}</p></div>
-                <span className={`status-pill ${bot.leadsCount && bot.leadsCount > 0 ? 'status-live' : ''}`}><span />{bot.leadsCount && bot.leadsCount > 0 ? 'Active' : 'Draft'}</span>
+                <div className="min-w-0 flex-1">
+                  <h3>{bot.name || 'Untitled bot'}</h3>
+                  <p>
+                    Updated {formatUpdatedDate(bot.updatedAt)}
+                  </p>
+                </div>
+
+                <span
+                  className={`status-pill ${bot.leadsCount && bot.leadsCount > 0
+                      ? 'status-live'
+                      : ''
+                    }`}
+                >
+                  <span />
+                  {bot.leadsCount && bot.leadsCount > 0
+                    ? 'Active'
+                    : 'Draft'}
+                </span>
               </div>
 
               <div className="bot-properties">
-                <div><span>Leads</span><strong>{bot.leadsCount || 0}</strong></div>
-                <div><span>Google Sheet</span>
-                {bot.spreadsheetId ? (
-                  <a href={`https://docs.google.com/spreadsheets/d/${bot.spreadsheetId}`} target="_blank" rel="noopener noreferrer">
-                    <FileSpreadsheet /> Connected
-                  </a>
-                ) : (
-                  <Link to={`/builder/${bot.id}`}>Not connected</Link>
-                )}</div>
+                <div>
+                  <span>Leads</span>
+                  <strong>{bot.leadsCount || 0}</strong>
+                </div>
+
+                <div>
+                  <span>Google Sheet</span>
+
+                  {bot.spreadsheetId ? (
+                    <a
+                      href={`https://docs.google.com/spreadsheets/d/${encodeURIComponent(
+                        bot.spreadsheetId,
+                      )}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <FileSpreadsheet />
+                      Connected
+                    </a>
+                  ) : (
+                    <Link to={`/builder/${bot.id}`}>
+                      Not connected
+                    </Link>
+                  )}
+                </div>
               </div>
 
               <div className="bot-card-footer">
-                <Link to={`/builder/${bot.id}`} className="button-primary compact">
+                <Link
+                  to={`/builder/${bot.id}`}
+                  className="button-primary compact"
+                >
                   Open flow
                 </Link>
-                <a href={`/widget/${bot.id}`} target="_blank" rel="noopener noreferrer" className="button-secondary compact">
-                  Preview <ExternalLink />
+
+                <a
+                  href={`/widget/${encodeURIComponent(bot.id)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="button-secondary compact"
+                >
+                  Preview
+                  <ExternalLink />
                 </a>
               </div>
             </article>
@@ -267,20 +556,28 @@ export default function Bots() {
         </div>
       )}
 
-      {/* Delete Bot Confirmation Modal */}
       {deletingBot && (
         <div className="modal-backdrop">
-          <div className="app-modal is-centered">
+          <div
+            className="app-modal is-centered"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-bot-title"
+          >
             <div className="modal-danger-icon">
               <AlertTriangle />
             </div>
 
-            <h3>Delete this bot?</h3>
+            <h3 id="delete-bot-title">Delete this bot?</h3>
+
             <p className="mt-1.5">
-              <strong>“{deletingBot.name}”</strong> and its published widget endpoint will be permanently removed.
+              <strong>“{deletingBot.name}”</strong> and its
+              published widget endpoint will be permanently removed.
             </p>
+
             <p className="modal-note">
-              Previously captured leads will remain available in Lead data.
+              Previously captured leads will remain available in
+              Lead data.
             </p>
 
             <div className="modal-actions">
@@ -292,14 +589,22 @@ export default function Bots() {
               >
                 Cancel
               </button>
+
               <button
                 type="button"
                 onClick={confirmDeleteBot}
                 disabled={isDeleting}
                 className="button-danger flex-1"
               >
-                {isDeleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
-                <span>{isDeleting ? 'Deleting…' : 'Delete bot'}</span>
+                {isDeleting ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  <Trash2 />
+                )}
+
+                <span>
+                  {isDeleting ? 'Deleting…' : 'Delete bot'}
+                </span>
               </button>
             </div>
           </div>
@@ -309,6 +614,53 @@ export default function Bots() {
   );
 }
 
-function BotIcon() {
-  return <GitBranch aria-hidden="true" />;
+function getTimestampMs(value: any): number {
+  if (!value) {
+    return 0;
+  }
+
+  if (typeof value?.seconds === 'number') {
+    return value.seconds * 1000;
+  }
+
+  if (typeof value?.toMillis === 'function') {
+    try {
+      return value.toMillis();
+    } catch {
+      return 0;
+    }
+  }
+
+  if (typeof value?.toDate === 'function') {
+    try {
+      return value.toDate().getTime();
+    } catch {
+      return 0;
+    }
+  }
+
+  if (value instanceof Date) {
+    return value.getTime();
+  }
+
+  if (typeof value === 'number') {
+    return value;
+  }
+
+  const parsed = new Date(value).getTime();
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function formatUpdatedDate(value: any): string {
+  const timestamp = getTimestampMs(value);
+
+  if (!timestamp) {
+    return 'recently';
+  }
+
+  try {
+    return format(new Date(timestamp), 'MMM d, yyyy');
+  } catch {
+    return 'recently';
+  }
 }

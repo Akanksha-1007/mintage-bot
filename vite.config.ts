@@ -7,8 +7,6 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
 
   return {
-    // Required because the app is hosted at
-    // akanksha-1007.github.io/mintage-bot/
     base: '/',
 
     plugins: [react(), tailwindcss()],
@@ -25,6 +23,12 @@ export default defineConfig(({ mode }) => {
 
     server: {
       hmr: process.env.DISABLE_HMR !== 'true',
+
+      watch: {
+        ignored: [
+          '**/public/bots.json',
+        ],
+      },
     },
   };
 });

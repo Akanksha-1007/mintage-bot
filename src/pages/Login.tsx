@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, 
-  signInWithPopup, 
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signInWithPopup,
   GoogleAuthProvider,
   EmailAuthProvider,
   linkWithCredential,
@@ -210,10 +210,10 @@ export default function Login() {
   const handleSetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!pendingUser || !password) return;
-    
+
     setError('');
     setIsLoading(true);
-    
+
     try {
       const credential = EmailAuthProvider.credential(pendingUser.email!, password);
       await linkWithCredential(pendingUser, credential);
