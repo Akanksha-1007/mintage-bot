@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Node, Edge } from '@xyflow/react';
+import { validateFieldValue } from '../lib/validation';
 import {
   ArrowDown,
   ArrowRight,
@@ -289,10 +290,27 @@ export default function ClassicChatBuilder({
     const textToSend = replyText || testUserInput;
     if (!textToSend.trim()) return;
 
+    const currentStepNode = safeNodes[testCurrentStepIndex];
+
+    if (currentStepNode) {
+      const fieldLabel = (currentStepNode.data?.label as string) || (currentStepNode.data?.key as string) || 'Field';
+      const fieldKey = (currentStepNode.data?.key as string) || currentStepNode.type;
+
+      const val = validateFieldValue(currentStepNode.type, fieldKey, fieldLabel, textToSend);
+      if (!val.isValid) {
+        setTestMessages(prev => [
+          ...prev,
+          { sender: 'user' as const, text: textToSend },
+          { sender: 'bot' as const, text: val.errorMsg || '⚠️ Please enter a valid response.' }
+        ]);
+        setTestUserInput('');
+        return;
+      }
+    }
+
     const newMsgs = [...testMessages, { sender: 'user' as const, text: textToSend }];
     setTestUserInput('');
 
-    const currentStepNode = safeNodes[testCurrentStepIndex];
     let nextIndex = testCurrentStepIndex + 1;
 
     // Check optionRoutes, nextStepId or choice edges

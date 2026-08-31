@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../lib/firebase';
 import { doc, getDoc, getDocs, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
-import { Bot, ChevronRight, Loader2, Send } from 'lucide-react';
+import { AlertCircle, Bot, ChevronRight, Loader2, Send } from 'lucide-react';
+import { validateFieldValue } from '../lib/validation';
 
 interface ChatWidgetProps {
   botId: string;
@@ -23,6 +24,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentNodeId, setCurrentNodeId] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState('');
+  const [inputError, setInputError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [leadData, setLeadData] = useState<Record<string, any>>({});
@@ -462,7 +464,35 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         fieldLabel = currentNode.data?.label || currentNode.data?.key || currentNode.data?.leadKey || 'Field';
         fieldKey = currentNode.data?.key || currentNode.data?.leadKey || currentNode.data?.label || ('field_' + Date.now());
       }
+
+      // Enforce Chatbot Field Validation (Email must contain @, Phone must be 10 digits, Name must be >=3 letters)
+      const validation = validateFieldValue(
+        currentNode.type,
+        fieldKey,
+        fieldLabel,
+        cleanText
+      );
+
+      if (!validation.isValid) {
+        setInputError(validation.errorMsg || '⚠️ Invalid response.');
+        trackMessageToBackend('user', cleanText, currentNode?.type || 'text', profileUpdate);
+        setIsTyping(true);
+        setTimeout(() => {
+          setIsTyping(false);
+          setMessages(prev => [...prev, {
+            id: Date.now().toString() + '_val_err',
+            text: validation.errorMsg || '⚠️ Please enter a valid response.',
+            sender: 'bot'
+          }]);
+          if (validation.errorMsg) {
+            trackMessageToBackend('bot', validation.errorMsg, 'validation_error');
+          }
+        }, 500);
+        return;
+      }
     }
+
+    setInputError(null);
 
     // Track user message in Backend / Firebase
     trackMessageToBackend('user', cleanText, currentNode?.type || 'text', profileUpdate);
@@ -791,32 +821,40 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
       {/* Composer */}
       {!isTyping && (
-        <form
-          onSubmit={(e) => { e.preventDefault(); if (inputValue.trim()) handleUserInput(inputValue); }}
-          className="chat-composer"
-        >
-          <input
-            type="text"
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            placeholder={
-              currentNode?.type === 'name' ? 'Type your full name…' :
-                currentNode?.type === 'phone' ? 'Type your phone number…' :
-                  currentNode?.type === 'email' ? 'Type your email address…' :
-                    'Type your response…'
-            }
-            className="input"
-            aria-label="Your message"
-          />
-          <button
-            type="submit"
-            disabled={!inputValue.trim() || isSubmitting}
-            className="chat-send"
-            aria-label="Send message"
+        <div className="flex flex-col">
+          {inputError && (
+            <div className="px-3.5 py-1.5 bg-red-50 text-red-700 text-[12px] font-medium border-t border-b border-red-200/80 flex items-center gap-1.5">
+              <AlertCircle className="w-3.5 h-3.5 flex-none" />
+              <span>{inputError}</span>
+            </div>
+          )}
+          <form
+            onSubmit={(e) => { e.preventDefault(); if (inputValue.trim()) handleUserInput(inputValue); }}
+            className="chat-composer"
           >
-            <Send />
-          </button>
-        </form>
+            <input
+              type="text"
+              value={inputValue}
+              onChange={(e) => { setInputValue(e.target.value); if (inputError) setInputError(null); }}
+              placeholder={
+                currentNode?.type === 'name' ? 'Type your full name (alphabets only, min 3 letters)…' :
+                  currentNode?.type === 'phone' ? 'Type your 10-digit phone number…' :
+                    currentNode?.type === 'email' ? 'Type your email address (with @)…' :
+                      'Type your response…'
+              }
+              className="input"
+              aria-label="Your message"
+            />
+            <button
+              type="submit"
+              disabled={!inputValue.trim() || isSubmitting}
+              className="chat-send"
+              aria-label="Send message"
+            >
+              <Send />
+            </button>
+          </form>
+        </div>
       )}
 
       {/* Footer */}

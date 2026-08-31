@@ -350,5 +350,81 @@
     "spreadsheetId": "",
     "createdBy": "demo_user",
     "updatedAt": "2026-08-31T11:48:39.702Z"
+  },
+  {
+    "id": "bot_1788177745832",
+    "name": "My New Bot",
+    "nodes": [
+      {
+        "id": "1",
+        "type": "input",
+        "data": {
+          "label": "Start"
+        },
+        "position": {
+          "x": 250,
+          "y": 5
+        }
+      },
+      {
+        "id": "node_1788177742142",
+        "type": "name",
+        "data": {
+          "label": "To start, could you share your full name with us?",
+          "key": "full_name"
+        },
+        "position": {
+          "x": 250,
+          "y": 240
+        }
+      },
+      {
+        "id": "node_1788177742935",
+        "type": "phone",
+        "data": {
+          "label": "Thanks! Could you also give us your phone number?",
+          "key": "phone_number"
+        },
+        "position": {
+          "x": 250,
+          "y": 360
+        }
+      },
+      {
+        "id": "node_1788177743759",
+        "type": "email",
+        "data": {
+          "label": "Perfect! Now please provide your email address so our team can reach out.",
+          "key": "email_address"
+        },
+        "position": {
+          "x": 250,
+          "y": 480
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e_1-node_1788177742142",
+        "source": "1",
+        "target": "node_1788177742142",
+        "type": "smoothstep"
+      },
+      {
+        "id": "e_node_1788177742142-node_1788177742935",
+        "source": "node_1788177742142",
+        "target": "node_1788177742935",
+        "type": "smoothstep"
+      },
+      {
+        "id": "e_node_1788177742935-node_1788177743759",
+        "source": "node_1788177742935",
+        "target": "node_1788177743759",
+        "type": "smoothstep"
+      }
+    ],
+    "spreadsheetId": "",
+    "createdBy": "demo_user",
+    "updatedAt": "2026-08-31T12:02:28.498Z"
   }
 ]
