@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
+import ChatWidget from '../components/ChatWidget';
 import { db, auth } from '../lib/firebase';
 import { doc, getDoc, updateDoc, setDoc, serverTimestamp, collection, query, where, getDocs, deleteDoc, onSnapshot } from 'firebase/firestore';
 import {
   Loader2, CheckCircle2, ExternalLink, AlertCircle, AlertTriangle, FileSpreadsheet,
-  Plus, Sparkles, Bot, Link2, RefreshCw, Send, Trash2, Check, Copy
+  Plus, Sparkles, Bot, Link2, RefreshCw, Send, Trash2, Check, Copy, HelpCircle
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -13,10 +14,11 @@ interface BotInfo {
   name: string;
   spreadsheetId?: string;
   createdBy?: string;
+  googleOwnerId?: string;
 }
 
 export default function Integrations() {
-  const { effectiveUserId } = useAuth();
+  const { effectiveUserId, isAdmin } = useAuth();
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [globalSpreadsheetId, setGlobalSpreadsheetId] = useState('');
@@ -61,7 +63,7 @@ export default function Integrations() {
   const directWebLinkTag = `<a href="${activeOrigin}/widget/${activeBotId}" target="_blank" rel="noopener noreferrer" class="chat-btn">Chat with Us</a>`;
 
   const copyScriptToClipboard = () => {
-    navigator.clipboard?.writeText(embedScriptTag).catch(() => { });
+    navigator.clipboard.writeText(embedScriptTag);
     setCopiedScript(true);
     setTimeout(() => setCopiedScript(false), 2000);
   };
@@ -70,19 +72,19 @@ export default function Integrations() {
   const [copiedDirectLink, setCopiedDirectLink] = useState(false);
 
   const copyPopupScriptToClipboard = () => {
-    navigator.clipboard?.writeText(embedPopupScriptTag).catch(() => { });
+    navigator.clipboard.writeText(embedPopupScriptTag);
     setCopiedPopupScript(true);
     setTimeout(() => setCopiedPopupScript(false), 2000);
   };
 
   const copyIframeToClipboard = () => {
-    navigator.clipboard?.writeText(embedIframeTag).catch(() => { });
+    navigator.clipboard.writeText(embedIframeTag);
     setCopiedIframe(true);
     setTimeout(() => setCopiedIframe(false), 2000);
   };
 
   const copyDirectLinkToClipboard = () => {
-    navigator.clipboard?.writeText(directWebLinkTag).catch(() => { });
+    navigator.clipboard.writeText(directWebLinkTag);
     setCopiedDirectLink(true);
     setTimeout(() => setCopiedDirectLink(false), 2000);
   };
@@ -134,14 +136,7 @@ export default function Integrations() {
       const deletedIdsRaw = localStorage.getItem('mintage_deleted_bot_ids');
       let deletedIds: string[] = [];
       if (deletedIdsRaw) {
-        try {
-          const parsed = JSON.parse(deletedIdsRaw);
-          if (Array.isArray(parsed)) {
-            deletedIds = parsed.filter((id): id is string => typeof id === 'string');
-          }
-        } catch {
-          deletedIds = [];
-        }
+        try { deletedIds = JSON.parse(deletedIdsRaw); } catch { }
       }
 
       // Fetch user's bots from Firestore
@@ -160,7 +155,8 @@ export default function Integrations() {
                 id: d.id,
                 name: d.data().name || 'Unnamed Bot',
                 spreadsheetId: d.data().spreadsheetId || '',
-                createdBy: d.data().createdBy
+                createdBy: d.data().createdBy,
+                googleOwnerId: d.data().googleOwnerId || d.data().createdBy || ''
               });
             }
           });
@@ -181,7 +177,8 @@ export default function Integrations() {
                   id: b.id,
                   name: b.name || 'Unnamed Bot',
                   spreadsheetId: b.spreadsheetId || '',
-                  createdBy: b.createdBy
+                  createdBy: b.createdBy,
+                  googleOwnerId: b.googleOwnerId || b.createdBy || ''
                 });
               }
             });
@@ -203,7 +200,8 @@ export default function Integrations() {
                   id: b.id,
                   name: b.name || 'Unnamed Bot',
                   spreadsheetId: b.spreadsheetId || '',
-                  createdBy: b.createdBy
+                  createdBy: b.createdBy,
+                  googleOwnerId: b.googleOwnerId || b.createdBy || ''
                 });
               } else {
                 // Update spreadsheet ID if set in localStorage
@@ -373,7 +371,7 @@ export default function Integrations() {
           try {
             localStorage.setItem('mintage_google_tokens', JSON.stringify(tokens));
 
-            const targetUid = effectiveUserId || auth.currentUser?.uid || 'demo_user';
+            const targetUid = auth.currentUser?.uid || effectiveUserId || 'demo_user';
             await fetch('/api/auth/google/tokens', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -389,6 +387,36 @@ export default function Integrations() {
                 updatedAt: serverTimestamp(),
               }, { merge: true }).catch(() => null);
             }
+
+            const googleOwnerId = auth.currentUser?.uid || effectiveUserId || 'demo_user';
+            await Promise.all(bots.map(async b => {
+              try {
+                await setDoc(doc(db, 'bot_configurations', b.id), { googleOwnerId, updatedAt: serverTimestamp() }, { merge: true });
+                await fetch('/api/bots/save', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    id: b.id,
+                    name: b.name,
+                    createdBy: b.createdBy || effectiveUserId || 'demo_user',
+                    spreadsheetId: b.spreadsheetId || '',
+                    googleOwnerId
+                  })
+                }).catch(() => null);
+              } catch (e) { console.warn('Google owner mapping warning:', e); }
+            }));
+
+            // The OAuth token is stored before the bot owner mapping above is
+            // written. Explicitly run a second sync after the mapping completes so
+            // legacy leads with clientId=demo_user are also picked up.
+            fetch('/api/leads/sync-all', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                googleOwnerId,
+                botIds: bots.map(b => b.id)
+              })
+            }).catch(err => console.warn('Post-authorize lead sync warning:', err));
 
             setIsConnected(true);
             setGoogleTokens(tokens);
@@ -536,6 +564,8 @@ export default function Integrations() {
     return trimmed;
   };
 
+  const getGoogleOwnerId = () => auth.currentUser?.uid || '';
+
   // Link specific Bot to a Spreadsheet ID/URL
   const handleLinkBotToSheet = async (botId: string) => {
     const rawInput = botInputs[botId] || '';
@@ -552,6 +582,7 @@ export default function Integrations() {
       try {
         await setDoc(doc(db, 'bot_configurations', botId), {
           spreadsheetId: cleanId,
+          googleOwnerId: getGoogleOwnerId() || bots.find(b => b.id === botId)?.googleOwnerId || effectiveUserId || 'demo_user',
           updatedAt: serverTimestamp()
         }, { merge: true });
       } catch (e) {
@@ -567,7 +598,9 @@ export default function Integrations() {
           body: JSON.stringify({
             id: botId,
             name: existingBot?.name || 'Chatbot',
-            spreadsheetId: cleanId
+            createdBy: existingBot?.createdBy || effectiveUserId || 'demo_user',
+            spreadsheetId: cleanId,
+            googleOwnerId: getGoogleOwnerId() || existingBot?.googleOwnerId || effectiveUserId || 'demo_user'
           })
         });
       } catch (e) {
@@ -628,6 +661,7 @@ export default function Integrations() {
         try {
           await setDoc(doc(db, 'bot_configurations', botId), {
             spreadsheetId: newSheetId,
+            googleOwnerId: getGoogleOwnerId() || bots.find(b => b.id === botId)?.googleOwnerId || effectiveUserId || 'demo_user',
             updatedAt: serverTimestamp()
           }, { merge: true });
         } catch (e) {
@@ -642,7 +676,9 @@ export default function Integrations() {
             body: JSON.stringify({
               id: botId,
               name: botName,
-              spreadsheetId: newSheetId
+              createdBy: bots.find(b => b.id === botId)?.createdBy || effectiveUserId || 'demo_user',
+              spreadsheetId: newSheetId,
+              googleOwnerId: getGoogleOwnerId() || bots.find(b => b.id === botId)?.googleOwnerId || effectiveUserId || 'demo_user'
             })
           });
         } catch (e) {
@@ -694,7 +730,9 @@ export default function Integrations() {
           body: JSON.stringify({
             id: botId,
             name: existingBot?.name || 'Chatbot',
-            spreadsheetId: ''
+            createdBy: existingBot?.createdBy || effectiveUserId || 'demo_user',
+            spreadsheetId: '',
+            googleOwnerId: getGoogleOwnerId() || existingBot?.googleOwnerId || effectiveUserId || 'demo_user'
           })
         });
       } catch (e) { }
@@ -788,6 +826,7 @@ export default function Integrations() {
         body: JSON.stringify({
           tokens: googleTokens,
           spreadsheetId: sheetId,
+          leadId: `test_lead_${botId}`,
           leadData: {
             fullName: 'Sample Test Lead',
             email: 'testlead@example.com',
@@ -799,20 +838,9 @@ export default function Integrations() {
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        const action = data.action === 'updated' ? 'updated' : 'appended';
-        const location = data.rowNumber
-          ? ` (row ${data.rowNumber})`
-          : data.updatedRange
-            ? ` (${data.updatedRange})`
-            : '';
-
-        showToast(
-          action === 'updated'
-            ? `✅ Test lead updated in Google Sheet${location}`
-            : `🎉 Test lead appended to Google Sheet${location}`
-        );
+        showToast(data.action === 'updated' ? '✅ Test lead updated in Google Sheet!' : '🎉 Test row successfully appended to Google Sheet!');
       } else {
-        showToast(data.error || 'Failed to sync test lead', 'error');
+        showToast(data.error || 'Failed to append test row', 'error');
       }
     } catch (err: any) {
       showToast(`Error syncing test lead: ${err.message}`, 'error');
