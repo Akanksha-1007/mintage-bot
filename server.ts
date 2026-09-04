@@ -453,112 +453,200 @@ async function startServer() {
     return result;
   }
 
-  // Google Sheets synchronization. The entire read/check/write sequence is protected
-  // by a Firestore lock so concurrent Render requests cannot append the same lead twice.
+  // Google Sheets synchronization.
+  // Sheet layout:
+  //   Row 1 = Date + the questions/field labels actually answered by users
+  //   Row 2+ = one row per NEW lead
+  // Internal metadata such as lead ID, bot ID, source URL, status, etc. is never
+  // written to the user-facing lead data tab.
   async function syncLeadToGoogleSheets(tokens: any, rawSpreadsheetId: string, worksheetName = 'Sheet1', lead: any) {
     const spreadsheetId = extractSpreadsheetId(rawSpreadsheetId);
     if (!tokens || !spreadsheetId) throw new Error('Missing tokens or valid spreadsheetId');
 
-    return withGoogleSheetLeadLock(spreadsheetId, String(lead.id || `anonymous_${Date.now()}`), async () => {
+    const leadKey = String(lead.id || `anonymous_${Date.now()}`);
+
+    return withGoogleSheetLeadLock(spreadsheetId, leadKey, async () => {
       const auth = createOAuth2Client(tokens);
       const sheets = google.sheets({ version: 'v4', auth });
       let targetWorksheet = worksheetName || 'Sheet1';
 
       try {
-        const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties.title' });
-        const titles = (meta.data.sheets || []).map((s: any) => s.properties?.title).filter(Boolean);
-        if (titles.length > 0 && !titles.includes(targetWorksheet)) targetWorksheet = titles[0];
-      } catch (err: any) {
-        const msg = String(err?.message || err).toLowerCase();
-        if (msg.includes('invalid_grant') || msg.includes('unauthorized_client') || msg.includes('invalid_client')) {
-          const oauthErr: any = new Error('Google Account authorization expired. Please re-authorize your Google account.');
-          oauthErr.code = 'invalid_grant'; oauthErr.reconnectRequired = true;
-          throw oauthErr;
+        const meta = await sheets.spreadsheets.get({
+          spreadsheetId,
+          fields: 'sheets.properties.title'
+        });
+        const titles = (meta.data.sheets || [])
+          .map((s: any) => s.properties?.title)
+          .filter(Boolean) as string[];
+
+        if (titles.length > 0 && !titles.includes(targetWorksheet)) {
+          targetWorksheet = titles[0];
         }
-        console.warn('[SHEETS_META_NOTICE]', err?.message || err);
+
+        // Preserve the old metadata-heavy tab. Future lead data goes to a clean tab.
+        const headerCheck = await sheets.spreadsheets.values.get({
+          spreadsheetId,
+          range: `'${targetWorksheet}'!A1:ZZ2`
+        });
+        const firstRow = headerCheck.data.values?.[0] || [];
+        const legacyHeaders = new Set([
+          'timestamp', 'all captured fields', 'lead id', 'bot id', 'bot name',
+          'status', 'source url', 'conversation id', 'user id', 'client / account'
+        ]);
+        const hasLegacyLayout = firstRow.some((value: any) => legacyHeaders.has(String(value || '').trim().toLowerCase()));
+
+        if (hasLegacyLayout) {
+          const cleanTabName = 'Lead Data';
+          if (!titles.includes(cleanTabName)) {
+            const addSheetResponse = await sheets.spreadsheets.batchUpdate({
+              spreadsheetId,
+              requestBody: {
+                requests: [{ addSheet: { properties: { title: cleanTabName } } }]
+              }
+            });
+            targetWorksheet = addSheetResponse.data.replies?.[0]?.addSheet?.properties?.title || cleanTabName;
+            console.log('[SHEETS_CLEAN_TAB_CREATED]', { spreadsheetId, targetWorksheet });
+          } else {
+            targetWorksheet = cleanTabName;
+          }
+        }
+      } catch (err: any) {
+        const code = String(err?.code || '').toLowerCase();
+        const msg = String(err?.message || err).toLowerCase();
+        if (code === '401' || code === '403' || msg.includes('invalid_grant') || msg.includes('unauthorized_client') || msg.includes('invalid_client')) {
+          if (msg.includes('invalid_grant') || msg.includes('unauthorized_client') || msg.includes('invalid_client')) {
+            const oauthErr: any = new Error('Google Account authorization expired. Please re-authorize your Google account.');
+            oauthErr.code = 'invalid_grant';
+            oauthErr.reconnectRequired = true;
+            throw oauthErr;
+          }
+        }
+        throw err;
       }
 
       let existingRows: any[][] = [];
       try {
-        const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `'${targetWorksheet}'!A1:ZZ1000` });
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId,
+          range: `'${targetWorksheet}'!A1:ZZ1000`
+        });
         existingRows = response.data.values || [];
       } catch (err: any) {
         const msg = String(err?.message || err).toLowerCase();
         if (msg.includes('invalid_grant') || msg.includes('unauthorized_client') || msg.includes('invalid_client')) {
           const oauthErr: any = new Error('Google Account authorization expired. Please re-authorize your Google account.');
-          oauthErr.code = 'invalid_grant'; oauthErr.reconnectRequired = true;
+          oauthErr.code = 'invalid_grant';
+          oauthErr.reconnectRequired = true;
           throw oauthErr;
+        }
+        throw err;
+      }
+
+      // IMPORTANT: only the actual chatbot-captured fields are sent to Sheets.
+      // We intentionally do not inspect lead.data because it may contain internal data.
+      const fieldValues = new Map<string, string>();
+      if (Array.isArray(lead.fields)) {
+        for (const field of lead.fields) {
+          const label = String(field?.label ?? '').replace(/\s+/g, ' ').trim();
+          const value = field?.value == null ? '' : String(field.value).trim();
+          if (!label || !value) continue;
+          if (!fieldValues.has(label)) fieldValues.set(label, value);
         }
       }
 
-      let headers: string[] = existingRows.length ? existingRows[0].map((h: any) => String(h).trim()) : [];
-      const standardHeaders = ['Timestamp', 'Name', 'Email', 'Phone', 'All Captured Fields', 'Lead ID', 'Bot ID', 'Bot Name', 'Status', 'Source URL'];
-      const fieldLabelMap = new Map<string, string>();
+      if (fieldValues.size === 0) {
+        return {
+          success: true,
+          action: 'skipped_no_user_fields',
+          spreadsheetId,
+          worksheetName: targetWorksheet
+        };
+      }
 
-      if (Array.isArray(lead.fields)) {
-        lead.fields.forEach((f: any) => {
-          if (f?.label) fieldLabelMap.set(String(f.label).trim(), f.value !== undefined ? String(f.value) : '');
+      const existingHeaders = (existingRows[0] || [])
+        .map((h: any) => String(h ?? '').replace(/\s+/g, ' ').trim())
+        .filter(Boolean);
+
+      // Clean schema: Date + one column per question/field label.
+      let headers = existingHeaders.length > 0 ? [...existingHeaders] : ['Date'];
+
+      // If the newly-created clean tab is empty, start it with Date.
+      if (headers.length === 1 && headers[0].toLowerCase() !== 'date' && existingRows.length === 0) {
+        headers = ['Date'];
+      }
+
+      // If the tab is empty but has no header, create Date first.
+      if (headers.length === 0) headers = ['Date'];
+
+      // Remove any old metadata if this is somehow still present after tab selection.
+      const forbidden = new Set([
+        'timestamp', 'name', 'email', 'phone', 'phone number', 'all captured fields',
+        'lead id', 'bot id', 'bot name', 'status', 'source url', 'conversation id',
+        'user id', 'client / account'
+      ]);
+      const isLegacyHeaderStillPresent = headers.some(h => forbidden.has(h.toLowerCase()));
+      if (isLegacyHeaderStillPresent) {
+        throw new Error('Configured Google Sheet tab uses the old lead metadata layout. The clean Lead Data tab should be used.');
+      }
+
+      for (const label of fieldValues.keys()) {
+        if (!headers.some(h => h.toLowerCase() === label.toLowerCase())) {
+          headers.push(label);
+        }
+      }
+
+      const previousHeaderRow = existingRows[0] || [];
+      if (JSON.stringify(previousHeaderRow) !== JSON.stringify(headers)) {
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: `'${targetWorksheet}'!1:1`,
+          valueInputOption: 'USER_ENTERED',
+          requestBody: { values: [headers] }
         });
       }
 
-      const rawData = lead.data || lead;
-      if (rawData && typeof rawData === 'object') {
-        Object.entries(rawData).forEach(([key, val]) => {
-          const cleanKey = String(key).trim();
-          if (!['id', 'botId', 'flowId', 'clientId', 'ownerId', 'googleOwnerId', 'botName', 'clientName', 'fields', 'sourceUrl', 'submittedAt', 'timestamp', 'googleSheetSyncStatus', 'googleSheetSyncError', 'googleSheetSyncedAt', 'spreadsheetId', 'worksheetName'].includes(cleanKey) && !fieldLabelMap.has(cleanKey)) {
-            fieldLabelMap.set(cleanKey, val !== undefined ? String(val) : '');
-          }
-        });
-      }
+      const submittedDate = new Date(lead.submittedAt || lead.timestamp || Date.now());
+      const dateValue = Number.isNaN(submittedDate.getTime())
+        ? new Date().toISOString().slice(0, 10)
+        : submittedDate.toISOString().slice(0, 10);
 
-      let headersUpdated = false;
-      if (headers.length === 0) { headers = [...standardHeaders]; headersUpdated = true; }
-      for (const h of standardHeaders) { if (!headers.some(x => x.toLowerCase() === h.toLowerCase())) { headers.push(h); headersUpdated = true; } }
-      for (const [label] of fieldLabelMap) { if (!headers.some(x => x.toLowerCase() === label.toLowerCase())) { headers.push(label); headersUpdated = true; } }
-
-      if (headersUpdated) {
-        await sheets.spreadsheets.values.update({ spreadsheetId, range: `'${targetWorksheet}'!1:1`, valueInputOption: 'USER_ENTERED', requestBody: { values: [headers] } });
-      }
-
-      const findHeader = (...names: string[]) => headers.findIndex(h => names.some(n => h.toLowerCase() === n.toLowerCase()));
-      const leadIdColIndex = findHeader('Lead ID', 'lead_id', 'id');
-      let existingRowNumber: number | null = null;
-
-      if (lead.id && leadIdColIndex !== -1) {
-        const duplicateIndex = existingRows.slice(1).findIndex(row => row[leadIdColIndex] && String(row[leadIdColIndex]).trim() === String(lead.id).trim());
-        if (duplicateIndex !== -1) existingRowNumber = duplicateIndex + 2;
-      }
-
-      const allCapturedFields = Array.from(fieldLabelMap.entries()).map(([k, v]) => `${k}: ${v}`).join(' | ');
       const rowValues = headers.map(header => {
-        const h = header.toLowerCase();
-        if (h === 'timestamp' || h === 'date') return lead.submittedAt || lead.timestamp || new Date().toISOString();
-        if (h === 'name' || h === 'full name') return lead.name || fieldLabelMap.get('Name') || fieldLabelMap.get('Full Name') || fieldLabelMap.get('full_name') || '';
-        if (h === 'email' || h === 'email address') return lead.email || fieldLabelMap.get('Email') || fieldLabelMap.get('Email Address') || '';
-        if (h === 'phone' || h === 'phone number' || h === 'mobile') return lead.phone || fieldLabelMap.get('Phone') || fieldLabelMap.get('Phone Number') || fieldLabelMap.get('mobile') || '';
-        if (h === 'all captured fields') return allCapturedFields;
-        if (h === 'lead id' || h === 'lead_id' || h === 'id') return lead.id || '';
-        if (h === 'bot id' || h === 'bot_id') return lead.botId || lead.flowId || '';
-        if (h === 'bot name' || h === 'bot') return lead.botName || lead.clientName || lead.flowName || '';
-        if (h === 'status') return lead.status || 'New';
-        if (h === 'source url' || h === 'source') return lead.sourceUrl || '';
-        if (h === 'conversation id') return lead.conversationId || '';
-        if (h === 'user id') return lead.userId || '';
-        if (fieldLabelMap.has(header)) return fieldLabelMap.get(header) || '';
-        for (const [label, value] of fieldLabelMap.entries()) if (label.toLowerCase() === h) return value;
+        if (header.toLowerCase() === 'date') return dateValue;
+        for (const [label, value] of fieldValues.entries()) {
+          if (label.toLowerCase() === header.toLowerCase()) return value;
+        }
         return '';
       });
 
-      if (existingRowNumber !== null) {
-        const lastColumn = columnNumberToLetter(headers.length);
-        await sheets.spreadsheets.values.update({ spreadsheetId, range: `'${targetWorksheet}'!A${existingRowNumber}:${lastColumn}${existingRowNumber}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [rowValues] } });
-        console.log('[GOOGLE_SHEET_ROW_UPDATED]', { leadId: lead.id, rowNumber: existingRowNumber, spreadsheetId, worksheet: targetWorksheet });
-        return { success: true, action: 'updated', rowNumber: existingRowNumber, spreadsheetId, worksheetName: targetWorksheet };
-      }
+      // ALWAYS APPEND for a genuine new lead. Existing rows are never overwritten.
+      const appendRes = await sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: `'${targetWorksheet}'`,
+        valueInputOption: 'USER_ENTERED',
+        insertDataOption: 'INSERT_ROWS',
+        requestBody: { values: [rowValues] }
+      });
 
-      const appendRes = await sheets.spreadsheets.values.append({ spreadsheetId, range: `'${targetWorksheet}'`, valueInputOption: 'USER_ENTERED', insertDataOption: 'INSERT_ROWS', requestBody: { values: [rowValues] } });
-      console.log('[GOOGLE_SHEET_ROW_APPENDED]', { leadId: lead.id, updatedRange: appendRes.data.updates?.updatedRange || null, spreadsheetId, worksheet: targetWorksheet });
-      return { success: true, action: 'appended', updatedRange: appendRes.data.updates?.updatedRange || null, spreadsheetId, worksheetName: targetWorksheet };
+      const updatedRange = appendRes.data.updates?.updatedRange || null;
+      const rowNumber = updatedRange ? Number(updatedRange.match(/\d+/)?.[0] || 0) || null : null;
+      console.log('[GOOGLE_SHEET_LEAD_APPENDED]', {
+        leadId: lead.id,
+        spreadsheetId,
+        worksheet: targetWorksheet,
+        updatedRange,
+        fieldCount: fieldValues.size,
+        fields: Array.from(fieldValues.keys())
+      });
+
+      return {
+        success: true,
+        action: 'appended',
+        updatedRange,
+        rowNumber,
+        spreadsheetId,
+        worksheetName: targetWorksheet,
+        fields: Array.from(fieldValues.keys())
+      };
     });
   }
 
