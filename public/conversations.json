@@ -1,0 +1,20 @@
+[
+  {
+    "id": "conv_1788432042997_8yq3o",
+    "userId": "cb_user_1788432038193_n4t6f",
+    "botId": "bot_1788177745832",
+    "startedAt": "2026-09-03T10:40:38.234Z",
+    "lastMessageAt": "2026-09-03T10:41:07.023Z",
+    "status": "active",
+    "messageCount": 4
+  },
+  {
+    "id": "conv_1788433542733_vq7oh",
+    "userId": "cb_user_1788432038193_n4t6f",
+    "botId": "bot_1788177996774",
+    "startedAt": "2026-09-03T11:05:37.614Z",
+    "lastMessageAt": "2026-09-03T11:05:37.614Z",
+    "status": "active",
+    "messageCount": 0
+  }
+]

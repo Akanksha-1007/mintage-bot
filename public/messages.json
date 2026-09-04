@@ -1,0 +1,48 @@
+{
+  "conv_1788432042997_8yq3o": [
+    {
+      "id": "msg_1788432046696_4znku",
+      "conversationId": "conv_1788432042997_8yq3o",
+      "userId": "cb_user_1788432038193_n4t6f",
+      "botId": "bot_1788177745832",
+      "sender": "bot",
+      "message": "To start, could you share your full name with us?",
+      "timestamp": "2026-09-03T10:40:46.696Z",
+      "messageType": "name",
+      "metadata": {}
+    },
+    {
+      "id": "msg_1788432046720_96knv",
+      "conversationId": "conv_1788432042997_8yq3o",
+      "userId": "cb_user_1788432038193_n4t6f",
+      "botId": "bot_1788177745832",
+      "sender": "bot",
+      "message": "To start, could you share your full name with us?",
+      "timestamp": "2026-09-03T10:40:46.720Z",
+      "messageType": "name",
+      "metadata": {}
+    },
+    {
+      "id": "msg_1788432066981_j8hee",
+      "conversationId": "conv_1788432042997_8yq3o",
+      "userId": "cb_user_1788432038193_n4t6f",
+      "botId": "bot_1788177745832",
+      "sender": "bot",
+      "message": "To start, could you share your full name with us?",
+      "timestamp": "2026-09-03T10:41:06.981Z",
+      "messageType": "name",
+      "metadata": {}
+    },
+    {
+      "id": "msg_1788432067023_xvwq0",
+      "conversationId": "conv_1788432042997_8yq3o",
+      "userId": "cb_user_1788432038193_n4t6f",
+      "botId": "bot_1788177745832",
+      "sender": "bot",
+      "message": "To start, could you share your full name with us?",
+      "timestamp": "2026-09-03T10:41:07.023Z",
+      "messageType": "name",
+      "metadata": {}
+    }
+  ]
+}

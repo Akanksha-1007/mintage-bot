@@ -36,37 +36,122 @@
     baseUrl = baseUrl.replace(/\/$/, '') + '/mintage-bot';
   }
 
-  // Fallback to live GitHub Pages app URL if baseUrl is still empty
-  var fallbackUrl = 'https://akanksha-1007.github.io/mintage-bot';
-  if (!baseUrl) {
+  // Fallback to live app URL if baseUrl is still empty
+  var fallbackUrl = window.location.origin;
+  if (!baseUrl || baseUrl.indexOf('file:') !== -1) {
     baseUrl = fallbackUrl;
   }
 
   var botId = (scriptTag && (scriptTag.getAttribute('data-bot-id') || scriptTag.getAttribute('data-id'))) || 'default';
   var position = (scriptTag && scriptTag.getAttribute('data-position')) || 'right'; // 'right' or 'left'
-  var primaryColor = (scriptTag && scriptTag.getAttribute('data-color')) || '#4f46e5';
+  var rawColor = (scriptTag && scriptTag.getAttribute('data-color')) || '#4f46e5';
+  var initialColor = rawColor;
+  if (initialColor && initialColor.indexOf('%') !== -1) {
+    try { initialColor = decodeURIComponent(initialColor); } catch (e) {}
+  }
+  var rawIcon = (scriptTag && (scriptTag.getAttribute('data-icon') || scriptTag.getAttribute('data-launcher-icon'))) || null;
   var mode = (scriptTag && scriptTag.getAttribute('data-mode')) || 'iframe'; // 'iframe' or 'popup'
 
-  var targetUrl = baseUrl + '/widget/' + encodeURIComponent(botId);
+  var iconParam = rawIcon ? '&icon=' + encodeURIComponent(rawIcon) : '';
+  var colorParam = initialColor ? '?color=' + encodeURIComponent(initialColor) + iconParam : (rawIcon ? '?icon=' + encodeURIComponent(rawIcon) : '');
+  var targetUrl = baseUrl + '/widget/' + encodeURIComponent(botId) + colorParam;
+
+  // SVG Icons
+  var icons = {
+    chat: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>',
+    bot: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"></rect><circle cx="12" cy="5" r="2"></circle><path d="M12 7v4"></path><line x1="8" y1="16" x2="8.01" y2="16"></line><line x1="16" y1="16" x2="16.01" y2="16"></line></svg>',
+    sparkles: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3z"></path></svg>',
+    message: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"></rect><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path></svg>',
+    help: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><path d="M12 17h.01"></path></svg>',
+    close: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>'
+  };
+
+  var currentIcon = (rawIcon && icons[rawIcon]) ? icons[rawIcon] : icons.chat;
 
   // Container
   var container = document.createElement('div');
   container.id = 'botflow-widget-container';
   var sidePos = position === 'left' ? 'left:20px;' : 'right:20px;';
-  container.style.cssText = 'position:fixed; bottom:20px; ' + sidePos + ' z-index:2147483647; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;';
+  container.style.cssText = 'position:fixed; bottom:20px; ' + sidePos + ' z-index:2147483647; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display:flex; flex-direction:column; align-items:' + (position === 'left' ? 'flex-start' : 'flex-end') + '; gap:10px;';
+
+  // Teaser Callout Bubble
+  var teaser = document.createElement('div');
+  teaser.id = 'botflow-widget-teaser';
+  teaser.style.cssText = 'display:none; background:white; color:#1e293b; padding:8px 14px; border-radius:14px; box-shadow:0 8px 24px rgba(0,0,0,0.15); font-size:13px; font-weight:600; cursor:pointer; border:1px solid rgba(0,0,0,0.08); transition:opacity 0.2s; white-space:nowrap;';
+  teaser.innerHTML = 'Chat with us! 👋';
+  container.appendChild(teaser);
 
   // Floating Toggle Button
   var button = document.createElement('button');
   button.id = 'botflow-widget-button';
   button.setAttribute('aria-label', 'Toggle Chat');
-  button.style.cssText = 'width:56px; height:56px; border-radius:28px; background:' + primaryColor + '; border:none; color:white; cursor:pointer; box-shadow:0 6px 20px rgba(0,0,0,0.25); transition:transform 0.2s; display:flex; align-items:center; justify-content:center; padding:0; margin:0; outline:none; -webkit-tap-highlight-color:transparent;';
-  
-  var chatIcon = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>';
-  var closeIcon = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
-
-  button.innerHTML = chatIcon;
+  button.style.cssText = 'width:56px; height:56px; border-radius:28px; background:' + initialColor + '; border:none; color:white; cursor:pointer; box-shadow:0 6px 20px rgba(0,0,0,0.25); transition:transform 0.2s, background-color 0.2s, border-radius 0.2s; display:flex; align-items:center; justify-content:center; padding:0; margin:0; outline:none; -webkit-tap-highlight-color:transparent;';
+  button.innerHTML = currentIcon;
   button.onmouseover = function() { button.style.transform = 'scale(1.08)'; };
   button.onmouseout = function() { button.style.transform = 'scale(1)'; };
+
+  function applyDesignConfig(cfg) {
+    if (!cfg) return;
+    var bg = cfg.accentColor || cfg.headerBgColor || initialColor;
+    button.style.backgroundColor = bg;
+
+    if (cfg.launcherIcon && icons[cfg.launcherIcon]) {
+      currentIcon = icons[cfg.launcherIcon];
+      if (!isOpen) {
+        button.innerHTML = currentIcon;
+      }
+    }
+
+    if (cfg.launcherShape === 'pill') {
+      button.style.borderRadius = '18px';
+      button.style.width = '70px';
+    } else if (cfg.launcherShape === 'rounded') {
+      button.style.borderRadius = '16px';
+      button.style.width = '56px';
+    } else {
+      button.style.borderRadius = '28px';
+      button.style.width = '56px';
+    }
+
+    if (cfg.launcherPosition) {
+      var isLeft = cfg.launcherPosition === 'bottom-left';
+      container.style.left = isLeft ? '20px' : 'auto';
+      container.style.right = isLeft ? 'auto' : '20px';
+      container.style.alignItems = isLeft ? 'flex-start' : 'flex-end';
+      if (wrapper) {
+        wrapper.style.left = isLeft ? '0' : 'auto';
+        wrapper.style.right = isLeft ? 'auto' : '0';
+      }
+    }
+
+    if (cfg.showTeaser && cfg.launcherText) {
+      teaser.innerHTML = cfg.launcherText;
+      teaser.style.display = isOpen ? 'none' : 'block';
+    } else {
+      teaser.style.display = 'none';
+    }
+  }
+
+  // Fetch bot design configuration from server API
+  if (botId && botId !== 'default' && botId !== 'SAVE_FIRST') {
+    try {
+      fetch(baseUrl + '/api/bots/' + encodeURIComponent(botId))
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          if (data && data.success && data.bot && data.bot.designConfig) {
+            applyDesignConfig(data.bot.designConfig);
+          }
+        })
+        .catch(function() {});
+    } catch (e) {}
+  }
+
+  // Listen for real-time postMessage design updates from ChatWidget iframe
+  window.addEventListener('message', function(event) {
+    if (event.data && event.data.type === 'MINTAGE_BOT_DESIGN_UPDATE') {
+      applyDesignConfig(event.data.designConfig);
+    }
+  });
 
   if (mode === 'popup') {
     button.onclick = function(e) {
@@ -77,7 +162,7 @@
     };
     container.appendChild(button);
   } else {
-    // Wrapper for Iframe + Floating Action Bar
+    // Wrapper for Iframe
     var wrapper = document.createElement('div');
     wrapper.id = 'botflow-widget-wrapper';
     var iframeSide = position === 'left' ? 'left:0;' : 'right:0;';
@@ -94,25 +179,29 @@
     wrapper.appendChild(iframe);
 
     var isOpen = false;
-    button.onclick = function(e) {
+    var toggleChat = function(e) {
       if (e) e.preventDefault();
       isOpen = !isOpen;
       if (isOpen) {
         wrapper.style.display = 'block';
+        teaser.style.display = 'none';
         setTimeout(function() {
           wrapper.style.opacity = '1';
           wrapper.style.transform = 'translateY(0)';
         }, 10);
-        button.innerHTML = closeIcon;
+        button.innerHTML = icons.close;
       } else {
         wrapper.style.opacity = '0';
         wrapper.style.transform = 'translateY(12px)';
         setTimeout(function() {
           wrapper.style.display = 'none';
         }, 250);
-        button.innerHTML = chatIcon;
+        button.innerHTML = currentIcon;
       }
     };
+
+    button.onclick = toggleChat;
+    teaser.onclick = toggleChat;
 
     container.appendChild(wrapper);
     container.appendChild(button);
@@ -131,4 +220,3 @@
     window.addEventListener('load', mountWidget);
   }
 })();
-

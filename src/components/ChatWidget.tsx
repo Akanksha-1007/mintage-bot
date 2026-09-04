@@ -2,10 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../lib/firebase';
 import { doc, getDoc, getDocs, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
-import { Send, User, Bot, Loader2, ChevronRight } from 'lucide-react';
+import { Send, User, Bot, Loader2, ChevronRight, Sparkles, LifeBuoy } from 'lucide-react';
+import { BotDesignConfig, getDefaultDesignConfig } from '../types/design';
 
 interface ChatWidgetProps {
   botId: string;
+  designConfig?: BotDesignConfig;
 }
 
 interface Message {
@@ -17,7 +19,7 @@ interface Message {
   imageUrl?: string;
 }
 
-export default function ChatWidget({ botId }: ChatWidgetProps) {
+export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
   const [nodes, setNodes] = useState<any[]>([]);
   const [edges, setEdges] = useState<any[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -31,8 +33,44 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
   const [isTyping, setIsTyping] = useState(false);
   const [botTitle, setBotTitle] = useState('BotFlow Assistant');
+
+  const getUrlColorOverride = (): Partial<BotDesignConfig> => {
+    try {
+      const searchParams = new URLSearchParams(window.location.search);
+      const rawColor = searchParams.get('color') || searchParams.get('accentColor');
+      if (rawColor) {
+        const decoded = rawColor.includes('%') ? decodeURIComponent(rawColor) : rawColor;
+        if (decoded && (decoded.startsWith('#') || decoded.startsWith('rgb') || decoded.startsWith('hsl'))) {
+          return {
+            accentColor: decoded,
+            headerBgColor: decoded,
+            userBubbleBg: decoded
+          };
+        }
+      }
+    } catch (e) {}
+    return {};
+  };
+
+  const [design, setDesign] = useState<BotDesignConfig>(() =>
+    getDefaultDesignConfig({ ...getUrlColorOverride(), ...designConfig })
+  );
   const leadSubmitInFlightRef = useRef(false);
   const leadSubmittedRef = useRef(false);
+
+  useEffect(() => {
+    if (designConfig) {
+      setDesign(getDefaultDesignConfig({ ...getUrlColorOverride(), ...designConfig }));
+    }
+  }, [designConfig]);
+
+  useEffect(() => {
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'MINTAGE_BOT_DESIGN_UPDATE', designConfig: design }, '*');
+      }
+    } catch (e) {}
+  }, [design]);
 
   // Real-time Chatbot User Identification & Session Tracking
   const [chatUserId, setChatUserId] = useState<string>(() => {
@@ -367,6 +405,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       }
 
       setBotTitle(botData.name || 'BotFlow Assistant');
+      setDesign(getDefaultDesignConfig({ ...getUrlColorOverride(), ...(botData.designConfig || {}) }));
 
       const nodesData = Array.isArray(botData.nodes)
         ? botData.nodes
@@ -727,18 +766,50 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
   const currentNode = safeNodes.find((n: any) => n.id === currentNodeId);
 
+  const renderHeaderAvatar = () => {
+    const iconColor = design.headerTextColor || '#ffffff';
+    if (design.avatarPreset === 'custom' && design.avatarUrl) {
+      return <img src={design.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />;
+    }
+    switch (design.avatarPreset) {
+      case 'agent': return <User className="w-5 h-5 flex-shrink-0" style={{ color: iconColor }} />;
+      case 'sparkles': return <Sparkles className="w-5 h-5 flex-shrink-0" style={{ color: iconColor }} />;
+      case 'support': return <LifeBuoy className="w-5 h-5 flex-shrink-0" style={{ color: iconColor }} />;
+      case 'robot':
+      default:
+        return <Bot className="w-5 h-5 flex-shrink-0" style={{ color: iconColor }} />;
+    }
+  };
+
   return (
-    <div className="flex flex-col h-full bg-gray-50 font-sans overflow-hidden border border-gray-100 rounded-2xl shadow-2xl">
+    <div
+      className="flex flex-col h-full overflow-hidden border border-gray-100 shadow-2xl transition-all"
+      style={{
+        fontFamily: design.fontFamily === 'System' ? 'sans-serif' : design.fontFamily,
+        borderRadius: design.borderRadius || '16px',
+        backgroundColor: design.widgetBgColor || '#f8fafc'
+      }}
+    >
       {/* Header */}
-      <div className="bg-indigo-600 p-4 flex items-center gap-3 shadow-md">
-        <div className="bg-white/20 p-2 rounded-lg">
-          <Bot className="w-5 h-5 text-white" />
+      <div
+        className="p-4 flex items-center gap-3 shadow-md transition-all"
+        style={{
+          background: design.headerBgColor || '#4f46e5',
+          color: design.headerTextColor || '#ffffff'
+        }}
+      >
+        <div className="w-9 h-9 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center overflow-hidden border border-white/20">
+          {renderHeaderAvatar()}
         </div>
         <div>
-          <h3 className="text-white font-bold text-sm">{botTitle}</h3>
+          <h3 className="font-bold text-sm" style={{ color: design.headerTextColor || '#ffffff' }}>
+            {design.botTitle || botTitle}
+          </h3>
           <div className="flex items-center gap-1.5">
             <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></div>
-            <span className="text-[10px] text-indigo-100 font-medium uppercase tracking-wider">Online</span>
+            <span className="text-[10px] font-medium uppercase tracking-wider opacity-90" style={{ color: design.headerTextColor || '#ffffff' }}>
+              {design.subtitle || 'Online'}
+            </span>
           </div>
         </div>
       </div>
@@ -753,10 +824,16 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
             >
-              <div className={`max-w-[80%] p-3 rounded-2xl text-sm shadow-sm ${msg.sender === 'user'
-                ? 'bg-indigo-600 text-white rounded-tr-none'
-                : 'bg-white text-gray-800 border border-gray-100 rounded-tl-none'
-                }`}>
+              <div
+                className={`max-w-[80%] p-3 rounded-2xl text-sm shadow-sm transition-all ${
+                  msg.sender === 'user' ? 'rounded-tr-none' : 'rounded-tl-none border border-gray-100'
+                }`}
+                style={
+                  msg.sender === 'user'
+                    ? { background: design.userBubbleBg || '#4f46e5', color: design.userBubbleText || '#ffffff' }
+                    : { background: design.botBubbleBg || '#ffffff', color: design.botBubbleText || '#1e293b' }
+                }
+              >
                 {msg.imageUrl && (
                   <img
                     src={msg.imageUrl}
@@ -772,10 +849,18 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
                       <button
                         key={i}
                         onClick={() => !leadSubmitInFlightRef.current && handleChoice(choice)}
-                        className="w-full text-left p-2.5 bg-gray-50 hover:bg-indigo-50 border border-gray-100 hover:border-indigo-200 rounded-xl text-xs font-bold text-indigo-600 transition-all flex items-center justify-between group"
+                        className="w-full text-left p-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-between group border"
+                        style={{
+                          borderColor: design.accentColor ? `${design.accentColor}40` : '#e2e8f0',
+                          color: design.accentColor || '#4f46e5',
+                          backgroundColor: design.accentColor ? `${design.accentColor}0a` : '#f8fafc'
+                        }}
                       >
-                        {choice}
-                        <ChevronRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <span className="flex-1 pr-2">{choice}</span>
+                        <ChevronRight
+                          className="w-4 h-4 opacity-75 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all flex-shrink-0"
+                          style={{ color: design.accentColor || '#4f46e5' }}
+                        />
                       </button>
                     ))}
                   </div>
@@ -789,10 +874,13 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
               animate={{ opacity: 1, y: 0 }}
               className="flex justify-start"
             >
-              <div className="bg-white border border-gray-100 p-3 rounded-2xl rounded-tl-none text-gray-400 flex items-center gap-1.5 shadow-sm">
-                <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce"></span>
-                <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce [animation-delay:0.2s]"></span>
-                <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce [animation-delay:0.4s]"></span>
+              <div
+                className="border border-gray-100 p-3 rounded-2xl rounded-tl-none flex items-center gap-1.5 shadow-sm"
+                style={{ background: design.botBubbleBg || '#ffffff' }}
+              >
+                <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ background: design.accentColor || '#4f46e5' }}></span>
+                <span className="w-1.5 h-1.5 rounded-full animate-bounce [animation-delay:0.2s]" style={{ background: design.accentColor || '#4f46e5' }}></span>
+                <span className="w-1.5 h-1.5 rounded-full animate-bounce [animation-delay:0.4s]" style={{ background: design.accentColor || '#4f46e5' }}></span>
               </div>
             </motion.div>
           )}
@@ -816,14 +904,15 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
                   currentNode?.type === 'email' ? 'Type your email address...' :
                     'Type your response...'
             }
-            className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-xs font-medium text-gray-800 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+            className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-xs font-medium text-gray-800 outline-none transition-all focus:border-gray-400"
           />
           <button
             type="submit"
             disabled={!inputValue.trim() || isSubmitting || leadSubmitInFlightRef.current}
-            className="bg-indigo-600 text-white p-2.5 rounded-xl hover:bg-indigo-700 transition-all shadow-md shadow-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="text-white p-2.5 rounded-xl transition-all shadow-md disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center flex-shrink-0"
+            style={{ background: design.accentColor || '#4f46e5' }}
           >
-            <Send className="w-4 h-4" />
+            <Send className="w-4 h-4 flex-shrink-0" />
           </button>
         </form>
       )}
@@ -831,7 +920,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       {/* Footer Branding */}
       <div className="p-2.5 text-center bg-white border-t border-gray-50 flex items-center justify-center gap-1.5">
         <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
-          Powered by <span className="text-indigo-600 font-extrabold">Mintage Chatbot</span>
+          Powered by <span className="font-extrabold" style={{ color: design.accentColor || '#4f46e5' }}>Mintage Chatbot</span>
         </p>
       </div>
     </div>

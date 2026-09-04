@@ -1,0 +1,16 @@
+[
+  {
+    "id": "cb_user_1788432038193_n4t6f",
+    "name": "Anonymous Visitor",
+    "email": "",
+    "phone": "",
+    "createdAt": "2026-09-03T10:40:38.264Z",
+    "lastActiveAt": "2026-09-03T11:08:39.058Z",
+    "status": "active",
+    "totalConversations": 1,
+    "totalMessages": 4,
+    "source": "http://localhost:3000/widget/bot_1788177745832",
+    "consent": true,
+    "metadata": {}
+  }
+]

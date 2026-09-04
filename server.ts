@@ -802,7 +802,7 @@ async function startServer() {
 
   // Save/Update Bot Configuration
   app.post('/api/bots/save', (req, res) => {
-    const { id, name, nodes, edges, spreadsheetId, createdBy, googleOwnerId, worksheetName } = req.body;
+    const { id, name, nodes, edges, spreadsheetId, createdBy, googleOwnerId, worksheetName, designConfig } = req.body;
     if (!id) {
       return res.status(400).json({ error: 'Bot ID is required' });
     }
@@ -817,6 +817,7 @@ async function startServer() {
       worksheetName: worksheetName || existing?.worksheetName || 'Sheet1',
       createdBy: createdBy || existing?.createdBy || existing?.clientId || existing?.ownerId || 'guest_user',
       googleOwnerId: googleOwnerId || existing?.googleOwnerId || createdBy || existing?.createdBy || '',
+      designConfig: designConfig || existing?.designConfig || undefined,
       updatedAt: new Date().toISOString()
     };
 

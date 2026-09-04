@@ -17,6 +17,7 @@ import {
 import { Check, Copy, Database, Share2, X } from 'lucide-react';
 import ClassicChatBuilder from '../components/ClassicChatBuilder';
 import { useAuth } from '../context/AuthContext';
+import { BotDesignConfig, getDefaultDesignConfig } from '../types/design';
 
 const nodeTypes = {
   image: ImageNode,
@@ -41,6 +42,7 @@ function BuilderContent() {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [botName, setBotName] = useState('My New Bot');
   const [botSpreadsheetId, setBotSpreadsheetId] = useState('');
+  const [designConfig, setDesignConfig] = useState<BotDesignConfig>(() => getDefaultDesignConfig());
   const [isSaving, setIsSaving] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showSheetsModal, setShowSheetsModal] = useState(false);
@@ -231,6 +233,9 @@ function BuilderContent() {
             if (data.spreadsheetId) {
               setBotSpreadsheetId(data.spreadsheetId);
             }
+            if (data.designConfig) {
+              setDesignConfig(getDefaultDesignConfig(data.designConfig));
+            }
             return;
           }
         } catch (err) {
@@ -252,6 +257,7 @@ function BuilderContent() {
               setNodes(localNodesArr);
               setEdges(localEdgesArr);
               if (found.spreadsheetId) setBotSpreadsheetId(found.spreadsheetId);
+              if (found.designConfig) setDesignConfig(getDefaultDesignConfig(found.designConfig));
             }
           } catch (e) {
             console.error('Local cache parse error:', e);
@@ -397,6 +403,7 @@ function BuilderContent() {
       // Clean data to prevent "Unsupported field value: undefined" errors
       const cleanNodes = JSON.parse(JSON.stringify(safeNodes));
       const cleanEdges = JSON.parse(JSON.stringify(safeEdges));
+      const cleanDesign = JSON.parse(JSON.stringify(designConfig));
 
       let savedId = id || ('bot_' + Date.now());
       let firestoreSuccess = false;
@@ -409,6 +416,7 @@ function BuilderContent() {
           nodes: cleanNodes,
           edges: cleanEdges,
           spreadsheetId: cleanSpreadsheetId,
+          designConfig: cleanDesign,
           createdBy: targetUserId,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
@@ -429,6 +437,7 @@ function BuilderContent() {
         nodes: cleanNodes,
         edges: cleanEdges,
         spreadsheetId: cleanSpreadsheetId,
+        designConfig: cleanDesign,
         createdBy: targetUserId,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
@@ -481,7 +490,9 @@ function BuilderContent() {
   };
   const activeOrigin = getAppBaseUrl();
 
-  const embedScriptTag = `<script src="${activeOrigin}/widget.js" data-bot-id="${id || 'SAVE_FIRST'}" async></script>`;
+  const activeColor = encodeURIComponent((designConfig && (designConfig.accentColor || designConfig.headerBgColor)) || '#4f46e5');
+  const activePos = (designConfig && designConfig.launcherPosition === 'bottom-left') ? 'left' : 'right';
+  const embedScriptTag = `<script src="${activeOrigin}/widget.js" data-bot-id="${id || 'SAVE_FIRST'}" data-color="${activeColor}" data-position="${activePos}" async></script>`;
   const embedIframeTag = `<iframe src="${activeOrigin}/widget/${id || 'SAVE_FIRST'}" width="380" height="600" style="border:none; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,0.15);"></iframe>`;
 
   const bubbleScript = `<script>
@@ -645,6 +656,8 @@ function BuilderContent() {
           setShowDeleteModal={setShowDeleteModal}
           botId={id}
           showToast={showToast}
+          designConfig={designConfig}
+          setDesignConfig={setDesignConfig}
         />
       ) : (
         <>

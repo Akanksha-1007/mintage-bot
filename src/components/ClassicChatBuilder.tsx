@@ -21,6 +21,7 @@ import {
   ListChecks,
   Mail,
   MessageSquare,
+  Palette,
   Phone,
   Plus,
   Save,
@@ -33,6 +34,8 @@ import {
   Wand2,
   X,
 } from 'lucide-react';
+import { BotDesignConfig, getDefaultDesignConfig } from '../types/design';
+import BotDesignEditor from './BotDesignEditor';
 
 interface ClassicChatBuilderProps {
   nodes: Node[];
@@ -50,6 +53,8 @@ interface ClassicChatBuilderProps {
   setShowDeleteModal: (show: boolean) => void;
   botId?: string;
   showToast: (msg: string, type?: 'success' | 'error') => void;
+  designConfig?: BotDesignConfig;
+  setDesignConfig?: (config: BotDesignConfig) => void;
 }
 
 const EMOJI_PALETTE = [
@@ -73,11 +78,14 @@ export default function ClassicChatBuilder({
   setShowShareModal,
   setShowDeleteModal,
   botId,
-  showToast
+  showToast,
+  designConfig,
+  setDesignConfig
 }: ClassicChatBuilderProps) {
   const safeNodes = Array.isArray(nodes) ? nodes : (nodes && typeof nodes === 'object' ? Object.values(nodes) as Node[] : []);
   const safeEdges = Array.isArray(edges) ? edges : (edges && typeof edges === 'object' ? Object.values(edges) as Edge[] : []);
 
+  const [activeBuilderTab, setActiveBuilderTab] = useState<'flow' | 'design'>('flow');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(safeNodes[0]?.id || null);
   const [activeRightTab, setActiveRightTab] = useState<'customize' | 'advanced'>('customize');
   const [expandedCategories, setExpandedCategories] = useState<{ [key: string]: boolean }>({
@@ -396,7 +404,9 @@ export default function ClassicChatBuilder({
   };
   const activeOrigin = getAppBaseUrl();
 
-  const embedScriptCode = `<script src="${activeOrigin}/widget.js" data-bot-id="${botId || 'demo_bot_id'}" async></script>`;
+  const activeColor = encodeURIComponent((designConfig && (designConfig.accentColor || designConfig.headerBgColor)) || '#4f46e5');
+  const activePos = (designConfig && designConfig.launcherPosition === 'bottom-left') ? 'left' : 'right';
+  const embedScriptCode = `<script src="${activeOrigin}/widget.js" data-bot-id="${botId || 'demo_bot_id'}" data-color="${activeColor}" data-position="${activePos}" async></script>`;
   const embedIframeCode = `<iframe src="${activeOrigin}/widget/${botId || 'demo_bot_id'}" width="380" height="600" style="border:none; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,0.15);"></iframe>`;
 
   return (
@@ -415,6 +425,29 @@ export default function ClassicChatBuilder({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* Main Tab Switcher: Flow vs Design */}
+          <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 mr-2">
+            <button
+              onClick={() => setActiveBuilderTab('flow')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 ${
+                activeBuilderTab === 'flow' ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>Chat Flow</span>
+            </button>
+
+            <button
+              onClick={() => setActiveBuilderTab('design')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 ${
+                activeBuilderTab === 'design' ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Palette className="w-3.5 h-3.5 text-pink-500" />
+              <span>Custom Design</span>
+            </button>
+          </div>
+
           <button
             onClick={onToggleMode}
             className="button-secondary"
@@ -451,8 +484,16 @@ export default function ClassicChatBuilder({
         </div>
       </header>
 
-      {/* 3 Column Main Area */}
-      <div className="flex-1 flex overflow-hidden">
+      {/* Main Content Area: Tabbed rendering */}
+      {activeBuilderTab === 'design' ? (
+        <BotDesignEditor
+          designConfig={designConfig || getDefaultDesignConfig()}
+          onChange={setDesignConfig || (() => {})}
+          botName={botName}
+        />
+      ) : (
+        /* 3 Column Main Area */
+        <div className="flex-1 flex overflow-hidden">
         {/* ================= COLUMN 1: Add Chat Component ================= */}
         <div className="builder-library">
           <div className="builder-panel-head">Add chat component</div>
@@ -1020,6 +1061,7 @@ export default function ClassicChatBuilder({
           )}
         </div>
       </div>
+      )}
 
       {/* ================= MODAL: Test Chat Flow ================= */}
       {showTestModal && (

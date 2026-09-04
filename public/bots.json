@@ -235,6 +235,29 @@
     ],
     "spreadsheetId": "",
     "createdBy": "demo_user",
+    "designConfig": {
+      "botTitle": "River Scape Residences",
+      "subtitle": "Online • Waterfront Luxury Living",
+      "avatarPreset": "sparkles",
+      "themePreset": "sunset",
+      "headerBgColor": "#f97316",
+      "headerTextColor": "#ffffff",
+      "userBubbleBg": "#f97316",
+      "userBubbleText": "#ffffff",
+      "botBubbleBg": "#ffffff",
+      "botBubbleText": "#1e293b",
+      "accentColor": "#f97316",
+      "widgetBgColor": "#fff7ed",
+      "launcherIcon": "chat",
+      "launcherText": "Chat with us! 👋",
+      "showTeaser": true,
+      "launcherPosition": "bottom-right",
+      "launcherShape": "circle",
+      "enablePulseAnimation": true,
+      "fontFamily": "Poppins",
+      "borderRadius": "16px",
+      "shadowStyle": "elevated"
+    },
     "updatedAt": "2026-08-06T06:05:00.000Z"
   },
   {
@@ -348,26 +371,28 @@
       }
     ],
     "spreadsheetId": "",
+    "worksheetName": "Sheet1",
     "createdBy": "demo_user",
-    "updatedAt": "2026-08-31T11:48:39.702Z"
+    "googleOwnerId": "demo_user",
+    "updatedAt": "2026-09-03T11:08:37.267Z"
   },
   {
-    "id": "bot_1788177745832",
+    "id": "bot_1788177996774",
     "name": "My New Bot",
     "nodes": [
       {
-        "id": "1",
         "type": "input",
-        "data": {
-          "label": "Start"
-        },
+        "id": "1",
         "position": {
           "x": 250,
           "y": 5
+        },
+        "data": {
+          "label": "Start"
         }
       },
       {
-        "id": "node_1788177742142",
+        "id": "node_1788432972878",
         "type": "name",
         "data": {
           "label": "To start, could you share your full name with us?",
@@ -379,7 +404,7 @@
         }
       },
       {
-        "id": "node_1788177742935",
+        "id": "node_1788432973510",
         "type": "phone",
         "data": {
           "label": "Thanks! Could you also give us your phone number?",
@@ -391,7 +416,7 @@
         }
       },
       {
-        "id": "node_1788177743759",
+        "id": "node_1788432974102",
         "type": "email",
         "data": {
           "label": "Perfect! Now please provide your email address so our team can reach out.",
@@ -405,26 +430,52 @@
     ],
     "edges": [
       {
-        "id": "e_1-node_1788177742142",
+        "id": "e_1-node_1788432972878",
         "source": "1",
-        "target": "node_1788177742142",
+        "target": "node_1788432972878",
         "type": "smoothstep"
       },
       {
-        "id": "e_node_1788177742142-node_1788177742935",
-        "source": "node_1788177742142",
-        "target": "node_1788177742935",
+        "id": "e_node_1788432972878-node_1788432973510",
+        "source": "node_1788432972878",
+        "target": "node_1788432973510",
         "type": "smoothstep"
       },
       {
-        "id": "e_node_1788177742935-node_1788177743759",
-        "source": "node_1788177742935",
-        "target": "node_1788177743759",
+        "id": "e_node_1788432973510-node_1788432974102",
+        "source": "node_1788432973510",
+        "target": "node_1788432974102",
         "type": "smoothstep"
       }
     ],
     "spreadsheetId": "",
+    "worksheetName": "Sheet1",
     "createdBy": "demo_user",
-    "updatedAt": "2026-08-31T12:02:28.498Z"
+    "googleOwnerId": "demo_user",
+    "designConfig": {
+      "botTitle": "BotFlow Assistant",
+      "subtitle": "Online • Replies instantly",
+      "avatarUrl": "",
+      "avatarPreset": "robot",
+      "themePreset": "indigo",
+      "headerBgColor": "#4f46e5",
+      "headerTextColor": "#ffffff",
+      "userBubbleBg": "#4f46e5",
+      "userBubbleText": "#ffffff",
+      "botBubbleBg": "#ffffff",
+      "botBubbleText": "#1e293b",
+      "accentColor": "#4f46e5",
+      "widgetBgColor": "#f8fafc",
+      "launcherIcon": "chat",
+      "launcherText": "Chat with us! 👋",
+      "showTeaser": true,
+      "launcherPosition": "bottom-right",
+      "launcherShape": "circle",
+      "enablePulseAnimation": true,
+      "fontFamily": "Inter",
+      "borderRadius": "16px",
+      "shadowStyle": "elevated"
+    },
+    "updatedAt": "2026-09-03T11:06:08.232Z"
   }
 ]
