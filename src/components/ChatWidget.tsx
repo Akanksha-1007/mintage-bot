@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../lib/firebase';
 import { doc, getDoc, getDocs, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
-import { Send, User, Bot, Loader2, ChevronRight } from 'lucide-react';
+import { Send, Bot, Loader2, ChevronRight } from 'lucide-react';
 
 interface ChatWidgetProps {
   botId: string;
@@ -15,6 +15,18 @@ interface Message {
   type?: string;
   choices?: string[];
   imageUrl?: string;
+}
+
+interface LeadRecord {
+  id: string;
+  botId: string;
+  flowId: string;
+  fields: Array<{ fieldId: string; label: string; value: string }>;
+  data: any;
+  sourceUrl: string;
+  submittedAt: string;
+  googleSheetSyncStatus: string;
+  googleSheetSyncAction?: string | null;
 }
 
 export default function ChatWidget({ botId }: ChatWidgetProps) {
@@ -633,7 +645,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
     console.log('[LEAD] submitting', payload);
 
-    const newLeadRecord = {
+    const newLeadRecord: LeadRecord = {
       id: 'lead_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
       botId,
       flowId: botId,
@@ -641,7 +653,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       data,
       sourceUrl: window.location.href,
       submittedAt: new Date().toISOString(),
-      googleSheetSyncStatus: 'synced'
+      googleSheetSyncStatus: 'pending'
     };
 
     try {

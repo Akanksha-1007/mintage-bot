@@ -558,8 +558,11 @@ async function startServer() {
         return {
           success: true,
           action: 'skipped_no_user_fields',
+          updatedRange: null,
+          rowNumber: null,
           spreadsheetId,
-          worksheetName: targetWorksheet
+          worksheetName: targetWorksheet,
+          fields: []
         };
       }
 
@@ -579,10 +582,19 @@ async function startServer() {
       if (headers.length === 0) headers = ['Date'];
 
       // Remove any old metadata if this is somehow still present after tab selection.
+      // These are internal/legacy metadata columns. Do NOT treat normal
+      // captured fields such as Name, Email, or Phone as legacy columns.
       const forbidden = new Set([
-        'timestamp', 'name', 'email', 'phone', 'phone number', 'all captured fields',
-        'lead id', 'bot id', 'bot name', 'status', 'source url', 'conversation id',
-        'user id', 'client / account'
+        'timestamp',
+        'all captured fields',
+        'lead id',
+        'bot id',
+        'bot name',
+        'status',
+        'source url',
+        'conversation id',
+        'user id',
+        'client / account'
       ]);
       const isLegacyHeaderStillPresent = headers.some(h => forbidden.has(h.toLowerCase()));
       if (isLegacyHeaderStillPresent) {
@@ -628,7 +640,6 @@ async function startServer() {
       });
 
       const updatedRange = appendRes.data.updates?.updatedRange || null;
-      const rowNumber = updatedRange ? Number(updatedRange.match(/\d+/)?.[0] || 0) || null : null;
       console.log('[GOOGLE_SHEET_LEAD_APPENDED]', {
         leadId: lead.id,
         spreadsheetId,
@@ -642,7 +653,6 @@ async function startServer() {
         success: true,
         action: 'appended',
         updatedRange,
-        rowNumber,
         spreadsheetId,
         worksheetName: targetWorksheet,
         fields: Array.from(fieldValues.keys())
