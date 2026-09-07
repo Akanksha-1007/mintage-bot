@@ -91,11 +91,10 @@ export default function BotDesignEditor({
         <div className="flex border-b border-gray-200 bg-slate-50/80 p-1.5 gap-1">
           <button
             onClick={() => setActiveSection('branding')}
-            className={`flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-              activeSection === 'branding'
-                ? 'bg-white text-indigo-600 shadow-sm border border-gray-200/80'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
+            className={`flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 ${activeSection === 'branding'
+              ? 'bg-white text-indigo-600 shadow-sm border border-gray-200/80'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
           >
             <User className="w-3.5 h-3.5" />
             <span>Header & Branding</span>
@@ -103,11 +102,10 @@ export default function BotDesignEditor({
 
           <button
             onClick={() => setActiveSection('colors')}
-            className={`flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-              activeSection === 'colors'
-                ? 'bg-white text-indigo-600 shadow-sm border border-gray-200/80'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
+            className={`flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 ${activeSection === 'colors'
+              ? 'bg-white text-indigo-600 shadow-sm border border-gray-200/80'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
           >
             <Palette className="w-3.5 h-3.5" />
             <span>Color Palette</span>
@@ -115,11 +113,10 @@ export default function BotDesignEditor({
 
           <button
             onClick={() => setActiveSection('launcher')}
-            className={`flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-              activeSection === 'launcher'
-                ? 'bg-white text-indigo-600 shadow-sm border border-gray-200/80'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
+            className={`flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 ${activeSection === 'launcher'
+              ? 'bg-white text-indigo-600 shadow-sm border border-gray-200/80'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
           >
             <Layout className="w-3.5 h-3.5" />
             <span>Widget Launcher</span>
@@ -127,11 +124,10 @@ export default function BotDesignEditor({
 
           <button
             onClick={() => setActiveSection('typography')}
-            className={`flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-              activeSection === 'typography'
-                ? 'bg-white text-indigo-600 shadow-sm border border-gray-200/80'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
+            className={`flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 ${activeSection === 'typography'
+              ? 'bg-white text-indigo-600 shadow-sm border border-gray-200/80'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
           >
             <Type className="w-3.5 h-3.5" />
             <span>Style & Font</span>
@@ -193,11 +189,10 @@ export default function BotDesignEditor({
                       key={item.id}
                       type="button"
                       onClick={() => updateConfig({ avatarPreset: item.id as any })}
-                      className={`p-3 rounded-xl border flex flex-col items-center gap-1.5 transition-all ${
-                        config.avatarPreset === item.id
-                          ? 'border-indigo-600 bg-indigo-50/50 text-indigo-600 ring-2 ring-indigo-600/20'
-                          : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
-                      }`}
+                      className={`p-3 rounded-xl border flex flex-col items-center gap-1.5 transition-all ${config.avatarPreset === item.id
+                        ? 'border-indigo-600 bg-indigo-50/50 text-indigo-600 ring-2 ring-indigo-600/20'
+                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                        }`}
                     >
                       {renderAvatarIcon(item.id, 'w-5 h-5')}
                       <span className="text-[11px] font-medium">{item.label}</span>
@@ -244,11 +239,10 @@ export default function BotDesignEditor({
                       key={key}
                       type="button"
                       onClick={() => applyPreset(key)}
-                      className={`p-3 rounded-xl border text-left transition-all relative overflow-hidden group ${
-                        config.themePreset === key
-                          ? 'border-indigo-600 ring-2 ring-indigo-600/20 bg-indigo-50/20'
-                          : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
-                      }`}
+                      className={`p-3 rounded-xl border text-left transition-all relative overflow-hidden group ${config.themePreset === key
+                        ? 'border-indigo-600 ring-2 ring-indigo-600/20 bg-indigo-50/20'
+                        : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
+                        }`}
                     >
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-xs font-bold text-slate-800">{preset.name}</span>
@@ -298,7 +292,7 @@ export default function BotDesignEditor({
                     <div className="flex items-center gap-2">
                       <input
                         type="color"
-                        value={config.headerBgColor.startsWith('#') ? config.headerBgColor : '#4f46e5'}
+                        value={config.headerBgColor.startsWith('#') ? config.headerBgColor : '#5B3DF5'}
                         onChange={(e) => updateConfig({ headerBgColor: e.target.value, themePreset: 'custom' })}
                         className="w-8 h-8 rounded-lg cursor-pointer border border-slate-200"
                       />
@@ -336,7 +330,7 @@ export default function BotDesignEditor({
                     <div className="flex items-center gap-2">
                       <input
                         type="color"
-                        value={config.userBubbleBg.startsWith('#') ? config.userBubbleBg : '#4f46e5'}
+                        value={config.userBubbleBg.startsWith('#') ? config.userBubbleBg : '#5B3DF5'}
                         onChange={(e) => updateConfig({ userBubbleBg: e.target.value, themePreset: 'custom' })}
                         className="w-8 h-8 rounded-lg cursor-pointer border border-slate-200"
                       />
@@ -374,7 +368,7 @@ export default function BotDesignEditor({
                     <div className="flex items-center gap-2">
                       <input
                         type="color"
-                        value={config.accentColor.startsWith('#') ? config.accentColor : '#4f46e5'}
+                        value={config.accentColor.startsWith('#') ? config.accentColor : '#5B3DF5'}
                         onChange={(e) => updateConfig({ accentColor: e.target.value, themePreset: 'custom' })}
                         className="w-8 h-8 rounded-lg cursor-pointer border border-slate-200"
                       />
@@ -435,11 +429,10 @@ export default function BotDesignEditor({
                       key={item.id}
                       type="button"
                       onClick={() => updateConfig({ launcherIcon: item.id as any })}
-                      className={`p-3 rounded-xl border flex flex-col items-center gap-1.5 transition-all ${
-                        config.launcherIcon === item.id
-                          ? 'border-indigo-600 bg-indigo-50/50 text-indigo-600 ring-2 ring-indigo-600/20'
-                          : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
-                      }`}
+                      className={`p-3 rounded-xl border flex flex-col items-center gap-1.5 transition-all ${config.launcherIcon === item.id
+                        ? 'border-indigo-600 bg-indigo-50/50 text-indigo-600 ring-2 ring-indigo-600/20'
+                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                        }`}
                     >
                       {renderLauncherIcon(item.id, 'w-5 h-5')}
                       <span className="text-[11px] font-medium">{item.label}</span>
@@ -484,22 +477,20 @@ export default function BotDesignEditor({
                     <button
                       type="button"
                       onClick={() => updateConfig({ launcherPosition: 'bottom-right' })}
-                      className={`py-2 px-3 text-xs font-medium rounded-xl border transition-all ${
-                        config.launcherPosition === 'bottom-right'
-                          ? 'border-indigo-600 bg-indigo-50 text-indigo-600 font-bold'
-                          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                      }`}
+                      className={`py-2 px-3 text-xs font-medium rounded-xl border transition-all ${config.launcherPosition === 'bottom-right'
+                        ? 'border-indigo-600 bg-indigo-50 text-indigo-600 font-bold'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                        }`}
                     >
                       Bottom Right
                     </button>
                     <button
                       type="button"
                       onClick={() => updateConfig({ launcherPosition: 'bottom-left' })}
-                      className={`py-2 px-3 text-xs font-medium rounded-xl border transition-all ${
-                        config.launcherPosition === 'bottom-left'
-                          ? 'border-indigo-600 bg-indigo-50 text-indigo-600 font-bold'
-                          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                      }`}
+                      className={`py-2 px-3 text-xs font-medium rounded-xl border transition-all ${config.launcherPosition === 'bottom-left'
+                        ? 'border-indigo-600 bg-indigo-50 text-indigo-600 font-bold'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                        }`}
                     >
                       Bottom Left
                     </button>
@@ -518,11 +509,10 @@ export default function BotDesignEditor({
                         key={shape.id}
                         type="button"
                         onClick={() => updateConfig({ launcherShape: shape.id as any })}
-                        className={`py-2 text-[11px] font-medium rounded-xl border transition-all ${
-                          config.launcherShape === shape.id
-                            ? 'border-indigo-600 bg-indigo-50 text-indigo-600 font-bold'
-                            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                        }`}
+                        className={`py-2 text-[11px] font-medium rounded-xl border transition-all ${config.launcherShape === shape.id
+                          ? 'border-indigo-600 bg-indigo-50 text-indigo-600 font-bold'
+                          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                          }`}
                       >
                         {shape.label}
                       </button>
@@ -566,11 +556,10 @@ export default function BotDesignEditor({
                       key={font}
                       type="button"
                       onClick={() => updateConfig({ fontFamily: font as any })}
-                      className={`p-3 rounded-xl border text-center transition-all ${
-                        config.fontFamily === font
-                          ? 'border-indigo-600 bg-indigo-50 text-indigo-600 font-bold ring-2 ring-indigo-600/20'
-                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                      }`}
+                      className={`p-3 rounded-xl border text-center transition-all ${config.fontFamily === font
+                        ? 'border-indigo-600 bg-indigo-50 text-indigo-600 font-bold ring-2 ring-indigo-600/20'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                        }`}
                     >
                       <span className="text-sm block" style={{ fontFamily: font === 'System' ? 'sans-serif' : font }}>
                         {font}
@@ -596,11 +585,10 @@ export default function BotDesignEditor({
                       key={rad.id}
                       type="button"
                       onClick={() => updateConfig({ borderRadius: rad.id as any })}
-                      className={`py-2 px-2 text-[11px] font-medium rounded-xl border text-center transition-all ${
-                        config.borderRadius === rad.id
-                          ? 'border-indigo-600 bg-indigo-50 text-indigo-600 font-bold'
-                          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                      }`}
+                      className={`py-2 px-2 text-[11px] font-medium rounded-xl border text-center transition-all ${config.borderRadius === rad.id
+                        ? 'border-indigo-600 bg-indigo-50 text-indigo-600 font-bold'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                        }`}
                     >
                       {rad.label}
                     </button>
@@ -623,11 +611,10 @@ export default function BotDesignEditor({
                       key={sh.id}
                       type="button"
                       onClick={() => updateConfig({ shadowStyle: sh.id as any })}
-                      className={`py-2.5 px-3 text-xs font-medium rounded-xl border text-center transition-all ${
-                        config.shadowStyle === sh.id
-                          ? 'border-indigo-600 bg-indigo-50 text-indigo-600 font-bold'
-                          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                      }`}
+                      className={`py-2.5 px-3 text-xs font-medium rounded-xl border text-center transition-all ${config.shadowStyle === sh.id
+                        ? 'border-indigo-600 bg-indigo-50 text-indigo-600 font-bold'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                        }`}
                     >
                       {sh.label}
                     </button>
@@ -652,22 +639,20 @@ export default function BotDesignEditor({
             <button
               type="button"
               onClick={() => setPreviewMode('open')}
-              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all ${
-                previewMode === 'open'
-                  ? 'bg-white text-indigo-600 shadow-xs'
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
+              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all ${previewMode === 'open'
+                ? 'bg-white text-indigo-600 shadow-xs'
+                : 'text-slate-500 hover:text-slate-800'
+                }`}
             >
               Open Window
             </button>
             <button
               type="button"
               onClick={() => setPreviewMode('launcher')}
-              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all ${
-                previewMode === 'launcher'
-                  ? 'bg-white text-indigo-600 shadow-xs'
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
+              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all ${previewMode === 'launcher'
+                ? 'bg-white text-indigo-600 shadow-xs'
+                : 'text-slate-500 hover:text-slate-800'
+                }`}
             >
               Launcher Only
             </button>
@@ -686,17 +671,17 @@ export default function BotDesignEditor({
                 backgroundColor: config.widgetBgColor || '#f8fafc',
                 boxShadow:
                   config.shadowStyle === 'glow'
-                    ? `0 20px 50px ${config.accentColor || '#4f46e5'}40`
+                    ? `0 20px 50px ${config.accentColor || '#5B3DF5'}40`
                     : config.shadowStyle === 'soft'
-                    ? '0 10px 25px rgba(0,0,0,0.08)'
-                    : '0 20px 40px rgba(0,0,0,0.18)'
+                      ? '0 10px 25px rgba(0,0,0,0.08)'
+                      : '0 20px 40px rgba(0,0,0,0.18)'
               }}
             >
               {/* Header */}
               <div
                 className="p-4 flex items-center justify-between shadow-xs transition-all"
                 style={{
-                  background: config.headerBgColor || '#4f46e5',
+                  background: config.headerBgColor || '#5B3DF5',
                   color: config.headerTextColor || '#ffffff'
                 }}
               >
@@ -737,7 +722,7 @@ export default function BotDesignEditor({
                   <div
                     className="max-w-[85%] p-3 rounded-2xl text-xs shadow-xs transition-all rounded-tr-none"
                     style={{
-                      background: config.userBubbleBg || '#4f46e5',
+                      background: config.userBubbleBg || '#5B3DF5',
                       color: config.userBubbleText || '#ffffff'
                     }}
                   >
@@ -762,7 +747,7 @@ export default function BotDesignEditor({
                           className="p-2 rounded-xl border text-[11px] font-bold flex items-center justify-between"
                           style={{
                             borderColor: config.accentColor ? `${config.accentColor}40` : '#e2e8f0',
-                            color: config.accentColor || '#4f46e5',
+                            color: config.accentColor || '#5B3DF5',
                             backgroundColor: config.accentColor ? `${config.accentColor}0a` : '#f8fafc'
                           }}
                         >
@@ -786,7 +771,7 @@ export default function BotDesignEditor({
                 <button
                   type="button"
                   className="p-2 rounded-xl text-white shadow-xs"
-                  style={{ background: config.accentColor || '#4f46e5' }}
+                  style={{ background: config.accentColor || '#5B3DF5' }}
                 >
                   <Send className="w-4 h-4" />
                 </button>
@@ -795,9 +780,8 @@ export default function BotDesignEditor({
           ) : (
             /* SIMULATED LAUNCHER BUTTON PREVIEW */
             <div
-              className={`w-full flex items-center gap-3 relative ${
-                config.launcherPosition === 'bottom-left' ? 'justify-start' : 'justify-end'
-              }`}
+              className={`w-full flex items-center gap-3 relative ${config.launcherPosition === 'bottom-left' ? 'justify-start' : 'justify-end'
+                }`}
             >
               {config.showTeaser && (
                 <div className="bg-white px-4 py-2.5 rounded-2xl shadow-xl border border-slate-200/80 text-xs font-semibold text-slate-800 animate-bounce">
@@ -809,18 +793,17 @@ export default function BotDesignEditor({
                 {config.enablePulseAnimation && (
                   <span
                     className="absolute inset-0 rounded-full animate-ping opacity-30"
-                    style={{ background: config.accentColor || '#4f46e5' }}
+                    style={{ background: config.accentColor || '#5B3DF5' }}
                   />
                 )}
                 <div
-                  className={`w-14 h-14 text-white flex items-center justify-center shadow-2xl transition-all cursor-pointer ${
-                    config.launcherShape === 'pill'
-                      ? 'rounded-3xl w-24'
-                      : config.launcherShape === 'rounded'
+                  className={`w-14 h-14 text-white flex items-center justify-center shadow-2xl transition-all cursor-pointer ${config.launcherShape === 'pill'
+                    ? 'rounded-3xl w-24'
+                    : config.launcherShape === 'rounded'
                       ? 'rounded-2xl'
                       : 'rounded-full'
-                  }`}
-                  style={{ background: config.accentColor || '#4f46e5' }}
+                    }`}
+                  style={{ background: config.accentColor || '#5B3DF5' }}
                 >
                   {renderLauncherIcon(config.launcherIcon || 'chat', 'w-6 h-6')}
                 </div>

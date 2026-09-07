@@ -404,7 +404,7 @@ export default function ClassicChatBuilder({
   };
   const activeOrigin = getAppBaseUrl();
 
-  const activeColor = encodeURIComponent((designConfig && (designConfig.accentColor || designConfig.headerBgColor)) || '#4f46e5');
+  const activeColor = encodeURIComponent((designConfig && (designConfig.accentColor || designConfig.headerBgColor)) || '#5B3DF5');
   const activePos = (designConfig && designConfig.launcherPosition === 'bottom-left') ? 'left' : 'right';
   const embedScriptCode = `<script src="${activeOrigin}/widget.js" data-bot-id="${botId || 'demo_bot_id'}" data-color="${activeColor}" data-position="${activePos}" async></script>`;
   const embedIframeCode = `<iframe src="${activeOrigin}/widget/${botId || 'demo_bot_id'}" width="380" height="600" style="border:none; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,0.15);"></iframe>`;
@@ -429,9 +429,8 @@ export default function ClassicChatBuilder({
           <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 mr-2">
             <button
               onClick={() => setActiveBuilderTab('flow')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 ${
-                activeBuilderTab === 'flow' ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-              }`}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 ${activeBuilderTab === 'flow' ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
             >
               <Layers className="w-3.5 h-3.5" />
               <span>Chat Flow</span>
@@ -439,9 +438,8 @@ export default function ClassicChatBuilder({
 
             <button
               onClick={() => setActiveBuilderTab('design')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 ${
-                activeBuilderTab === 'design' ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-              }`}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 ${activeBuilderTab === 'design' ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
             >
               <Palette className="w-3.5 h-3.5 text-pink-500" />
               <span>Custom Design</span>
@@ -488,579 +486,579 @@ export default function ClassicChatBuilder({
       {activeBuilderTab === 'design' ? (
         <BotDesignEditor
           designConfig={designConfig || getDefaultDesignConfig()}
-          onChange={setDesignConfig || (() => {})}
+          onChange={setDesignConfig || (() => { })}
           botName={botName}
         />
       ) : (
         /* 3 Column Main Area */
         <div className="flex-1 flex overflow-hidden">
-        {/* ================= COLUMN 1: Add Chat Component ================= */}
-        <div className="builder-library">
-          <div className="builder-panel-head">Add chat component</div>
+          {/* ================= COLUMN 1: Add Chat Component ================= */}
+          <div className="builder-library">
+            <div className="builder-panel-head">Add chat component</div>
 
-          <div className="builder-scroll">
-            {/* Category: Frequently Used */}
-            <div className="builder-group">
-              <button
-                onClick={() => toggleCategory('frequentlyUsed')}
-                className="builder-group-toggle"
-              >
-                <span>Frequently used</span>
-                <ChevronDown style={{ transform: expandedCategories.frequentlyUsed ? 'none' : 'rotate(-90deg)' }} />
-              </button>
-
-              {expandedCategories.frequentlyUsed && (
-                <div className="builder-group-body">
-                  <button
-                    onClick={() => addComponentNode('message')}
-                    className="component-tile"
-                  >
-                    <span className="icon-tile tone-blue"><MessageSquare /></span>
-                    <span>Message</span>
-                  </button>
-
-                  <button
-                    onClick={() => addComponentNode('name')}
-                    className="component-tile"
-                  >
-                    <span className="icon-tile tone-green"><User /></span>
-                    <span>Name</span>
-                  </button>
-
-                  <button
-                    onClick={() => addComponentNode('phone')}
-                    className="component-tile"
-                  >
-                    <span className="icon-tile tone-green"><Phone /></span>
-                    <span>Phone Number</span>
-                  </button>
-
-                  <button
-                    onClick={() => addComponentNode('email')}
-                    className="component-tile"
-                  >
-                    <span className="icon-tile tone-blue"><Mail /></span>
-                    <span>Email</span>
-                  </button>
-
-                  <button
-                    onClick={() => addComponentNode('singleChoice')}
-                    className="component-tile"
-                  >
-                    <span className="icon-tile tone-purple"><CheckSquare /></span>
-                    <span>Single Choice</span>
-                  </button>
-
-                  <button
-                    onClick={() => addComponentNode('multipleChoice')}
-                    className="component-tile"
-                  >
-                    <span className="icon-tile tone-purple"><ListChecks /></span>
-                    <span>Multiple Choice</span>
-                  </button>
-
-                  <button
-                    onClick={() => addComponentNode('textQuestion')}
-                    className="component-tile"
-                  >
-                    <span className="icon-tile tone-orange"><TextCursorInput /></span>
-                    <span>Text Question</span>
-                  </button>
-
-                  <button
-                    onClick={() => addComponentNode('aiResponse')}
-                    className="component-tile"
-                  >
-                    <span className="icon-tile tone-pink"><Sparkles /></span>
-                    <span>AI Responses</span>
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Category: Request Information */}
-            <div className="builder-group">
-              <button
-                onClick={() => toggleCategory('requestInfo')}
-                className="builder-group-toggle"
-              >
-                <span>Request Information</span>
-                <ChevronDown style={{ transform: expandedCategories.requestInfo ? 'none' : 'rotate(-90deg)' }} />
-              </button>
-              {expandedCategories.requestInfo && (
-                <div className="builder-group-body">
-                  <button onClick={() => addComponentNode('name')} className="component-tile-plain">Name input</button>
-                  <button onClick={() => addComponentNode('phone')} className="component-tile-plain">Phone input</button>
-                  <button onClick={() => addComponentNode('email')} className="component-tile-plain">Email input</button>
-                </div>
-              )}
-            </div>
-
-            {/* Category: Send Information */}
-            <div className="builder-group">
-              <button
-                onClick={() => toggleCategory('sendInfo')}
-                className="builder-group-toggle"
-              >
-                <span>Send Information</span>
-                <ChevronDown style={{ transform: expandedCategories.sendInfo ? 'none' : 'rotate(-90deg)' }} />
-              </button>
-              {expandedCategories.sendInfo && (
-                <div className="builder-group-body">
-                  <button onClick={() => addComponentNode('message')} className="component-tile-plain">Bot message</button>
-                  <button onClick={() => addComponentNode('image')} className="component-tile-plain">Image / GIF</button>
-                </div>
-              )}
-            </div>
-
-            {/* Category: Decide and Act */}
-            <div className="builder-group">
-              <button
-                onClick={() => toggleCategory('decideAct')}
-                className="builder-group-toggle"
-              >
-                <span>Decide and Act</span>
-                <ChevronDown style={{ transform: expandedCategories.decideAct ? 'none' : 'rotate(-90deg)' }} />
-              </button>
-              {expandedCategories.decideAct && (
-                <div className="builder-group-body">
-                  <button onClick={() => addComponentNode('singleChoice')} className="component-tile-plain">Branch by choice</button>
-                  <button onClick={() => addComponentNode('aiResponse')} className="component-tile-plain">AI smart answer</button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* ================= COLUMN 2: Create/Reorder Chat Flow ================= */}
-        <div className="classic-canvas">
-          <div className="builder-panel-head sticky top-0 z-10">Create &amp; reorder chat flow</div>
-
-          <div className="classic-canvas-inner">
-            {safeNodes.length === 0 ? (
-              <div className="empty-state">
-                <div className="empty-icon"><MessageSquare /></div>
-                <h3>Your chat flow is empty</h3>
-                <p>Pick a component from the left sidebar to add bot messages and questions.</p>
-                <button onClick={() => addComponentNode('message')} className="button-primary">
-                  <Plus />
-                  Add a welcome message
-                </button>
-              </div>
-            ) : (
-              safeNodes.map((node, index) => {
-                const isSelected = selectedNodeId === node.id;
-                const nodeLabel = (node.data?.label as string) || '';
-                const imageUrl = node.data?.imageUrl as string;
-                const choices = node.data?.choices as string[];
-                const showUserReplyTag = isInputNode(node.type);
-
-                return (
-                  <div
-                    key={node.id}
-                    onClick={() => setSelectedNodeId(node.id)}
-                    className={`flow-step ${isSelected ? 'is-selected' : ''}`}
-                  >
-                    {/* Step icon */}
-                    <div className={`flow-step-avatar ${getNodeBg(node.type)}`}>
-                      {getNodeIcon(node.type)}
-                    </div>
-
-                    {/* Step card */}
-                    <div className="flow-step-card">
-                      {/* Image preview if exists */}
-                      {imageUrl && (
-                        <div className="flow-step-media">
-                          <img src={imageUrl} alt="" className="h-full w-full object-cover" />
-                        </div>
-                      )}
-
-                      {/* Text label */}
-                      <p>{nodeLabel}</p>
-
-                      {/* Choice options preview if single/multiple choice */}
-                      {choices && choices.length > 0 && (
-                        <div className="flow-step-choices">
-                          {choices.map((choice, idx) => {
-                            const targetId = (node.data?.optionRoutes as Record<string, string>)?.[choice];
-                            const targetIndex = targetId ? safeNodes.findIndex(n => n.id === targetId) : -1;
-                            const targetNode = targetIndex !== -1 ? safeNodes[targetIndex] : null;
-
-                            return (
-                              <span key={idx} className="tag">
-                                <span>{choice}</span>
-                                {targetNode ? (
-                                  <span className="text-faint inline-flex items-center gap-1">
-                                    <ArrowRight className="h-3 w-3" />
-                                    Step {targetIndex + 1}
-                                  </span>
-                                ) : (
-                                  <span className="text-faint inline-flex items-center gap-1">
-                                    <ArrowRight className="h-3 w-3" />
-                                    Next
-                                  </span>
-                                )}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {/* Next Step / Redirection Indicator Footer */}
-                      <div className="flow-step-footer">
-                        <span>Next step</span>
-                        {node.data?.nextStepId === 'END' ? (
-                          <span className="tag tone-red"><X />End chat flow</span>
-                        ) : node.data?.nextStepId ? (() => {
-                          const targetIdx = safeNodes.findIndex(n => n.id === node.data.nextStepId);
-                          const targetNode = targetIdx !== -1 ? safeNodes[targetIdx] : null;
-                          return targetNode ? (
-                            <span className="tag tone-blue">
-                              <ArrowRight />
-                              Step {targetIdx + 1}: {((targetNode.data?.label as string) || targetNode.type).slice(0, 20)}
-                            </span>
-                          ) : (
-                            <span className="tag"><ArrowRight />Next</span>
-                          );
-                        })() : index < safeNodes.length - 1 ? (
-                          <span className="tag"><ArrowRight />Step {index + 2} (default)</span>
-                        ) : (
-                          <span className="tag tone-yellow"><Check />End of flow</span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Blue User Reply Badge on the right */}
-                    {showUserReplyTag && <span className="user-reply-chip">User reply</span>}
-
-                    {/* Action buttons (Move Up, Move Down, Delete) */}
-                    <div className="flow-step-tools">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); moveNode(index, 'up'); }}
-                        disabled={index === 0}
-                        className="icon-button"
-                        title="Move up"
-                      >
-                        <ArrowUp />
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); moveNode(index, 'down'); }}
-                        disabled={index === safeNodes.length - 1}
-                        className="icon-button"
-                        title="Move down"
-                      >
-                        <ArrowDown />
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); deleteNode(node.id); }}
-                        className="icon-button danger"
-                        title="Delete step"
-                      >
-                        <Trash2 />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-
-            {/* Bottom Add Component Quick Bar */}
-            <div style={{ marginTop: '18px' }}>
-              <button onClick={() => addComponentNode('message')} className="add-dashed">
-                <Plus />
-                <span>Add component to flow</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* ================= COLUMN 3: Customize Bot Messages ================= */}
-        <div className="builder-properties">
-          <div className="builder-panel-head">Customize bot messages</div>
-
-          {selectedNode ? (
-            <div className="flex flex-1 flex-col">
-              <div className="sub-tabs">
+            <div className="builder-scroll">
+              {/* Category: Frequently Used */}
+              <div className="builder-group">
                 <button
-                  onClick={() => setActiveRightTab('customize')}
-                  className={activeRightTab === 'customize' ? 'is-active' : ''}
+                  onClick={() => toggleCategory('frequentlyUsed')}
+                  className="builder-group-toggle"
                 >
-                  Customize
+                  <span>Frequently used</span>
+                  <ChevronDown style={{ transform: expandedCategories.frequentlyUsed ? 'none' : 'rotate(-90deg)' }} />
                 </button>
-                <button
-                  onClick={() => setActiveRightTab('advanced')}
-                  className={activeRightTab === 'advanced' ? 'is-active' : ''}
-                >
-                  Advanced
-                </button>
-              </div>
 
-              {activeRightTab === 'customize' ? (
-                <div className="builder-scroll flex flex-col gap-4">
-                  {/* Message */}
-                  <div>
-                    <label className="field-label">Message</label>
-                    <textarea
-                      rows={4}
-                      value={(selectedNode.data?.label as string) || ''}
-                      onChange={(e) => updateSelectedNodeData('label', e.target.value)}
-                      className="textarea"
-                      placeholder="Welcome! Thanks for showing interest."
-                    />
-                  </div>
-
-                  {/* Media */}
-                  <div>
-                    <label className="field-label">GIF or image URL</label>
-                    <input
-                      type="text"
-                      value={(selectedNode.data?.imageUrl as string) || ''}
-                      onChange={(e) => updateSelectedNodeData('imageUrl', e.target.value)}
-                      className="input"
-                      placeholder="https://example.com/media.gif"
-                    />
-                  </div>
-
-                  {/* Emoji picker */}
-                  <div>
-                    <label className="field-label">Add an emoji</label>
-                    <div className="emoji-picker-grid">
-                      {EMOJI_PALETTE.map((emoji, i) => (
-                        <button
-                          key={i}
-                          type="button"
-                          onClick={() => appendEmoji(emoji)}
-                        >
-                          {emoji}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Next step */}
-                  <div className="modal-section" style={{ marginTop: 0 }}>
-                    <p className="modal-section-title" style={{ justifyContent: 'space-between' }}>
-                      <span>Next step</span>
-                      <span className="tag">Step flow</span>
-                    </p>
-                    <p className="field-hint" style={{ marginBottom: '8px', marginTop: 0 }}>
-                      Select which step follows this component.
-                    </p>
-                    <select
-                      value={(selectedNode.data?.nextStepId as string) || ''}
-                      onChange={(e) => {
-                        const targetId = e.target.value;
-                        updateSelectedNodeData('nextStepId', targetId);
-
-                        // Sync ReactFlow edge
-                        let updatedEdges = (Array.isArray(edges) ? edges : []).filter(ed => ed.source !== selectedNode.id || ed.sourceHandle);
-                        if (targetId && targetId !== 'END') {
-                          updatedEdges.push({
-                            id: `e_${selectedNode.id}-${targetId}`,
-                            source: selectedNode.id,
-                            target: targetId,
-                            type: 'smoothstep',
-                            style: { stroke: '#6366f1', strokeWidth: 2 }
-                          });
-                        }
-                        setEdges(updatedEdges);
-                      }}
-                      className="select"
+                {expandedCategories.frequentlyUsed && (
+                  <div className="builder-group-body">
+                    <button
+                      onClick={() => addComponentNode('message')}
+                      className="component-tile"
                     >
-                      <option value="">Default next step (sequential)</option>
-                      <option value="END">End chat flow here</option>
-                      {safeNodes.filter(n => n.id !== selectedNode.id).map((n) => {
-                        const stepIndex = safeNodes.findIndex(sn => sn.id === n.id) + 1;
-                        const label = (n.data?.label as string) || n.type;
-                        return (
-                          <option key={n.id} value={n.id}>
-                            Step #{stepIndex}: {label.length > 25 ? label.slice(0, 25) + '...' : label}
-                          </option>
-                        );
-                      })}
-                    </select>
-                  </div>
+                      <span className="icon-tile tone-blue"><MessageSquare /></span>
+                      <span>Message</span>
+                    </button>
 
-                  {/* Options Editor for Choice Nodes */}
-                  {(selectedNode.type === 'singleChoice' || selectedNode.type === 'multipleChoice') && (
-                    <div className="modal-section">
-                      <p className="modal-section-title">Options &amp; redirection</p>
-                      <p className="field-hint" style={{ marginBottom: '10px', marginTop: 0 }}>
-                        Choose which step each option redirects the user to.
-                      </p>
+                    <button
+                      onClick={() => addComponentNode('name')}
+                      className="component-tile"
+                    >
+                      <span className="icon-tile tone-green"><User /></span>
+                      <span>Name</span>
+                    </button>
 
-                      <div>
-                        {((selectedNode.data?.choices as string[]) || []).map((choice, idx) => {
-                          const currentRoute = (selectedNode.data?.optionRoutes as Record<string, string>)?.[choice] || '';
+                    <button
+                      onClick={() => addComponentNode('phone')}
+                      className="component-tile"
+                    >
+                      <span className="icon-tile tone-green"><Phone /></span>
+                      <span>Phone Number</span>
+                    </button>
 
-                          return (
-                            <div key={idx} className="choice-editor">
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="text"
-                                  value={choice}
-                                  onChange={(e) => {
-                                    const newChoiceName = e.target.value;
-                                    const oldChoices = [...((selectedNode.data?.choices as string[]) || [])];
-                                    oldChoices[idx] = newChoiceName;
+                    <button
+                      onClick={() => addComponentNode('email')}
+                      className="component-tile"
+                    >
+                      <span className="icon-tile tone-blue"><Mail /></span>
+                      <span>Email</span>
+                    </button>
 
-                                    const oldRoutes = { ...((selectedNode.data?.optionRoutes as Record<string, string>) || {}) };
-                                    if (oldRoutes[choice] && choice !== newChoiceName) {
-                                      oldRoutes[newChoiceName] = oldRoutes[choice];
-                                      delete oldRoutes[choice];
-                                    }
+                    <button
+                      onClick={() => addComponentNode('singleChoice')}
+                      className="component-tile"
+                    >
+                      <span className="icon-tile tone-purple"><CheckSquare /></span>
+                      <span>Single Choice</span>
+                    </button>
 
-                                    setNodes(prev => (Array.isArray(prev) ? prev : []).map(n => {
-                                      if (n.id === selectedNode.id) {
-                                        return {
-                                          ...n,
-                                          data: {
-                                            ...n.data,
-                                            choices: oldChoices,
-                                            optionRoutes: oldRoutes
-                                          }
-                                        };
-                                      }
-                                      return n;
-                                    }));
-                                  }}
-                                  className="input compact"
-                                  placeholder="Option text"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const newChoices = ((selectedNode.data?.choices as string[]) || []).filter((_, i) => i !== idx);
-                                    const oldRoutes = { ...((selectedNode.data?.optionRoutes as Record<string, string>) || {}) };
-                                    delete oldRoutes[choice];
+                    <button
+                      onClick={() => addComponentNode('multipleChoice')}
+                      className="component-tile"
+                    >
+                      <span className="icon-tile tone-purple"><ListChecks /></span>
+                      <span>Multiple Choice</span>
+                    </button>
 
-                                    setNodes(prev => (Array.isArray(prev) ? prev : []).map(n => {
-                                      if (n.id === selectedNode.id) {
-                                        return {
-                                          ...n,
-                                          data: {
-                                            ...n.data,
-                                            choices: newChoices,
-                                            optionRoutes: oldRoutes
-                                          }
-                                        };
-                                      }
-                                      return n;
-                                    }));
-                                  }}
-                                  className="icon-button danger"
-                                  title="Remove option"
-                                >
-                                  <X />
-                                </button>
-                              </div>
+                    <button
+                      onClick={() => addComponentNode('textQuestion')}
+                      className="component-tile"
+                    >
+                      <span className="icon-tile tone-orange"><TextCursorInput /></span>
+                      <span>Text Question</span>
+                    </button>
 
-                              <div className="choice-editor-route">
-                                <span>Go to</span>
-                                <select
-                                  value={currentRoute}
-                                  onChange={(e) => {
-                                    const targetId = e.target.value;
-                                    const oldRoutes = { ...((selectedNode.data?.optionRoutes as Record<string, string>) || {}) };
-                                    if (targetId) {
-                                      oldRoutes[choice] = targetId;
-                                    } else {
-                                      delete oldRoutes[choice];
-                                    }
-
-                                    setNodes(prev => (Array.isArray(prev) ? prev : []).map(n => {
-                                      if (n.id === selectedNode.id) {
-                                        return {
-                                          ...n,
-                                          data: {
-                                            ...n.data,
-                                            optionRoutes: oldRoutes
-                                          }
-                                        };
-                                      }
-                                      return n;
-                                    }));
-
-                                    // Sync edge for visual canvas
-                                    let updatedEdges = (Array.isArray(edges) ? edges : []).filter(ed => !(ed.source === selectedNode.id && (ed.label === choice || ed.sourceHandle === choice)));
-                                    if (targetId) {
-                                      updatedEdges.push({
-                                        id: `e_${selectedNode.id}_${choice}_${targetId}`,
-                                        source: selectedNode.id,
-                                        target: targetId,
-                                        label: choice,
-                                        sourceHandle: choice,
-                                        type: 'smoothstep'
-                                      });
-                                    }
-                                    setEdges(updatedEdges);
-                                  }}
-                                  className="select compact"
-                                >
-                                  <option value="">Default next step</option>
-                                  {safeNodes.filter(n => n.id !== selectedNode.id).map((n) => {
-                                    const stepNum = safeNodes.findIndex(sn => sn.id === n.id) + 1;
-                                    const label = (n.data?.label as string) || n.type;
-                                    return (
-                                      <option key={n.id} value={n.id}>
-                                        Step #{stepNum}: {label.length > 22 ? label.slice(0, 22) + '...' : label}
-                                      </option>
-                                    );
-                                  })}
-                                </select>
-                              </div>
-                            </div>
-                          );
-                        })}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const newChoices = [...((selectedNode.data?.choices as string[]) || []), `Option ${((selectedNode.data?.choices as string[]) || []).length + 1}`];
-                            updateSelectedNodeData('choices', newChoices);
-                          }}
-                          className="add-dashed"
-                          style={{ marginTop: '8px' }}
-                        >
-                          <Plus /> Add choice
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                /* Advanced Tab */
-                <div className="builder-scroll flex flex-col gap-4">
-                  <div>
-                    <label className="field-label">Lead key variable</label>
-                    <input
-                      type="text"
-                      value={(selectedNode.data?.key as string) || ''}
-                      onChange={(e) => updateSelectedNodeData('key', e.target.value)}
-                      className="input input-mono"
-                      placeholder="full_name, phone, email"
-                    />
-                    <p className="field-hint">Records lead answers into your database and Google Sheets under this key.</p>
-                  </div>
-
-                  <div className="modal-section">
-                    <button onClick={() => deleteNode(selectedNode.id)} className="button-danger button-block">
-                      <Trash2 /> Delete component
+                    <button
+                      onClick={() => addComponentNode('aiResponse')}
+                      className="component-tile"
+                    >
+                      <span className="icon-tile tone-pink"><Sparkles /></span>
+                      <span>AI Responses</span>
                     </button>
                   </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="builder-scroll">
-              <div className="empty-state">
-                <div className="empty-icon"><Sparkles /></div>
-                <h4>Nothing selected</h4>
-                <p>Pick a step in the flow to customize its text, media and routing.</p>
+                )}
+              </div>
+
+              {/* Category: Request Information */}
+              <div className="builder-group">
+                <button
+                  onClick={() => toggleCategory('requestInfo')}
+                  className="builder-group-toggle"
+                >
+                  <span>Request Information</span>
+                  <ChevronDown style={{ transform: expandedCategories.requestInfo ? 'none' : 'rotate(-90deg)' }} />
+                </button>
+                {expandedCategories.requestInfo && (
+                  <div className="builder-group-body">
+                    <button onClick={() => addComponentNode('name')} className="component-tile-plain">Name input</button>
+                    <button onClick={() => addComponentNode('phone')} className="component-tile-plain">Phone input</button>
+                    <button onClick={() => addComponentNode('email')} className="component-tile-plain">Email input</button>
+                  </div>
+                )}
+              </div>
+
+              {/* Category: Send Information */}
+              <div className="builder-group">
+                <button
+                  onClick={() => toggleCategory('sendInfo')}
+                  className="builder-group-toggle"
+                >
+                  <span>Send Information</span>
+                  <ChevronDown style={{ transform: expandedCategories.sendInfo ? 'none' : 'rotate(-90deg)' }} />
+                </button>
+                {expandedCategories.sendInfo && (
+                  <div className="builder-group-body">
+                    <button onClick={() => addComponentNode('message')} className="component-tile-plain">Bot message</button>
+                    <button onClick={() => addComponentNode('image')} className="component-tile-plain">Image / GIF</button>
+                  </div>
+                )}
+              </div>
+
+              {/* Category: Decide and Act */}
+              <div className="builder-group">
+                <button
+                  onClick={() => toggleCategory('decideAct')}
+                  className="builder-group-toggle"
+                >
+                  <span>Decide and Act</span>
+                  <ChevronDown style={{ transform: expandedCategories.decideAct ? 'none' : 'rotate(-90deg)' }} />
+                </button>
+                {expandedCategories.decideAct && (
+                  <div className="builder-group-body">
+                    <button onClick={() => addComponentNode('singleChoice')} className="component-tile-plain">Branch by choice</button>
+                    <button onClick={() => addComponentNode('aiResponse')} className="component-tile-plain">AI smart answer</button>
+                  </div>
+                )}
               </div>
             </div>
-          )}
+          </div>
+
+          {/* ================= COLUMN 2: Create/Reorder Chat Flow ================= */}
+          <div className="classic-canvas">
+            <div className="builder-panel-head sticky top-0 z-10">Create &amp; reorder chat flow</div>
+
+            <div className="classic-canvas-inner">
+              {safeNodes.length === 0 ? (
+                <div className="empty-state">
+                  <div className="empty-icon"><MessageSquare /></div>
+                  <h3>Your chat flow is empty</h3>
+                  <p>Pick a component from the left sidebar to add bot messages and questions.</p>
+                  <button onClick={() => addComponentNode('message')} className="button-primary">
+                    <Plus />
+                    Add a welcome message
+                  </button>
+                </div>
+              ) : (
+                safeNodes.map((node, index) => {
+                  const isSelected = selectedNodeId === node.id;
+                  const nodeLabel = (node.data?.label as string) || '';
+                  const imageUrl = node.data?.imageUrl as string;
+                  const choices = node.data?.choices as string[];
+                  const showUserReplyTag = isInputNode(node.type);
+
+                  return (
+                    <div
+                      key={node.id}
+                      onClick={() => setSelectedNodeId(node.id)}
+                      className={`flow-step ${isSelected ? 'is-selected' : ''}`}
+                    >
+                      {/* Step icon */}
+                      <div className={`flow-step-avatar ${getNodeBg(node.type)}`}>
+                        {getNodeIcon(node.type)}
+                      </div>
+
+                      {/* Step card */}
+                      <div className="flow-step-card">
+                        {/* Image preview if exists */}
+                        {imageUrl && (
+                          <div className="flow-step-media">
+                            <img src={imageUrl} alt="" className="h-full w-full object-cover" />
+                          </div>
+                        )}
+
+                        {/* Text label */}
+                        <p>{nodeLabel}</p>
+
+                        {/* Choice options preview if single/multiple choice */}
+                        {choices && choices.length > 0 && (
+                          <div className="flow-step-choices">
+                            {choices.map((choice, idx) => {
+                              const targetId = (node.data?.optionRoutes as Record<string, string>)?.[choice];
+                              const targetIndex = targetId ? safeNodes.findIndex(n => n.id === targetId) : -1;
+                              const targetNode = targetIndex !== -1 ? safeNodes[targetIndex] : null;
+
+                              return (
+                                <span key={idx} className="tag">
+                                  <span>{choice}</span>
+                                  {targetNode ? (
+                                    <span className="text-faint inline-flex items-center gap-1">
+                                      <ArrowRight className="h-3 w-3" />
+                                      Step {targetIndex + 1}
+                                    </span>
+                                  ) : (
+                                    <span className="text-faint inline-flex items-center gap-1">
+                                      <ArrowRight className="h-3 w-3" />
+                                      Next
+                                    </span>
+                                  )}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* Next Step / Redirection Indicator Footer */}
+                        <div className="flow-step-footer">
+                          <span>Next step</span>
+                          {node.data?.nextStepId === 'END' ? (
+                            <span className="tag tone-red"><X />End chat flow</span>
+                          ) : node.data?.nextStepId ? (() => {
+                            const targetIdx = safeNodes.findIndex(n => n.id === node.data.nextStepId);
+                            const targetNode = targetIdx !== -1 ? safeNodes[targetIdx] : null;
+                            return targetNode ? (
+                              <span className="tag tone-blue">
+                                <ArrowRight />
+                                Step {targetIdx + 1}: {((targetNode.data?.label as string) || targetNode.type).slice(0, 20)}
+                              </span>
+                            ) : (
+                              <span className="tag"><ArrowRight />Next</span>
+                            );
+                          })() : index < safeNodes.length - 1 ? (
+                            <span className="tag"><ArrowRight />Step {index + 2} (default)</span>
+                          ) : (
+                            <span className="tag tone-yellow"><Check />End of flow</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Blue User Reply Badge on the right */}
+                      {showUserReplyTag && <span className="user-reply-chip">User reply</span>}
+
+                      {/* Action buttons (Move Up, Move Down, Delete) */}
+                      <div className="flow-step-tools">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); moveNode(index, 'up'); }}
+                          disabled={index === 0}
+                          className="icon-button"
+                          title="Move up"
+                        >
+                          <ArrowUp />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); moveNode(index, 'down'); }}
+                          disabled={index === safeNodes.length - 1}
+                          className="icon-button"
+                          title="Move down"
+                        >
+                          <ArrowDown />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); deleteNode(node.id); }}
+                          className="icon-button danger"
+                          title="Delete step"
+                        >
+                          <Trash2 />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+
+              {/* Bottom Add Component Quick Bar */}
+              <div style={{ marginTop: '18px' }}>
+                <button onClick={() => addComponentNode('message')} className="add-dashed">
+                  <Plus />
+                  <span>Add component to flow</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* ================= COLUMN 3: Customize Bot Messages ================= */}
+          <div className="builder-properties">
+            <div className="builder-panel-head">Customize bot messages</div>
+
+            {selectedNode ? (
+              <div className="flex flex-1 flex-col">
+                <div className="sub-tabs">
+                  <button
+                    onClick={() => setActiveRightTab('customize')}
+                    className={activeRightTab === 'customize' ? 'is-active' : ''}
+                  >
+                    Customize
+                  </button>
+                  <button
+                    onClick={() => setActiveRightTab('advanced')}
+                    className={activeRightTab === 'advanced' ? 'is-active' : ''}
+                  >
+                    Advanced
+                  </button>
+                </div>
+
+                {activeRightTab === 'customize' ? (
+                  <div className="builder-scroll flex flex-col gap-4">
+                    {/* Message */}
+                    <div>
+                      <label className="field-label">Message</label>
+                      <textarea
+                        rows={4}
+                        value={(selectedNode.data?.label as string) || ''}
+                        onChange={(e) => updateSelectedNodeData('label', e.target.value)}
+                        className="textarea"
+                        placeholder="Welcome! Thanks for showing interest."
+                      />
+                    </div>
+
+                    {/* Media */}
+                    <div>
+                      <label className="field-label">GIF or image URL</label>
+                      <input
+                        type="text"
+                        value={(selectedNode.data?.imageUrl as string) || ''}
+                        onChange={(e) => updateSelectedNodeData('imageUrl', e.target.value)}
+                        className="input"
+                        placeholder="https://example.com/media.gif"
+                      />
+                    </div>
+
+                    {/* Emoji picker */}
+                    <div>
+                      <label className="field-label">Add an emoji</label>
+                      <div className="emoji-picker-grid">
+                        {EMOJI_PALETTE.map((emoji, i) => (
+                          <button
+                            key={i}
+                            type="button"
+                            onClick={() => appendEmoji(emoji)}
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Next step */}
+                    <div className="modal-section" style={{ marginTop: 0 }}>
+                      <p className="modal-section-title" style={{ justifyContent: 'space-between' }}>
+                        <span>Next step</span>
+                        <span className="tag">Step flow</span>
+                      </p>
+                      <p className="field-hint" style={{ marginBottom: '8px', marginTop: 0 }}>
+                        Select which step follows this component.
+                      </p>
+                      <select
+                        value={(selectedNode.data?.nextStepId as string) || ''}
+                        onChange={(e) => {
+                          const targetId = e.target.value;
+                          updateSelectedNodeData('nextStepId', targetId);
+
+                          // Sync ReactFlow edge
+                          let updatedEdges = (Array.isArray(edges) ? edges : []).filter(ed => ed.source !== selectedNode.id || ed.sourceHandle);
+                          if (targetId && targetId !== 'END') {
+                            updatedEdges.push({
+                              id: `e_${selectedNode.id}-${targetId}`,
+                              source: selectedNode.id,
+                              target: targetId,
+                              type: 'smoothstep',
+                              style: { stroke: '#7B4DFF', strokeWidth: 2 }
+                            });
+                          }
+                          setEdges(updatedEdges);
+                        }}
+                        className="select"
+                      >
+                        <option value="">Default next step (sequential)</option>
+                        <option value="END">End chat flow here</option>
+                        {safeNodes.filter(n => n.id !== selectedNode.id).map((n) => {
+                          const stepIndex = safeNodes.findIndex(sn => sn.id === n.id) + 1;
+                          const label = (n.data?.label as string) || n.type;
+                          return (
+                            <option key={n.id} value={n.id}>
+                              Step #{stepIndex}: {label.length > 25 ? label.slice(0, 25) + '...' : label}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+
+                    {/* Options Editor for Choice Nodes */}
+                    {(selectedNode.type === 'singleChoice' || selectedNode.type === 'multipleChoice') && (
+                      <div className="modal-section">
+                        <p className="modal-section-title">Options &amp; redirection</p>
+                        <p className="field-hint" style={{ marginBottom: '10px', marginTop: 0 }}>
+                          Choose which step each option redirects the user to.
+                        </p>
+
+                        <div>
+                          {((selectedNode.data?.choices as string[]) || []).map((choice, idx) => {
+                            const currentRoute = (selectedNode.data?.optionRoutes as Record<string, string>)?.[choice] || '';
+
+                            return (
+                              <div key={idx} className="choice-editor">
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="text"
+                                    value={choice}
+                                    onChange={(e) => {
+                                      const newChoiceName = e.target.value;
+                                      const oldChoices = [...((selectedNode.data?.choices as string[]) || [])];
+                                      oldChoices[idx] = newChoiceName;
+
+                                      const oldRoutes = { ...((selectedNode.data?.optionRoutes as Record<string, string>) || {}) };
+                                      if (oldRoutes[choice] && choice !== newChoiceName) {
+                                        oldRoutes[newChoiceName] = oldRoutes[choice];
+                                        delete oldRoutes[choice];
+                                      }
+
+                                      setNodes(prev => (Array.isArray(prev) ? prev : []).map(n => {
+                                        if (n.id === selectedNode.id) {
+                                          return {
+                                            ...n,
+                                            data: {
+                                              ...n.data,
+                                              choices: oldChoices,
+                                              optionRoutes: oldRoutes
+                                            }
+                                          };
+                                        }
+                                        return n;
+                                      }));
+                                    }}
+                                    className="input compact"
+                                    placeholder="Option text"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const newChoices = ((selectedNode.data?.choices as string[]) || []).filter((_, i) => i !== idx);
+                                      const oldRoutes = { ...((selectedNode.data?.optionRoutes as Record<string, string>) || {}) };
+                                      delete oldRoutes[choice];
+
+                                      setNodes(prev => (Array.isArray(prev) ? prev : []).map(n => {
+                                        if (n.id === selectedNode.id) {
+                                          return {
+                                            ...n,
+                                            data: {
+                                              ...n.data,
+                                              choices: newChoices,
+                                              optionRoutes: oldRoutes
+                                            }
+                                          };
+                                        }
+                                        return n;
+                                      }));
+                                    }}
+                                    className="icon-button danger"
+                                    title="Remove option"
+                                  >
+                                    <X />
+                                  </button>
+                                </div>
+
+                                <div className="choice-editor-route">
+                                  <span>Go to</span>
+                                  <select
+                                    value={currentRoute}
+                                    onChange={(e) => {
+                                      const targetId = e.target.value;
+                                      const oldRoutes = { ...((selectedNode.data?.optionRoutes as Record<string, string>) || {}) };
+                                      if (targetId) {
+                                        oldRoutes[choice] = targetId;
+                                      } else {
+                                        delete oldRoutes[choice];
+                                      }
+
+                                      setNodes(prev => (Array.isArray(prev) ? prev : []).map(n => {
+                                        if (n.id === selectedNode.id) {
+                                          return {
+                                            ...n,
+                                            data: {
+                                              ...n.data,
+                                              optionRoutes: oldRoutes
+                                            }
+                                          };
+                                        }
+                                        return n;
+                                      }));
+
+                                      // Sync edge for visual canvas
+                                      let updatedEdges = (Array.isArray(edges) ? edges : []).filter(ed => !(ed.source === selectedNode.id && (ed.label === choice || ed.sourceHandle === choice)));
+                                      if (targetId) {
+                                        updatedEdges.push({
+                                          id: `e_${selectedNode.id}_${choice}_${targetId}`,
+                                          source: selectedNode.id,
+                                          target: targetId,
+                                          label: choice,
+                                          sourceHandle: choice,
+                                          type: 'smoothstep'
+                                        });
+                                      }
+                                      setEdges(updatedEdges);
+                                    }}
+                                    className="select compact"
+                                  >
+                                    <option value="">Default next step</option>
+                                    {safeNodes.filter(n => n.id !== selectedNode.id).map((n) => {
+                                      const stepNum = safeNodes.findIndex(sn => sn.id === n.id) + 1;
+                                      const label = (n.data?.label as string) || n.type;
+                                      return (
+                                        <option key={n.id} value={n.id}>
+                                          Step #{stepNum}: {label.length > 22 ? label.slice(0, 22) + '...' : label}
+                                        </option>
+                                      );
+                                    })}
+                                  </select>
+                                </div>
+                              </div>
+                            );
+                          })}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newChoices = [...((selectedNode.data?.choices as string[]) || []), `Option ${((selectedNode.data?.choices as string[]) || []).length + 1}`];
+                              updateSelectedNodeData('choices', newChoices);
+                            }}
+                            className="add-dashed"
+                            style={{ marginTop: '8px' }}
+                          >
+                            <Plus /> Add choice
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  /* Advanced Tab */
+                  <div className="builder-scroll flex flex-col gap-4">
+                    <div>
+                      <label className="field-label">Lead key variable</label>
+                      <input
+                        type="text"
+                        value={(selectedNode.data?.key as string) || ''}
+                        onChange={(e) => updateSelectedNodeData('key', e.target.value)}
+                        className="input input-mono"
+                        placeholder="full_name, phone, email"
+                      />
+                      <p className="field-hint">Records lead answers into your database and Google Sheets under this key.</p>
+                    </div>
+
+                    <div className="modal-section">
+                      <button onClick={() => deleteNode(selectedNode.id)} className="button-danger button-block">
+                        <Trash2 /> Delete component
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="builder-scroll">
+                <div className="empty-state">
+                  <div className="empty-icon"><Sparkles /></div>
+                  <h4>Nothing selected</h4>
+                  <p>Pick a step in the flow to customize its text, media and routing.</p>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
       )}
 
       {/* ================= MODAL: Test Chat Flow ================= */}

@@ -4,7 +4,7 @@ export interface BotDesignConfig {
   subtitle: string;
   avatarUrl: string;
   avatarPreset: 'robot' | 'agent' | 'sparkles' | 'support' | 'custom';
-  
+
   // Color Palette & Themes
   themePreset: 'indigo' | 'emerald' | 'midnight' | 'sunset' | 'rose' | 'cyber' | 'custom';
   headerBgColor: string;
@@ -15,7 +15,7 @@ export interface BotDesignConfig {
   botBubbleText: string;
   accentColor: string;
   widgetBgColor: string;
-  
+
   // Widget Launcher Button
   launcherIcon: 'chat' | 'bot' | 'sparkles' | 'message' | 'help';
   launcherText: string;
@@ -23,7 +23,7 @@ export interface BotDesignConfig {
   launcherPosition: 'bottom-right' | 'bottom-left';
   launcherShape: 'circle' | 'pill' | 'rounded';
   enablePulseAnimation: boolean;
-  
+
   // Typography & Structure
   fontFamily: 'Inter' | 'Outfit' | 'Poppins' | 'Roboto' | 'System';
   borderRadius: '8px' | '16px' | '24px' | '32px';
@@ -42,15 +42,15 @@ export const DESIGN_THEME_PRESETS: Record<string, {
   widgetBgColor: string;
 }> = {
   indigo: {
-    name: 'Classic Indigo',
-    headerBgColor: '#4f46e5',
+    name: 'Mintage Purple',
+    headerBgColor: 'linear-gradient(135deg, #5B3DF5 0%, #7B4DFF 100%)',
     headerTextColor: '#ffffff',
-    userBubbleBg: '#4f46e5',
+    userBubbleBg: '#5B3DF5',
     userBubbleText: '#ffffff',
     botBubbleBg: '#ffffff',
     botBubbleText: '#1e293b',
-    accentColor: '#4f46e5',
-    widgetBgColor: '#f8fafc'
+    accentColor: '#E83E9B',
+    widgetBgColor: '#F8F7FF'
   },
   emerald: {
     name: 'Emerald Luxury',
@@ -115,24 +115,24 @@ export function getDefaultDesignConfig(overrides?: Partial<BotDesignConfig>): Bo
     subtitle: 'Online • Replies instantly',
     avatarUrl: '',
     avatarPreset: 'robot',
-    
+
     themePreset: 'indigo',
-    headerBgColor: '#4f46e5',
+    headerBgColor: 'linear-gradient(135deg, #5B3DF5 0%, #7B4DFF 100%)',
     headerTextColor: '#ffffff',
-    userBubbleBg: '#4f46e5',
+    userBubbleBg: '#5B3DF5',
     userBubbleText: '#ffffff',
     botBubbleBg: '#ffffff',
     botBubbleText: '#1e293b',
-    accentColor: '#4f46e5',
-    widgetBgColor: '#f8fafc',
-    
+    accentColor: '#E83E9B',
+    widgetBgColor: '#F8F7FF',
+
     launcherIcon: 'chat',
     launcherText: 'Chat with us! 👋',
     showTeaser: true,
     launcherPosition: 'bottom-right',
     launcherShape: 'circle',
     enablePulseAnimation: true,
-    
+
     fontFamily: 'Inter',
     borderRadius: '16px',
     shadowStyle: 'elevated',

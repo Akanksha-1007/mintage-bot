@@ -490,7 +490,7 @@ function BuilderContent() {
   };
   const activeOrigin = getAppBaseUrl();
 
-  const activeColor = encodeURIComponent((designConfig && (designConfig.accentColor || designConfig.headerBgColor)) || '#4f46e5');
+  const activeColor = encodeURIComponent((designConfig && (designConfig.accentColor || designConfig.headerBgColor)) || '#5B3DF5');
   const activePos = (designConfig && designConfig.launcherPosition === 'bottom-left') ? 'left' : 'right';
   const embedScriptTag = `<script src="${activeOrigin}/widget.js" data-bot-id="${id || 'SAVE_FIRST'}" data-color="${activeColor}" data-position="${activePos}" async></script>`;
   const embedIframeTag = `<iframe src="${activeOrigin}/widget/${id || 'SAVE_FIRST'}" width="380" height="600" style="border:none; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,0.15);"></iframe>`;
@@ -505,7 +505,7 @@ function BuilderContent() {
     var button = document.createElement('button');
     button.id = 'botflow-widget-button';
     button.innerHTML = '💬';
-    button.style.cssText = 'width:60px; height:60px; border-radius:30px; background:#4f46e5; border:none; color:white; font-size:24px; cursor:pointer; box-shadow:0 4px 15px rgba(79,70,229,0.4); transition:transform 0.2s; display:flex; align-items:center; justify-content:center; padding:0; margin:0; outline:none;';
+    button.style.cssText = 'width:60px; height:60px; border-radius:30px; background:#5B3DF5; border:none; color:white; font-size:24px; cursor:pointer; box-shadow:0 4px 15px rgba(79,70,229,0.4); transition:transform 0.2s; display:flex; align-items:center; justify-content:center; padding:0; margin:0; outline:none;';
     button.onmouseover = function() { this.style.transform = 'scale(1.1)'; };
     button.onmouseout = function() { this.style.transform = 'scale(1)'; };
 
@@ -1081,7 +1081,7 @@ function BuilderContent() {
                             source: selectedNode.id,
                             target: targetId,
                             type: 'smoothstep',
-                            style: { stroke: '#6366f1', strokeWidth: 2 }
+                            style: { stroke: '#7B4DFF', strokeWidth: 2 }
                           });
                         }
                         setEdges(otherEdges);
@@ -1189,7 +1189,7 @@ function BuilderContent() {
                                         label: choice,
                                         sourceHandle: choice,
                                         type: 'smoothstep',
-                                        style: { stroke: '#6366f1', strokeWidth: 2 }
+                                        style: { stroke: '#7B4DFF', strokeWidth: 2 }
                                       });
                                     }
                                     setEdges(updatedEdges);

@@ -852,7 +852,7 @@ export default function Integrations() {
   if (isLoading) {
     return (
       <div className="h-full flex items-center justify-center p-12">
-        <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
+        <Loader2 className="w-8 h-8 text-[#5B3DF5] animate-spin" />
       </div>
     );
   }
@@ -862,8 +862,8 @@ export default function Integrations() {
       {/* Toast Banner */}
       {toast && (
         <div className={`fixed bottom-6 right-6 z-50 px-5 py-3 rounded-2xl shadow-2xl border text-xs font-bold flex items-center gap-2 animate-bounce ${toast.type === 'success'
-            ? 'bg-emerald-900 text-emerald-100 border-emerald-700'
-            : 'bg-red-900 text-red-100 border-red-700'
+          ? 'bg-emerald-900 text-emerald-100 border-emerald-700'
+          : 'bg-red-900 text-red-100 border-red-700'
           }`}>
           {toast.type === 'success' ? <Check className="w-4 h-4 text-emerald-400" /> : <AlertCircle className="w-4 h-4 text-red-400" />}
           <span>{toast.msg}</span>
@@ -883,7 +883,7 @@ export default function Integrations() {
               onClick={() => fetchUserSheets(googleTokens)}
               className="flex items-center gap-2 px-3.5 py-2 bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 rounded-xl text-xs font-bold transition-all shadow-2xs"
             >
-              <RefreshCw className="w-3.5 h-3.5 text-indigo-600" />
+              <RefreshCw className="w-3.5 h-3.5 text-[#5B3DF5]" />
               <span>Refresh Google Drive Sheets</span>
             </button>
           )}
@@ -894,19 +894,19 @@ export default function Integrations() {
           <button
             onClick={() => setActiveTab('embed')}
             className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${activeTab === 'embed'
-                ? 'bg-slate-900 text-white shadow-md'
-                : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
+              ? 'bg-slate-900 text-white shadow-md'
+              : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
               }`}
           >
-            <Bot className="w-4 h-4 text-indigo-400" />
+            <Bot className="w-4 h-4 text-[#8B74FF]" />
             <span>Website Embed Code</span>
           </button>
 
           <button
             onClick={() => setActiveTab('sheets')}
             className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${activeTab === 'sheets'
-                ? 'bg-emerald-700 text-white shadow-md'
-                : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
+              ? 'bg-emerald-700 text-white shadow-md'
+              : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
               }`}
           >
             <FileSpreadsheet className="w-4 h-4 text-emerald-300" />
@@ -922,7 +922,7 @@ export default function Integrations() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-gray-100">
               <div>
                 <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                  <Bot className="w-6 h-6 text-indigo-600" />
+                  <Bot className="w-6 h-6 text-[#5B3DF5]" />
                   Connect Chatbot to Your Website Code
                 </h3>
                 <p className="text-xs text-gray-500 mt-1">
@@ -936,7 +936,7 @@ export default function Integrations() {
                 <select
                   value={activeBotId}
                   onChange={(e) => setSelectedBotIdForEmbed(e.target.value)}
-                  className="bg-white text-xs font-bold text-gray-900 px-3 py-1.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
+                  className="bg-white text-xs font-bold text-gray-900 px-3 py-1.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#6D4AFF] outline-none cursor-pointer"
                 >
                   {bots.length > 0 ? (
                     bots.map((b) => (
@@ -987,7 +987,7 @@ export default function Integrations() {
               <div className="flex justify-between items-center">
                 <div>
                   <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-indigo-600"></span>
+                    <span className="w-2 h-2 rounded-full bg-[#5B3DF5]"></span>
                     Option 1: Floating Chat Widget Script
                   </h4>
                   <p className="text-[11px] text-gray-500">
@@ -996,7 +996,7 @@ export default function Integrations() {
                 </div>
                 <button
                   onClick={copyScriptToClipboard}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition-all shadow-md shadow-indigo-100 flex items-center gap-1.5"
+                  className="px-4 py-2 bg-[#5B3DF5] hover:bg-[#4A2FE0] text-white font-bold text-xs rounded-xl transition-all shadow-md shadow-[#E8E3FF] flex items-center gap-1.5"
                 >
                   {copiedScript ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                   <span>{copiedScript ? 'Copied Script!' : 'Copy Script Tag'}</span>
@@ -1039,7 +1039,7 @@ export default function Integrations() {
               <div className="flex justify-between items-center">
                 <div>
                   <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-blue-600"></span>
+                    <span className="w-2 h-2 rounded-full bg-[#5B3DF5]"></span>
                     Option 3: Direct Link for "Enquire Now" / "Contact Us" Buttons
                   </h4>
                   <p className="text-[11px] text-gray-500">
@@ -1048,7 +1048,7 @@ export default function Integrations() {
                 </div>
                 <button
                   onClick={copyDirectLinkToClipboard}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl transition-all shadow-md shadow-blue-100 flex items-center gap-1.5"
+                  className="px-4 py-2 bg-[#5B3DF5] hover:bg-[#4A2FE0] text-white font-bold text-xs rounded-xl transition-all shadow-md shadow-[#E8E3FF] flex items-center gap-1.5"
                 >
                   {copiedDirectLink ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                   <span>{copiedDirectLink ? 'Copied Button Link!' : 'Copy Link Code'}</span>
@@ -1091,7 +1091,7 @@ export default function Integrations() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="bg-white p-6 rounded-3xl border border-gray-200 space-y-3">
               <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl font-bold text-xs">HTML</div>
+                <div className="p-2.5 bg-[#F1EEFF] text-[#5B3DF5] rounded-xl font-bold text-xs">HTML</div>
                 <h4 className="text-sm font-bold text-gray-900">Standard HTML Website</h4>
               </div>
               <ol className="text-xs text-gray-600 space-y-2 list-decimal pl-4 leading-relaxed">
@@ -1103,7 +1103,7 @@ export default function Integrations() {
 
             <div className="bg-white p-6 rounded-3xl border border-gray-200 space-y-3">
               <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl font-bold text-xs">WP</div>
+                <div className="p-2.5 bg-[#F1EEFF] text-[#5B3DF5] rounded-xl font-bold text-xs">WP</div>
                 <h4 className="text-sm font-bold text-gray-900">WordPress</h4>
               </div>
               <ol className="text-xs text-gray-600 space-y-2 list-decimal pl-4 leading-relaxed">
@@ -1127,7 +1127,7 @@ export default function Integrations() {
 
             <div className="bg-white p-6 rounded-3xl border border-gray-200 space-y-3">
               <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl font-bold text-xs">REACT</div>
+                <div className="p-2.5 bg-[#F1EEFF] text-[#5B3DF5] rounded-xl font-bold text-xs">REACT</div>
                 <h4 className="text-sm font-bold text-gray-900">React / Next.js</h4>
               </div>
               <ol className="text-xs text-gray-600 space-y-2 list-decimal pl-4 leading-relaxed">
@@ -1163,7 +1163,7 @@ export default function Integrations() {
                     <button
                       onClick={handleConnect}
                       disabled={isConnecting}
-                      className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 disabled:opacity-50"
+                      className="px-3.5 py-1.5 bg-[#5B3DF5] hover:bg-[#4A2FE0] text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 disabled:opacity-50"
                       title="Re-authorize existing Google Account connection"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${isConnecting ? 'animate-spin' : ''}`} />
@@ -1181,7 +1181,7 @@ export default function Integrations() {
                   <button
                     onClick={handleConnect}
                     disabled={isConnecting}
-                    className="px-6 py-2.5 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-md shadow-indigo-100 disabled:opacity-50"
+                    className="px-6 py-2.5 bg-[#5B3DF5] text-white text-xs font-bold rounded-xl hover:bg-[#4A2FE0] transition-all shadow-md shadow-[#E8E3FF] disabled:opacity-50"
                   >
                     {isConnecting ? 'Connecting...' : 'Connect Google Account'}
                   </button>
@@ -1200,12 +1200,12 @@ export default function Integrations() {
 
                   {bots.length === 0 ? (
                     <div className="p-8 text-center bg-gray-50 rounded-2xl border border-gray-200/80">
-                      <Bot className="w-10 h-10 text-indigo-400 mx-auto mb-2" />
+                      <Bot className="w-10 h-10 text-[#8B74FF] mx-auto mb-2" />
                       <p className="text-xs font-bold text-gray-700">No Chatbots Created Yet</p>
                       <p className="text-[11px] text-gray-400 mt-1 mb-4">Create your first chatbot to start linking Google Sheets.</p>
                       <Link
                         to="/builder/new"
-                        className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 transition-all inline-block shadow-sm"
+                        className="px-4 py-2 bg-[#5B3DF5] text-white text-xs font-bold rounded-xl hover:bg-[#4A2FE0] transition-all inline-block shadow-sm"
                       >
                         + Create New Chatbot
                       </Link>
@@ -1222,7 +1222,7 @@ export default function Integrations() {
                           <div key={bot.id} className="p-5 bg-slate-50/80 hover:bg-slate-50 rounded-2xl border border-gray-200 transition-all space-y-4">
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <div className="flex items-center gap-3">
-                                <div className="p-2.5 bg-indigo-100 text-indigo-700 rounded-xl">
+                                <div className="p-2.5 bg-[#E8E3FF] text-[#4A2FE0] rounded-xl">
                                   <Bot className="w-5 h-5" />
                                 </div>
                                 <div>
@@ -1267,7 +1267,7 @@ export default function Integrations() {
                                       setBotInputs(prev => ({ ...prev, [bot.id]: e.target.value }));
                                     }
                                   }}
-                                  className="w-full text-xs px-3 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 font-sans text-gray-700 outline-none"
+                                  className="w-full text-xs px-3 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#6D4AFF] font-sans text-gray-700 outline-none"
                                 >
                                   <option value="">-- Select a Google Sheet from Drive --</option>
                                   {userSheets.map((s) => (
@@ -1290,13 +1290,13 @@ export default function Integrations() {
                                   value={currentInput}
                                   onChange={(e) => setBotInputs(prev => ({ ...prev, [bot.id]: e.target.value }))}
                                   placeholder="https://docs.google.com/spreadsheets/d/1aBcDeFg... or Spreadsheet ID"
-                                  className="flex-1 min-w-[220px] text-xs px-3.5 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-mono"
+                                  className="flex-1 min-w-[220px] text-xs px-3.5 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#6D4AFF] outline-none font-mono"
                                 />
 
                                 <button
                                   onClick={() => handleLinkBotToSheet(bot.id)}
                                   disabled={isBusy}
-                                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all shadow-xs flex items-center gap-1.5 disabled:opacity-50"
+                                  className="px-4 py-2 bg-[#5B3DF5] hover:bg-[#4A2FE0] text-white text-xs font-bold rounded-xl transition-all shadow-xs flex items-center gap-1.5 disabled:opacity-50"
                                 >
                                   {isBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link2 className="w-3.5 h-3.5" />}
                                   <span>Link Sheet</span>
@@ -1378,7 +1378,7 @@ export default function Integrations() {
                         value={globalSpreadsheetId}
                         onChange={(e) => setGlobalSpreadsheetId(e.target.value)}
                         placeholder="Paste default Google Sheet URL or ID"
-                        className="flex-1 px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 outline-none font-mono"
+                        className="flex-1 px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-xs focus:ring-2 focus:ring-[#6D4AFF] outline-none font-mono"
                       />
                       <button
                         onClick={handleSaveGlobalSpreadsheet}
@@ -1396,7 +1396,7 @@ export default function Integrations() {
                           href={`https://docs.google.com/spreadsheets/d/${globalSpreadsheetId}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-indigo-600 font-bold hover:underline flex items-center gap-1 font-sans"
+                          className="text-[#5B3DF5] font-bold hover:underline flex items-center gap-1 font-sans"
                         >
                           Open Default Sheet <ExternalLink className="w-3 h-3" />
                         </a>
@@ -1412,7 +1412,7 @@ export default function Integrations() {
                   <button
                     onClick={handleConnect}
                     disabled={isConnecting}
-                    className="px-6 py-2.5 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-md"
+                    className="px-6 py-2.5 bg-[#5B3DF5] text-white text-xs font-bold rounded-xl hover:bg-[#4A2FE0] transition-all shadow-md"
                   >
                     Connect Google Account Now
                   </button>
@@ -1423,12 +1423,12 @@ export default function Integrations() {
 
           {/* SECTION 3: Integration Documentation / Guidance */}
           <div className="space-y-6">
-            <div className="bg-gradient-to-br from-indigo-900 via-slate-900 to-indigo-950 p-7 rounded-[32px] text-white shadow-xl shadow-indigo-100">
+            <div className="mintage-feature-card bg-gradient-to-br from-[#2D1B69] via-[#18151F] to-[#1E123F] p-7 rounded-[32px] text-white shadow-xl shadow-[#E8E3FF]">
               <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-indigo-300" />
+                <Sparkles className="w-5 h-5 text-[#BDB4FF]" />
                 Flexible Google Sheets Integration
               </h3>
-              <ul className="text-indigo-200 text-xs leading-relaxed space-y-3 mb-6">
+              <ul className="text-[#D8D0FF] text-xs leading-relaxed space-y-3 mb-6">
                 <li className="flex items-start gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mt-1.5 shrink-0"></span>
                   <span><strong>Connect Any Sheet</strong>: Simply paste any Google Sheet URL from your browser to link it instantly.</span>
@@ -1448,7 +1448,7 @@ export default function Integrations() {
               </ul>
               <Link
                 to="/bots"
-                className="w-full py-3 bg-white text-indigo-900 font-bold rounded-xl hover:bg-indigo-50 transition-all flex items-center justify-center gap-2 text-xs"
+                className="w-full py-3 bg-white text-[#2D1B69] font-bold rounded-xl hover:bg-[#F1EEFF] transition-all flex items-center justify-center gap-2 text-xs"
               >
                 Manage My Chatbots
                 <ExternalLink className="w-4 h-4" />
