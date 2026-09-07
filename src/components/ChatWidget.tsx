@@ -48,7 +48,7 @@ export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
           };
         }
       }
-    } catch (e) {}
+    } catch (e) { }
     return {};
   };
 
@@ -57,6 +57,28 @@ export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
   );
   const leadSubmitInFlightRef = useRef(false);
   const leadSubmittedRef = useRef(false);
+  const thankYouShownRef = useRef(false);
+
+  // Show exactly one completion message for a lead submission.
+  const showThankYouOnce = () => {
+    if (thankYouShownRef.current) return;
+    thankYouShownRef.current = true;
+
+    setIsTyping(true);
+    setTimeout(() => {
+      setIsTyping(false);
+      setMessages(prev => {
+        // Defensive guard in case multiple async flow branches resolve together.
+        if (prev.some(msg => msg.type === 'lead-complete')) return prev;
+        return [...prev, {
+          id: 'lead-complete-' + Date.now().toString(),
+          text: '🎉 Thank you! Your details have been submitted successfully. Our team will contact you shortly.',
+          sender: 'bot',
+          type: 'lead-complete'
+        }];
+      });
+    }, 600);
+  };
 
   useEffect(() => {
     if (designConfig) {
@@ -69,7 +91,7 @@ export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
       if (window.parent && window.parent !== window) {
         window.parent.postMessage({ type: 'MINTAGE_BOT_DESIGN_UPDATE', designConfig: design }, '*');
       }
-    } catch (e) {}
+    } catch (e) { }
   }, [design]);
 
   // Real-time Chatbot User Identification & Session Tracking
@@ -428,6 +450,9 @@ export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
       setNodes(nodesData);
       setEdges(edgesData);
       setMessages([]);
+      leadSubmitInFlightRef.current = false;
+      leadSubmittedRef.current = false;
+      thankYouShownRef.current = false;
 
       const startNode =
         nodesData.find((node: any) => node.type === 'input') ||
@@ -538,16 +563,8 @@ export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
       // 2. Check if currentNode has an explicit nextStepId set
       if (!targetNodeId && currentNode.data?.nextStepId) {
         if (currentNode.data.nextStepId === 'END') {
-          await saveLead(newLeadData, updatedDynamicFields);
-          setIsTyping(true);
-          setTimeout(() => {
-            setIsTyping(false);
-            setMessages(prev => [...prev, {
-              id: Date.now().toString(),
-              text: '🎉 Thank you! Your details have been submitted. Our team will contact you shortly.',
-              sender: 'bot'
-            }]);
-          }, 600);
+          const submitted = await saveLead(newLeadData, updatedDynamicFields);
+          if (submitted) showThankYouOnce();
           return;
         }
         targetNodeId = currentNode.data.nextStepId;
@@ -589,16 +606,13 @@ export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
         const nextNode = safeNodes.find((n: any) => n.id === targetNodeId);
         if (nextNode) {
           if (nextNode.type === 'saveLead') {
-            await saveLead(newLeadData, updatedDynamicFields);
-            const nextEdge = safeEdges.find((e: any) => e.source === nextNode.id);
-            if (nextEdge) {
-              const finalNextNode = safeNodes.find((n: any) => n.id === nextEdge.target);
-              if (finalNextNode) {
-                setCurrentNodeId(finalNextNode.id);
-                processBotStep(finalNextNode);
-                return;
-              }
-            }
+            // Treat saveLead as the terminal capture step. Do not continue to
+            // another message node because that can generate multiple thank-you
+            // responses for one submission.
+            const submitted = await saveLead(newLeadData, updatedDynamicFields);
+            setCurrentNodeId(null);
+            if (submitted) showThankYouOnce();
+            return;
           }
 
           setCurrentNodeId(nextNode.id);
@@ -607,30 +621,17 @@ export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
         }
       }
 
-      // End of flow reached - save lead and send completion message
-      await saveLead(newLeadData, updatedDynamicFields);
+      // End of flow reached - save lead and show one completion message.
+      const submitted = await saveLead(newLeadData, updatedDynamicFields);
       setCurrentNodeId(null);
-      setIsTyping(true);
-      setTimeout(() => {
-        setIsTyping(false);
-        setMessages(prev => [...prev, {
-          id: Date.now().toString(),
-          text: '🎉 Thank you! Your details have been submitted. Our team will reach out to you shortly.',
-          sender: 'bot'
-        }]);
-      }, 600);
+      if (submitted) showThankYouOnce();
     } else {
-      // Flow ended previously, user is continuing chat
-      await saveLead(newLeadData, updatedDynamicFields);
-      setIsTyping(true);
-      setTimeout(() => {
-        setIsTyping(false);
-        setMessages(prev => [...prev, {
-          id: Date.now().toString(),
-          text: `Thanks for your message! Our ${botTitle} team has received your note and will get back to you ASAP.`,
-          sender: 'bot'
-        }]);
-      }, 600);
+      // The lead was already submitted. Do not submit again or show another
+      // completion message when the visitor continues typing after capture.
+      if (leadSubmittedRef.current || thankYouShownRef.current) return;
+
+      const submitted = await saveLead(newLeadData, updatedDynamicFields);
+      if (submitted) showThankYouOnce();
     }
   };
 
@@ -640,8 +641,8 @@ export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const saveLead = async (data: any, fieldsList: Array<{ fieldId: string; label: string; value: string }> = dynamicFields) => {
-    if (leadSubmitInFlightRef.current || leadSubmittedRef.current || isSubmitting) return;
+  const saveLead = async (data: any, fieldsList: Array<{ fieldId: string; label: string; value: string }> = dynamicFields): Promise<boolean> => {
+    if (leadSubmitInFlightRef.current || leadSubmittedRef.current || isSubmitting) return false;
     leadSubmitInFlightRef.current = true;
     setIsSubmitting(true);
 
@@ -673,6 +674,8 @@ export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
       googleSheetSyncStatus: 'pending'
     };
 
+    let submittedSuccessfully = false;
+
     try {
       const res = await fetch('/api/leads', {
         method: 'POST',
@@ -690,6 +693,7 @@ export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
           console.warn('[LEAD] Google Sheets sync issue:', resData.googleSheetSync);
         }
         leadSubmittedRef.current = true;
+        submittedSuccessfully = true;
       }
     } catch (error) {
       console.warn('[LEAD] submission network notice, using local persistence fallback:', error);
@@ -707,18 +711,11 @@ export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
       console.warn('Local storage lead save notice:', e);
     }
 
-    setIsTyping(true);
-    setTimeout(() => {
-      setIsTyping(false);
-      setMessages(prev => [...prev, {
-        id: Date.now().toString(),
-        text: '🎉 Thank you! Your details have been submitted successfully. Our team will contact you shortly.',
-        sender: 'bot'
-      }]);
-    }, 600);
-
+    // Completion message is intentionally NOT emitted here. Callers use
+    // showThankYouOnce() after a successful save so it can never be duplicated.
     leadSubmitInFlightRef.current = false;
     setIsSubmitting(false);
+    return submittedSuccessfully;
   };
 
 
@@ -825,9 +822,8 @@ export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
               className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
             >
               <div
-                className={`max-w-[80%] p-3 rounded-2xl text-sm shadow-sm transition-all ${
-                  msg.sender === 'user' ? 'rounded-tr-none' : 'rounded-tl-none border border-gray-100'
-                }`}
+                className={`max-w-[80%] p-3 rounded-2xl text-sm shadow-sm transition-all ${msg.sender === 'user' ? 'rounded-tr-none' : 'rounded-tl-none border border-gray-100'
+                  }`}
                 style={
                   msg.sender === 'user'
                     ? { background: design.userBubbleBg || '#4f46e5', color: design.userBubbleText || '#ffffff' }
