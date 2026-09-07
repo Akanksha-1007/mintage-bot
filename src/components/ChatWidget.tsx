@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { db, auth } from '../lib/firebase';
-import { RecaptchaVerifier, signInWithPhoneNumber, ConfirmationResult } from 'firebase/auth';
+import { db } from '../lib/firebase';
 import { doc, getDoc, getDocs, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
 import { Send, Bot, Loader2, ChevronRight } from 'lucide-react';
@@ -56,17 +55,6 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   });
   const [conversationId, setConversationId] = useState<string | null>(null);
 
-  // Phone OTP verification state. Firebase handles the SMS/reCAPTCHA flow.
-  const [otpStage, setOtpStage] = useState<'idle' | 'sending' | 'verify'>('idle');
-  const [otpError, setOtpError] = useState<string | null>(null);
-  const [otpPhone, setOtpPhone] = useState('');
-  const confirmationResultRef = useRef<ConfirmationResult | null>(null);
-  const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
-  // Use a stable, widget-specific container id so multiple chatbot instances
-  // do not accidentally share the same reCAPTCHA DOM element.
-  const recaptchaContainerId = useRef(
-    `mintage-recaptcha-${botId.replace(/[^a-zA-Z0-9_-]/g, '_')}-${Math.random().toString(36).slice(2, 8)}`
-  ).current;
 
   // Prevent duplicate lead submissions and duplicate completion messages.
   const leadSubmitInFlightRef = useRef(false);
@@ -105,14 +93,6 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     });
   };
 
-  useEffect(() => {
-    return () => {
-      try {
-        recaptchaVerifierRef.current?.clear();
-      } catch { }
-      recaptchaVerifierRef.current = null;
-    };
-  }, [botId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -500,200 +480,6 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     loadBot();
   }, [botId]);
 
-  const normalizePhoneNumber = (value: string) => {
-    const compact = value.trim().replace(/[\s()-]/g, '');
-    if (/^\d{10}$/.test(compact)) return `+91${compact}`;
-    if (/^\+\d{8,15}$/.test(compact)) return compact;
-    return null;
-  };
-
-  const ensureRecaptcha = async () => {
-    if (recaptchaVerifierRef.current) {
-      return recaptchaVerifierRef.current;
-    }
-
-    const container = document.getElementById(recaptchaContainerId);
-    if (!container) {
-      throw new Error('reCAPTCHA container was not found. Please refresh the page and try again.');
-    }
-
-    // Use a visible reCAPTCHA. The previous implementation used an
-    // invisible verifier inside a hidden div, which can fail because the
-    // verifier cannot correctly interact with the rendered widget.
-    const verifier = new RecaptchaVerifier(auth, recaptchaContainerId, {
-      size: 'normal',
-      callback: () => {
-        setOtpError(null);
-      },
-      'expired-callback': () => {
-        setOtpError('Verification expired. Please complete the reCAPTCHA again.');
-      },
-    });
-
-    recaptchaVerifierRef.current = verifier;
-    await verifier.render();
-    return verifier;
-  };
-
-  const startPhoneOtp = async (phoneInput: string) => {
-    const normalizedPhone = normalizePhoneNumber(phoneInput);
-    if (!normalizedPhone) {
-      setOtpError('Please enter a valid phone number. Example: 9876543210');
-      setOtpStage('idle');
-      return false;
-    }
-
-    setOtpError(null);
-    setOtpStage('sending');
-    setOtpPhone(normalizedPhone);
-
-    try {
-      const verifier = await ensureRecaptcha();
-      const confirmation = await signInWithPhoneNumber(auth, normalizedPhone, verifier);
-      confirmationResultRef.current = confirmation;
-      setOtpStage('verify');
-      setMessages(prev => [...prev, {
-        id: `otp-request-${Date.now()}`,
-        text: `📱 We sent a 6-digit verification code to ${normalizedPhone}. Please enter the OTP to continue.`,
-        sender: 'bot',
-        type: 'phone-otp'
-      }]);
-      return true;
-    } catch (error: any) {
-      console.error('[PHONE_OTP_SEND_ERROR]', error);
-      try {
-        recaptchaVerifierRef.current?.clear();
-      } catch { }
-      recaptchaVerifierRef.current = null;
-      setOtpStage('idle');
-
-      const code = String(error?.code || '');
-      const message = String(error?.message || '');
-
-      // Show the real Firebase reason instead of masking every failure as
-      // an invalid phone number. This makes deployment/configuration issues
-      // immediately diagnosable.
-      const friendlyError =
-        code === 'auth/too-many-requests'
-          ? 'Too many OTP attempts. Please try again later.'
-          : code === 'auth/invalid-phone-number'
-            ? 'Firebase rejected this phone number. Please use a valid number, e.g. 7675931920.'
-            : code === 'auth/operation-not-allowed'
-              ? 'Phone authentication is not enabled in this Firebase project.'
-              : code === 'auth/unauthorized-domain'
-                ? 'This website domain is not authorized in Firebase Authentication.'
-                : code === 'auth/captcha-check-failed' || code === 'auth/invalid-app-credential'
-                  ? 'reCAPTCHA verification failed. Please complete the reCAPTCHA and try again.'
-                  : code === 'auth/quota-exceeded'
-                    ? 'Firebase SMS quota has been exceeded. Please use a Firebase test phone number or check billing/quota settings.'
-                    : code === 'auth/missing-phone-number'
-                      ? 'Please enter your phone number.'
-                      : code === 'auth/app-not-authorized'
-                        ? 'This Firebase app is not authorized for Phone Authentication. Check the Firebase project configuration.'
-                        : code
-                          ? `Firebase error (${code}): ${message || 'OTP could not be sent.'}`
-                          : (message || 'We could not send the OTP. Please try again.');
-
-      setOtpError(friendlyError);
-      return false;
-    }
-  };
-
-  const verifyPhoneOtp = async (codeInput: string, currentNode: any) => {
-    const code = codeInput.trim().replace(/\D/g, '');
-    if (!/^\d{6}$/.test(code)) {
-      setOtpError('Please enter the 6-digit OTP.');
-      return false;
-    }
-
-    if (!confirmationResultRef.current) {
-      setOtpError('OTP session expired. Please request a new OTP.');
-      setOtpStage('idle');
-      return false;
-    }
-
-    try {
-      setOtpError(null);
-      setOtpStage('sending');
-      await confirmationResultRef.current.confirm(code);
-      confirmationResultRef.current = null;
-      setOtpStage('idle');
-
-      const fieldLabel = 'Phone Number';
-      const fieldKey = currentNode?.data?.key || currentNode?.data?.leadKey || 'phone';
-      const fieldId = currentNode?.id || ('node_' + Date.now());
-      const updatedDynamicFields = [
-        ...dynamicFields.filter(f => f.fieldId !== fieldId),
-        { fieldId, label: fieldLabel, value: otpPhone }
-      ];
-      const newLeadData = { ...leadData, [fieldKey]: otpPhone, phone: otpPhone };
-
-      setDynamicFields(updatedDynamicFields);
-      setLeadData(newLeadData);
-      trackMessageToBackend('user', otpPhone, 'phone', { phone: otpPhone });
-
-      // Continue exactly as if the verified phone answer had just been entered.
-      let targetNodeId: string | null = null;
-      const cleanText = otpPhone.trim();
-      if (currentNode?.data?.optionRoutes) {
-        const routes = currentNode.data.optionRoutes;
-        const matchedRouteKey = Object.keys(routes).find(
-          k => k.toLowerCase().trim() === cleanText.toLowerCase()
-        );
-        if (matchedRouteKey) targetNodeId = routes[matchedRouteKey];
-      }
-      if (!targetNodeId && currentNode?.data?.nextStepId) {
-        if (currentNode.data.nextStepId === 'END') {
-          void saveLead(newLeadData, updatedDynamicFields);
-          setCurrentNodeId(null);
-          showThankYouOnce();
-          return true;
-        }
-        targetNodeId = currentNode.data.nextStepId;
-      }
-      if (!targetNodeId) {
-        const defaultEdge = safeEdges.find((e: any) => e.source === currentNode?.id && !e.sourceHandle);
-        if (defaultEdge) targetNodeId = defaultEdge.target;
-        else {
-          const anyEdge = safeEdges.find((e: any) => e.source === currentNode?.id);
-          if (anyEdge) targetNodeId = anyEdge.target;
-        }
-      }
-      if (!targetNodeId) {
-        const currentIdx = safeNodes.findIndex((n: any) => n.id === currentNode?.id);
-        if (currentIdx !== -1 && currentIdx + 1 < safeNodes.length) targetNodeId = safeNodes[currentIdx + 1].id;
-      }
-      if (targetNodeId) {
-        const nextNode = safeNodes.find((n: any) => n.id === targetNodeId);
-        if (nextNode) {
-          if (nextNode.type === 'saveLead') {
-            void saveLead(newLeadData, updatedDynamicFields);
-            setCurrentNodeId(null);
-            showThankYouOnce();
-            return true;
-          }
-          setCurrentNodeId(nextNode.id);
-          processBotStep(nextNode);
-          return true;
-        }
-      }
-
-      void saveLead(newLeadData, updatedDynamicFields);
-      setCurrentNodeId(null);
-      showThankYouOnce();
-      return true;
-    } catch (error: any) {
-      console.error('[PHONE_OTP_VERIFY_ERROR]', error);
-      setOtpStage('verify');
-      setOtpError(
-        error?.code === 'auth/invalid-verification-code'
-          ? 'Incorrect OTP. Please check the code and try again.'
-          : 'The OTP could not be verified. Please try again.'
-      );
-      return false;
-    }
-  };
-
   const handleUserInput = async (text: string) => {
     const cleanText = text.trim();
     if (!cleanText) return;
@@ -707,18 +493,6 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     setInputValue('');
 
     const currentNode = safeNodes.find((n: any) => n.id === currentNodeId);
-
-    // If the current phone step is waiting for OTP, the next user input is the code.
-    if (otpStage === 'verify' && currentNode?.type === 'phone') {
-      await verifyPhoneOtp(cleanText, currentNode);
-      return;
-    }
-
-    // Phone answers must be verified before they are stored as lead data.
-    if (currentNode?.type === 'phone') {
-      await startPhoneOtp(cleanText);
-      return;
-    }
 
     // Determine field label and key
     let fieldLabel = 'Field';
@@ -1037,64 +811,32 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       {/* User Input Area */}
       {!isTyping && (
         <>
-          {currentNode?.type === 'phone' && otpStage !== 'verify' && (
-            <div className="mx-3 mb-2 rounded-xl border border-gray-200 bg-white px-3 py-2">
-              <div className="flex justify-center overflow-hidden">
-                <div id={recaptchaContainerId} />
-              </div>
-            </div>
-          )}
-          {otpError && (
-            <div className="mx-3 mb-2 rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-[11px] font-medium text-red-600">
-              {otpError}
-            </div>
-          )}
-          {otpStage === 'verify' && (
-            <div className="mx-3 mb-2 flex items-center justify-between rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-[11px]">
-              <span className="text-indigo-700">OTP sent to {otpPhone}</span>
-              <button
-                type="button"
-                onClick={() => {
-                  setInputValue('');
-                  void startPhoneOtp(otpPhone);
-                }}
-                className="font-bold text-indigo-600 hover:text-indigo-800"
-              >
-                Resend
-              </button>
-            </div>
-          )}
           <form
-            onSubmit={(e) => { e.preventDefault(); if (inputValue.trim() && otpStage !== 'sending') handleUserInput(inputValue); }}
+            onSubmit={(e) => { e.preventDefault(); if (inputValue.trim()) handleUserInput(inputValue); }}
             className="p-3 bg-white border-t border-gray-100 flex gap-2 items-center"
           >
             <input
-              type={otpStage === 'verify' ? 'tel' : 'text'}
-              inputMode={otpStage === 'verify' ? 'numeric' : 'text'}
-              maxLength={otpStage === 'verify' ? 6 : undefined}
+              type={currentNode?.type === 'phone' ? 'tel' : 'text'}
+              inputMode={currentNode?.type === 'phone' ? 'tel' : 'text'}
               value={inputValue}
               onChange={(e) => {
-                const value = otpStage === 'verify' ? e.target.value.replace(/\D/g, '').slice(0, 6) : e.target.value;
-                setInputValue(value);
+                setInputValue(e.target.value);
               }}
               placeholder={
-                otpStage === 'sending' ? 'Sending OTP...' :
-                  otpStage === 'verify' ? 'Enter 6-digit OTP...' :
-                    currentNode?.type === 'name' ? 'Type your full name...' :
-                      currentNode?.type === 'phone' ? 'Type your phone number...' :
-                        currentNode?.type === 'email' ? 'Type your email address...' :
-                          'Type your response...'
+                currentNode?.type === 'name' ? 'Type your full name...' :
+                  currentNode?.type === 'phone' ? 'Type your phone number...' :
+                    currentNode?.type === 'email' ? 'Type your email address...' :
+                      'Type your response...'
               }
               className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-xs font-medium text-gray-800 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
-              disabled={otpStage === 'sending'}
-              autoComplete={otpStage === 'verify' ? 'one-time-code' : 'tel'}
+              autoComplete={currentNode?.type === 'phone' ? 'tel' : 'off'}
             />
             <button
               type="submit"
-              disabled={!inputValue.trim() || otpStage === 'sending'}
+              disabled={!inputValue.trim()}
               className="bg-indigo-600 text-white p-2.5 rounded-xl hover:bg-indigo-700 transition-all shadow-md shadow-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              {otpStage === 'sending' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              <Send className="w-4 h-4" />
             </button>
           </form>
         </>
