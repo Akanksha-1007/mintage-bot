@@ -2,12 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../lib/firebase';
 import { doc, getDoc, getDocs, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
-import { Send, User, Bot, Loader2, ChevronRight, Sparkles, LifeBuoy } from 'lucide-react';
-import { BotDesignConfig, getDefaultDesignConfig } from '../types/design';
+import { Send, User, Bot, Loader2, ChevronRight } from 'lucide-react';
 
 interface ChatWidgetProps {
   botId: string;
-  designConfig?: BotDesignConfig;
 }
 
 interface Message {
@@ -19,7 +17,7 @@ interface Message {
   imageUrl?: string;
 }
 
-export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
+export default function ChatWidget({ botId }: ChatWidgetProps) {
   const [nodes, setNodes] = useState<any[]>([]);
   const [edges, setEdges] = useState<any[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -34,66 +32,6 @@ export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
   const [isTyping, setIsTyping] = useState(false);
   const [botTitle, setBotTitle] = useState('BotFlow Assistant');
 
-  const getUrlColorOverride = (): Partial<BotDesignConfig> => {
-    try {
-      const searchParams = new URLSearchParams(window.location.search);
-      const rawColor = searchParams.get('color') || searchParams.get('accentColor');
-      if (rawColor) {
-        const decoded = rawColor.includes('%') ? decodeURIComponent(rawColor) : rawColor;
-        if (decoded && (decoded.startsWith('#') || decoded.startsWith('rgb') || decoded.startsWith('hsl'))) {
-          return {
-            accentColor: decoded,
-            headerBgColor: decoded,
-            userBubbleBg: decoded
-          };
-        }
-      }
-    } catch (e) { }
-    return {};
-  };
-
-  const [design, setDesign] = useState<BotDesignConfig>(() =>
-    getDefaultDesignConfig({ ...getUrlColorOverride(), ...designConfig })
-  );
-  const leadSubmitInFlightRef = useRef(false);
-  const leadSubmittedRef = useRef(false);
-  const thankYouShownRef = useRef(false);
-
-  // Show exactly one completion message for a lead submission.
-  const showThankYouOnce = () => {
-    if (thankYouShownRef.current) return;
-    thankYouShownRef.current = true;
-
-    setIsTyping(true);
-    setTimeout(() => {
-      setIsTyping(false);
-      setMessages(prev => {
-        // Defensive guard in case multiple async flow branches resolve together.
-        if (prev.some(msg => msg.type === 'lead-complete')) return prev;
-        return [...prev, {
-          id: 'lead-complete-' + Date.now().toString(),
-          text: '🎉 Thank you! Your details have been submitted successfully. Our team will contact you shortly.',
-          sender: 'bot',
-          type: 'lead-complete'
-        }];
-      });
-    }, 600);
-  };
-
-  useEffect(() => {
-    if (designConfig) {
-      setDesign(getDefaultDesignConfig({ ...getUrlColorOverride(), ...designConfig }));
-    }
-  }, [designConfig]);
-
-  useEffect(() => {
-    try {
-      if (window.parent && window.parent !== window) {
-        window.parent.postMessage({ type: 'MINTAGE_BOT_DESIGN_UPDATE', designConfig: design }, '*');
-      }
-    } catch (e) { }
-  }, [design]);
-
   // Real-time Chatbot User Identification & Session Tracking
   const [chatUserId, setChatUserId] = useState<string>(() => {
     let stored = localStorage.getItem('mintage_chatbot_user_id');
@@ -104,6 +42,48 @@ export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
     return stored;
   });
   const [conversationId, setConversationId] = useState<string | null>(null);
+
+  // Prevent duplicate lead submissions and duplicate completion messages.
+  const leadSubmitInFlightRef = useRef(false);
+  const leadSubmittedRef = useRef(false);
+  const thankYouShownRef = useRef(false);
+
+  const showThankYouOnce = () => {
+    // Guard at component level.
+    if (thankYouShownRef.current) return;
+
+    // Guard at browser-session level so a remount/re-render cannot generate
+    // the same completion message again for the same bot conversation.
+    const thankYouKey = `mintage_thankyou_${botId}_${conversationId || chatUserId}`;
+    try {
+      if (sessionStorage.getItem(thankYouKey) === '1') {
+        thankYouShownRef.current = true;
+        return;
+      }
+      sessionStorage.setItem(thankYouKey, '1');
+    } catch {
+      // Fall back to the in-memory ref if sessionStorage is unavailable.
+    }
+
+    thankYouShownRef.current = true;
+
+    setIsTyping(true);
+    setTimeout(() => {
+      setIsTyping(false);
+      setMessages(prev => {
+        // Never add more than one lead-completion message to this chat.
+        if (prev.some(msg => msg.sender === 'bot' && msg.type === 'lead-complete')) {
+          return prev;
+        }
+        return [...prev, {
+          id: 'lead-complete-' + Date.now().toString(),
+          text: '🎉 Thank you! Your details have been submitted successfully. Our team will contact you shortly.',
+          sender: 'bot',
+          type: 'lead-complete'
+        }];
+      });
+    }, 600);
+  };
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -427,7 +407,6 @@ export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
       }
 
       setBotTitle(botData.name || 'BotFlow Assistant');
-      setDesign(getDefaultDesignConfig({ ...getUrlColorOverride(), ...(botData.designConfig || {}) }));
 
       const nodesData = Array.isArray(botData.nodes)
         ? botData.nodes
@@ -563,8 +542,8 @@ export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
       // 2. Check if currentNode has an explicit nextStepId set
       if (!targetNodeId && currentNode.data?.nextStepId) {
         if (currentNode.data.nextStepId === 'END') {
-          const submitted = await saveLead(newLeadData, updatedDynamicFields);
-          if (submitted) showThankYouOnce();
+          await saveLead(newLeadData, updatedDynamicFields);
+          showThankYouOnce();
           return;
         }
         targetNodeId = currentNode.data.nextStepId;
@@ -606,12 +585,12 @@ export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
         const nextNode = safeNodes.find((n: any) => n.id === targetNodeId);
         if (nextNode) {
           if (nextNode.type === 'saveLead') {
-            // Treat saveLead as the terminal capture step. Do not continue to
-            // another message node because that can generate multiple thank-you
-            // responses for one submission.
-            const submitted = await saveLead(newLeadData, updatedDynamicFields);
+            // A saveLead node is terminal for lead capture. Do not continue into
+            // another terminal/message node, otherwise multiple completion
+            // messages can be generated from the same submission.
+            await saveLead(newLeadData, updatedDynamicFields);
             setCurrentNodeId(null);
-            if (submitted) showThankYouOnce();
+            showThankYouOnce();
             return;
           }
 
@@ -621,17 +600,14 @@ export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
         }
       }
 
-      // End of flow reached - save lead and show one completion message.
-      const submitted = await saveLead(newLeadData, updatedDynamicFields);
+      // End of flow reached - save lead and send exactly one completion message.
+      await saveLead(newLeadData, updatedDynamicFields);
       setCurrentNodeId(null);
-      if (submitted) showThankYouOnce();
+      showThankYouOnce();
     } else {
-      // The lead was already submitted. Do not submit again or show another
-      // completion message when the visitor continues typing after capture.
-      if (leadSubmittedRef.current || thankYouShownRef.current) return;
-
-      const submitted = await saveLead(newLeadData, updatedDynamicFields);
-      if (submitted) showThankYouOnce();
+      // Flow ended previously, user is continuing chat
+      await saveLead(newLeadData, updatedDynamicFields);
+      showThankYouOnce();
     }
   };
 
@@ -641,40 +617,32 @@ export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const saveLead = async (data: any, fieldsList: Array<{ fieldId: string; label: string; value: string }> = dynamicFields): Promise<boolean> => {
-    if (leadSubmitInFlightRef.current || leadSubmittedRef.current || isSubmitting) return false;
+  const saveLead = async (data: any, fieldsList: Array<{ fieldId: string; label: string; value: string }> = dynamicFields) => {
+    if (leadSubmittedRef.current || leadSubmitInFlightRef.current || isSubmitting) return;
     leadSubmitInFlightRef.current = true;
     setIsSubmitting(true);
 
     const effectiveClientId = localStorage.getItem('mintage_effective_user_id') || localStorage.getItem('mintage_client_id') || undefined;
-    const activeConversationId = conversationId || `widget_${botId}_${chatUserId}`;
-    const stableLeadId = `lead_${botId}_${activeConversationId}`.replace(/[\\/]/g, '_');
     const payload = {
-      id: stableLeadId,
       botId,
       clientId: effectiveClientId,
-      userId: chatUserId,
-      conversationId: activeConversationId,
       fields: fieldsList,
       sourceUrl: window.location.href,
-      referrer: document.referrer || '',
       submittedAt: new Date().toISOString()
     };
 
     console.log('[LEAD] submitting', payload);
 
-    const newLeadRecord: any = {
-      id: stableLeadId,
+    const newLeadRecord = {
+      id: 'lead_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
       botId,
       flowId: botId,
       fields: fieldsList,
       data,
       sourceUrl: window.location.href,
       submittedAt: new Date().toISOString(),
-      googleSheetSyncStatus: 'pending'
+      googleSheetSyncStatus: 'synced'
     };
-
-    let submittedSuccessfully = false;
 
     try {
       const res = await fetch('/api/leads', {
@@ -689,11 +657,7 @@ export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
         newLeadRecord.id = resData.leadId || newLeadRecord.id;
         newLeadRecord.googleSheetSyncStatus = resData.googleSheetSync?.status || 'pending';
         newLeadRecord.googleSheetSyncAction = resData.googleSheetSync?.action || null;
-        if (resData.googleSheetSync?.status === 'failed' || resData.googleSheetSync?.status === 'not_configured') {
-          console.warn('[LEAD] Google Sheets sync issue:', resData.googleSheetSync);
-        }
         leadSubmittedRef.current = true;
-        submittedSuccessfully = true;
       }
     } catch (error) {
       console.warn('[LEAD] submission network notice, using local persistence fallback:', error);
@@ -711,11 +675,10 @@ export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
       console.warn('Local storage lead save notice:', e);
     }
 
-    // Completion message is intentionally NOT emitted here. Callers use
-    // showThankYouOnce() after a successful save so it can never be duplicated.
+    // Completion UI is handled centrally by showThankYouOnce().
+    // saveLead itself must never add a bot completion message.
     leadSubmitInFlightRef.current = false;
     setIsSubmitting(false);
-    return submittedSuccessfully;
   };
 
 
@@ -763,50 +726,18 @@ export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
 
   const currentNode = safeNodes.find((n: any) => n.id === currentNodeId);
 
-  const renderHeaderAvatar = () => {
-    const iconColor = design.headerTextColor || '#ffffff';
-    if (design.avatarPreset === 'custom' && design.avatarUrl) {
-      return <img src={design.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />;
-    }
-    switch (design.avatarPreset) {
-      case 'agent': return <User className="w-5 h-5 flex-shrink-0" style={{ color: iconColor }} />;
-      case 'sparkles': return <Sparkles className="w-5 h-5 flex-shrink-0" style={{ color: iconColor }} />;
-      case 'support': return <LifeBuoy className="w-5 h-5 flex-shrink-0" style={{ color: iconColor }} />;
-      case 'robot':
-      default:
-        return <Bot className="w-5 h-5 flex-shrink-0" style={{ color: iconColor }} />;
-    }
-  };
-
   return (
-    <div
-      className="flex flex-col h-full overflow-hidden border border-gray-100 shadow-2xl transition-all"
-      style={{
-        fontFamily: design.fontFamily === 'System' ? 'sans-serif' : design.fontFamily,
-        borderRadius: design.borderRadius || '16px',
-        backgroundColor: design.widgetBgColor || '#f8fafc'
-      }}
-    >
+    <div className="flex flex-col h-full bg-gray-50 font-sans overflow-hidden border border-gray-100 rounded-2xl shadow-2xl">
       {/* Header */}
-      <div
-        className="p-4 flex items-center gap-3 shadow-md transition-all"
-        style={{
-          background: design.headerBgColor || '#4f46e5',
-          color: design.headerTextColor || '#ffffff'
-        }}
-      >
-        <div className="w-9 h-9 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center overflow-hidden border border-white/20">
-          {renderHeaderAvatar()}
+      <div className="bg-indigo-600 p-4 flex items-center gap-3 shadow-md">
+        <div className="bg-white/20 p-2 rounded-lg">
+          <Bot className="w-5 h-5 text-white" />
         </div>
         <div>
-          <h3 className="font-bold text-sm" style={{ color: design.headerTextColor || '#ffffff' }}>
-            {design.botTitle || botTitle}
-          </h3>
+          <h3 className="text-white font-bold text-sm">{botTitle}</h3>
           <div className="flex items-center gap-1.5">
             <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></div>
-            <span className="text-[10px] font-medium uppercase tracking-wider opacity-90" style={{ color: design.headerTextColor || '#ffffff' }}>
-              {design.subtitle || 'Online'}
-            </span>
+            <span className="text-[10px] text-indigo-100 font-medium uppercase tracking-wider">Online</span>
           </div>
         </div>
       </div>
@@ -821,15 +752,10 @@ export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
             >
-              <div
-                className={`max-w-[80%] p-3 rounded-2xl text-sm shadow-sm transition-all ${msg.sender === 'user' ? 'rounded-tr-none' : 'rounded-tl-none border border-gray-100'
-                  }`}
-                style={
-                  msg.sender === 'user'
-                    ? { background: design.userBubbleBg || '#4f46e5', color: design.userBubbleText || '#ffffff' }
-                    : { background: design.botBubbleBg || '#ffffff', color: design.botBubbleText || '#1e293b' }
-                }
-              >
+              <div className={`max-w-[80%] p-3 rounded-2xl text-sm shadow-sm ${msg.sender === 'user'
+                ? 'bg-indigo-600 text-white rounded-tr-none'
+                : 'bg-white text-gray-800 border border-gray-100 rounded-tl-none'
+                }`}>
                 {msg.imageUrl && (
                   <img
                     src={msg.imageUrl}
@@ -844,19 +770,11 @@ export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
                     {msg.choices.map((choice, i) => (
                       <button
                         key={i}
-                        onClick={() => !leadSubmitInFlightRef.current && handleChoice(choice)}
-                        className="w-full text-left p-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-between group border"
-                        style={{
-                          borderColor: design.accentColor ? `${design.accentColor}40` : '#e2e8f0',
-                          color: design.accentColor || '#4f46e5',
-                          backgroundColor: design.accentColor ? `${design.accentColor}0a` : '#f8fafc'
-                        }}
+                        onClick={() => handleChoice(choice)}
+                        className="w-full text-left p-2.5 bg-gray-50 hover:bg-indigo-50 border border-gray-100 hover:border-indigo-200 rounded-xl text-xs font-bold text-indigo-600 transition-all flex items-center justify-between group"
                       >
-                        <span className="flex-1 pr-2">{choice}</span>
-                        <ChevronRight
-                          className="w-4 h-4 opacity-75 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all flex-shrink-0"
-                          style={{ color: design.accentColor || '#4f46e5' }}
-                        />
+                        {choice}
+                        <ChevronRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
                       </button>
                     ))}
                   </div>
@@ -870,13 +788,10 @@ export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
               animate={{ opacity: 1, y: 0 }}
               className="flex justify-start"
             >
-              <div
-                className="border border-gray-100 p-3 rounded-2xl rounded-tl-none flex items-center gap-1.5 shadow-sm"
-                style={{ background: design.botBubbleBg || '#ffffff' }}
-              >
-                <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ background: design.accentColor || '#4f46e5' }}></span>
-                <span className="w-1.5 h-1.5 rounded-full animate-bounce [animation-delay:0.2s]" style={{ background: design.accentColor || '#4f46e5' }}></span>
-                <span className="w-1.5 h-1.5 rounded-full animate-bounce [animation-delay:0.4s]" style={{ background: design.accentColor || '#4f46e5' }}></span>
+              <div className="bg-white border border-gray-100 p-3 rounded-2xl rounded-tl-none text-gray-400 flex items-center gap-1.5 shadow-sm">
+                <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce"></span>
+                <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce [animation-delay:0.2s]"></span>
+                <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce [animation-delay:0.4s]"></span>
               </div>
             </motion.div>
           )}
@@ -887,7 +802,7 @@ export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
       {/* User Input Area */}
       {!isTyping && (
         <form
-          onSubmit={(e) => { e.preventDefault(); if (inputValue.trim() && !leadSubmitInFlightRef.current) handleUserInput(inputValue); }}
+          onSubmit={(e) => { e.preventDefault(); if (inputValue.trim()) handleUserInput(inputValue); }}
           className="p-3 bg-white border-t border-gray-100 flex gap-2 items-center"
         >
           <input
@@ -900,15 +815,14 @@ export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
                   currentNode?.type === 'email' ? 'Type your email address...' :
                     'Type your response...'
             }
-            className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-xs font-medium text-gray-800 outline-none transition-all focus:border-gray-400"
+            className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-xs font-medium text-gray-800 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
           />
           <button
             type="submit"
-            disabled={!inputValue.trim() || isSubmitting || leadSubmitInFlightRef.current}
-            className="text-white p-2.5 rounded-xl transition-all shadow-md disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center flex-shrink-0"
-            style={{ background: design.accentColor || '#4f46e5' }}
+            disabled={!inputValue.trim()}
+            className="bg-indigo-600 text-white p-2.5 rounded-xl hover:bg-indigo-700 transition-all shadow-md shadow-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            <Send className="w-4 h-4 flex-shrink-0" />
+            <Send className="w-4 h-4" />
           </button>
         </form>
       )}
@@ -916,7 +830,7 @@ export default function ChatWidget({ botId, designConfig }: ChatWidgetProps) {
       {/* Footer Branding */}
       <div className="p-2.5 text-center bg-white border-t border-gray-50 flex items-center justify-center gap-1.5">
         <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
-          Powered by <span className="font-extrabold" style={{ color: design.accentColor || '#4f46e5' }}>Mintage Chatbot</span>
+          Powered by <span className="text-indigo-600 font-extrabold">Mintage Chatbot</span>
         </p>
       </div>
     </div>
