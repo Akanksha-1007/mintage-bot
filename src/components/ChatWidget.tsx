@@ -62,7 +62,11 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   const [otpPhone, setOtpPhone] = useState('');
   const confirmationResultRef = useRef<ConfirmationResult | null>(null);
   const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
-  const recaptchaContainerId = `mintage-recaptcha-${botId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+  // Use a stable, widget-specific container id so multiple chatbot instances
+  // do not accidentally share the same reCAPTCHA DOM element.
+  const recaptchaContainerId = useRef(
+    `mintage-recaptcha-${botId.replace(/[^a-zA-Z0-9_-]/g, '_')}-${Math.random().toString(36).slice(2, 8)}`
+  ).current;
 
   // Prevent duplicate lead submissions and duplicate completion messages.
   const leadSubmitInFlightRef = useRef(false);
@@ -503,17 +507,31 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     return null;
   };
 
-  const ensureRecaptcha = () => {
-    if (recaptchaVerifierRef.current) return recaptchaVerifierRef.current;
+  const ensureRecaptcha = async () => {
+    if (recaptchaVerifierRef.current) {
+      return recaptchaVerifierRef.current;
+    }
 
+    const container = document.getElementById(recaptchaContainerId);
+    if (!container) {
+      throw new Error('reCAPTCHA container was not found. Please refresh the page and try again.');
+    }
+
+    // Use a visible reCAPTCHA. The previous implementation used an
+    // invisible verifier inside a hidden div, which can fail because the
+    // verifier cannot correctly interact with the rendered widget.
     const verifier = new RecaptchaVerifier(auth, recaptchaContainerId, {
-      size: 'invisible',
+      size: 'normal',
+      callback: () => {
+        setOtpError(null);
+      },
       'expired-callback': () => {
-        setOtpError('Verification expired. Please try again.');
+        setOtpError('Verification expired. Please complete the reCAPTCHA again.');
       },
     });
 
     recaptchaVerifierRef.current = verifier;
+    await verifier.render();
     return verifier;
   };
 
@@ -530,7 +548,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     setOtpPhone(normalizedPhone);
 
     try {
-      const verifier = ensureRecaptcha();
+      const verifier = await ensureRecaptcha();
       const confirmation = await signInWithPhoneNumber(auth, normalizedPhone, verifier);
       confirmationResultRef.current = confirmation;
       setOtpStage('verify');
@@ -548,11 +566,35 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       } catch { }
       recaptchaVerifierRef.current = null;
       setOtpStage('idle');
-      setOtpError(
-        error?.code === 'auth/too-many-requests'
+
+      const code = String(error?.code || '');
+      const message = String(error?.message || '');
+
+      // Show the real Firebase reason instead of masking every failure as
+      // an invalid phone number. This makes deployment/configuration issues
+      // immediately diagnosable.
+      const friendlyError =
+        code === 'auth/too-many-requests'
           ? 'Too many OTP attempts. Please try again later.'
-          : 'We could not send the OTP. Please check the number and try again.'
-      );
+          : code === 'auth/invalid-phone-number'
+            ? 'Firebase rejected this phone number. Please use a valid number, e.g. 7675931920.'
+            : code === 'auth/operation-not-allowed'
+              ? 'Phone authentication is not enabled in this Firebase project.'
+              : code === 'auth/unauthorized-domain'
+                ? 'This website domain is not authorized in Firebase Authentication.'
+                : code === 'auth/captcha-check-failed' || code === 'auth/invalid-app-credential'
+                  ? 'reCAPTCHA verification failed. Please complete the reCAPTCHA and try again.'
+                  : code === 'auth/quota-exceeded'
+                    ? 'Firebase SMS quota has been exceeded. Please use a Firebase test phone number or check billing/quota settings.'
+                    : code === 'auth/missing-phone-number'
+                      ? 'Please enter your phone number.'
+                      : code === 'auth/app-not-authorized'
+                        ? 'This Firebase app is not authorized for Phone Authentication. Check the Firebase project configuration.'
+                        : code
+                          ? `Firebase error (${code}): ${message || 'OTP could not be sent.'}`
+                          : (message || 'We could not send the OTP. Please try again.');
+
+      setOtpError(friendlyError);
       return false;
     }
   };
@@ -995,10 +1037,31 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       {/* User Input Area */}
       {!isTyping && (
         <>
-          <div id={recaptchaContainerId} className="h-0 overflow-hidden" aria-hidden="true" />
+          {currentNode?.type === 'phone' && otpStage !== 'verify' && (
+            <div className="mx-3 mb-2 rounded-xl border border-gray-200 bg-white px-3 py-2">
+              <div className="flex justify-center overflow-hidden">
+                <div id={recaptchaContainerId} />
+              </div>
+            </div>
+          )}
           {otpError && (
             <div className="mx-3 mb-2 rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-[11px] font-medium text-red-600">
               {otpError}
+            </div>
+          )}
+          {otpStage === 'verify' && (
+            <div className="mx-3 mb-2 flex items-center justify-between rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-[11px]">
+              <span className="text-indigo-700">OTP sent to {otpPhone}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setInputValue('');
+                  void startPhoneOtp(otpPhone);
+                }}
+                className="font-bold text-indigo-600 hover:text-indigo-800"
+              >
+                Resend
+              </button>
             </div>
           )}
           <form
