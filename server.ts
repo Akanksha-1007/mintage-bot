@@ -454,76 +454,70 @@ async function startServer() {
   }
 
   // Google Sheets synchronization.
-  // Sheet layout:
-  //   Row 1 = Date + the questions/field labels actually answered by users
-  //   Row 2+ = one row per NEW lead
-  // Internal metadata such as lead ID, bot ID, source URL, status, etc. is never
-  // written to the user-facing lead data tab.
+  // IMPORTANT: Lead Data is the only user-facing Google Sheets tab used for leads.
+  // Row 1 = Date + the chatbot questions/fields actually answered by the visitor.
+  // Row 2+ = one NEW lead per row. Existing rows are NEVER updated/replaced.
+  // Internal metadata (lead ID, bot ID, status, source URL, etc.) is never written.
   async function syncLeadToGoogleSheets(tokens: any, rawSpreadsheetId: string, worksheetName = 'Sheet1', lead: any) {
     const spreadsheetId = extractSpreadsheetId(rawSpreadsheetId);
     if (!tokens || !spreadsheetId) throw new Error('Missing tokens or valid spreadsheetId');
 
-    const leadKey = String(lead.id || `anonymous_${Date.now()}`);
-
-    return withGoogleSheetLeadLock(spreadsheetId, leadKey, async () => {
+    return withGoogleSheetLeadLock(spreadsheetId, String(lead.id || `anonymous_${Date.now()}`), async () => {
       const auth = createOAuth2Client(tokens);
       const sheets = google.sheets({ version: 'v4', auth });
-      let targetWorksheet = worksheetName || 'Sheet1';
+
+      // Always use the dedicated clean Lead Data tab. The configured/legacy tab
+      // is intentionally ignored so old metadata layouts can never block syncing.
+      const cleanTabName = 'Lead Data';
+      let targetWorksheet = cleanTabName;
 
       try {
         const meta = await sheets.spreadsheets.get({
           spreadsheetId,
           fields: 'sheets.properties.title'
         });
+
         const titles = (meta.data.sheets || [])
           .map((s: any) => s.properties?.title)
           .filter(Boolean) as string[];
 
-        if (titles.length > 0 && !titles.includes(targetWorksheet)) {
-          targetWorksheet = titles[0];
-        }
+        if (!titles.includes(cleanTabName)) {
+          const addSheetResponse = await sheets.spreadsheets.batchUpdate({
+            spreadsheetId,
+            requestBody: {
+              requests: [{
+                addSheet: { properties: { title: cleanTabName } }
+              }]
+            }
+          });
 
-        // Preserve the old metadata-heavy tab. Future lead data goes to a clean tab.
-        const headerCheck = await sheets.spreadsheets.values.get({
-          spreadsheetId,
-          range: `'${targetWorksheet}'!A1:ZZ2`
-        });
-        const firstRow = headerCheck.data.values?.[0] || [];
-        const legacyHeaders = new Set([
-          'timestamp', 'all captured fields', 'lead id', 'bot id', 'bot name',
-          'status', 'source url', 'conversation id', 'user id', 'client / account'
-        ]);
-        const hasLegacyLayout = firstRow.some((value: any) => legacyHeaders.has(String(value || '').trim().toLowerCase()));
+          targetWorksheet =
+            addSheetResponse.data.replies?.[0]?.addSheet?.properties?.title || cleanTabName;
 
-        if (hasLegacyLayout) {
-          const cleanTabName = 'Lead Data';
-          if (!titles.includes(cleanTabName)) {
-            const addSheetResponse = await sheets.spreadsheets.batchUpdate({
-              spreadsheetId,
-              requestBody: {
-                requests: [{ addSheet: { properties: { title: cleanTabName } } }]
-              }
-            });
-            targetWorksheet = addSheetResponse.data.replies?.[0]?.addSheet?.properties?.title || cleanTabName;
-            console.log('[SHEETS_CLEAN_TAB_CREATED]', { spreadsheetId, targetWorksheet });
-          } else {
-            targetWorksheet = cleanTabName;
-          }
+          console.log('[SHEETS_CLEAN_TAB_CREATED]', {
+            spreadsheetId,
+            targetWorksheet,
+            previousConfiguredWorksheet: worksheetName || 'Sheet1'
+          });
         }
       } catch (err: any) {
-        const code = String(err?.code || '').toLowerCase();
         const msg = String(err?.message || err).toLowerCase();
-        if (code === '401' || code === '403' || msg.includes('invalid_grant') || msg.includes('unauthorized_client') || msg.includes('invalid_client')) {
-          if (msg.includes('invalid_grant') || msg.includes('unauthorized_client') || msg.includes('invalid_client')) {
-            const oauthErr: any = new Error('Google Account authorization expired. Please re-authorize your Google account.');
-            oauthErr.code = 'invalid_grant';
-            oauthErr.reconnectRequired = true;
-            throw oauthErr;
-          }
+        if (
+          msg.includes('invalid_grant') ||
+          msg.includes('unauthorized_client') ||
+          msg.includes('invalid_client')
+        ) {
+          const oauthErr: any = new Error(
+            'Google Account authorization expired. Please re-authorize your Google account.'
+          );
+          oauthErr.code = 'invalid_grant';
+          oauthErr.reconnectRequired = true;
+          throw oauthErr;
         }
         throw err;
       }
 
+      // Read ONLY the clean Lead Data tab.
       let existingRows: any[][] = [];
       try {
         const response = await sheets.spreadsheets.values.get({
@@ -533,8 +527,14 @@ async function startServer() {
         existingRows = response.data.values || [];
       } catch (err: any) {
         const msg = String(err?.message || err).toLowerCase();
-        if (msg.includes('invalid_grant') || msg.includes('unauthorized_client') || msg.includes('invalid_client')) {
-          const oauthErr: any = new Error('Google Account authorization expired. Please re-authorize your Google account.');
+        if (
+          msg.includes('invalid_grant') ||
+          msg.includes('unauthorized_client') ||
+          msg.includes('invalid_client')
+        ) {
+          const oauthErr: any = new Error(
+            'Google Account authorization expired. Please re-authorize your Google account.'
+          );
           oauthErr.code = 'invalid_grant';
           oauthErr.reconnectRequired = true;
           throw oauthErr;
@@ -542,8 +542,8 @@ async function startServer() {
         throw err;
       }
 
-      // IMPORTANT: only the actual chatbot-captured fields are sent to Sheets.
-      // We intentionally do not inspect lead.data because it may contain internal data.
+      // Only use fields explicitly captured by chatbot questions.
+      // Do NOT read lead.data because it can contain internal metadata.
       const fieldValues = new Map<string, string>();
       if (Array.isArray(lead.fields)) {
         for (const field of lead.fields) {
@@ -559,7 +559,8 @@ async function startServer() {
           success: true,
           action: 'skipped_no_user_fields',
           spreadsheetId,
-          worksheetName: targetWorksheet
+          worksheetName: targetWorksheet,
+          fields: []
         };
       }
 
@@ -567,26 +568,37 @@ async function startServer() {
         .map((h: any) => String(h ?? '').replace(/\s+/g, ' ').trim())
         .filter(Boolean);
 
-      // Clean schema: Date + one column per question/field label.
-      let headers = existingHeaders.length > 0 ? [...existingHeaders] : ['Date'];
+      // Keep only the clean schema. If Lead Data is empty, start with Date.
+      // If it already contains Date + question headers, preserve those headers
+      // and add any newly encountered chatbot question as a new column.
+      let headers: string[] = existingHeaders.length > 0 ? [...existingHeaders] : ['Date'];
 
-      // If the newly-created clean tab is empty, start it with Date.
-      if (headers.length === 1 && headers[0].toLowerCase() !== 'date' && existingRows.length === 0) {
-        headers = ['Date'];
-      }
-
-      // If the tab is empty but has no header, create Date first.
-      if (headers.length === 0) headers = ['Date'];
-
-      // Remove any old metadata if this is somehow still present after tab selection.
+      // Never allow internal metadata columns into Lead Data.
       const forbidden = new Set([
-        'timestamp', 'name', 'email', 'phone', 'phone number', 'all captured fields',
-        'lead id', 'bot id', 'bot name', 'status', 'source url', 'conversation id',
-        'user id', 'client / account'
+        'timestamp',
+        'all captured fields',
+        'lead id',
+        'bot id',
+        'bot name',
+        'status',
+        'source url',
+        'conversation id',
+        'user id',
+        'client / account',
+        'client id',
+        'owner id',
+        'google owner id'
       ]);
-      const isLegacyHeaderStillPresent = headers.some(h => forbidden.has(h.toLowerCase()));
-      if (isLegacyHeaderStillPresent) {
-        throw new Error('Configured Google Sheet tab uses the old lead metadata layout. The clean Lead Data tab should be used.');
+
+      // If an old metadata layout somehow exists in Lead Data, rebuild ONLY the
+      // header row from Date + actual fields. We do not throw the old-layout error.
+      const cleanExistingHeaders = headers.filter(
+        h => !forbidden.has(h.toLowerCase())
+      );
+
+      headers = cleanExistingHeaders.length > 0 ? cleanExistingHeaders : ['Date'];
+      if (!headers.some(h => h.toLowerCase() === 'date')) {
+        headers.unshift('Date');
       }
 
       for (const label of fieldValues.keys()) {
@@ -595,6 +607,7 @@ async function startServer() {
         }
       }
 
+      // Write the clean header row whenever it differs from the existing header.
       const previousHeaderRow = existingRows[0] || [];
       if (JSON.stringify(previousHeaderRow) !== JSON.stringify(headers)) {
         await sheets.spreadsheets.values.update({
@@ -612,13 +625,16 @@ async function startServer() {
 
       const rowValues = headers.map(header => {
         if (header.toLowerCase() === 'date') return dateValue;
+
         for (const [label, value] of fieldValues.entries()) {
           if (label.toLowerCase() === header.toLowerCase()) return value;
         }
+
         return '';
       });
 
-      // ALWAYS APPEND for a genuine new lead. Existing rows are never overwritten.
+      // ALWAYS append a brand-new row. Never search for a Lead ID and never update
+      // an existing row. This guarantees every chatbot submission gets a new row.
       const appendRes = await sheets.spreadsheets.values.append({
         spreadsheetId,
         range: `'${targetWorksheet}'`,
@@ -628,7 +644,7 @@ async function startServer() {
       });
 
       const updatedRange = appendRes.data.updates?.updatedRange || null;
-      const rowNumber = updatedRange ? Number(updatedRange.match(/\d+/)?.[0] || 0) || null : null;
+
       console.log('[GOOGLE_SHEET_LEAD_APPENDED]', {
         leadId: lead.id,
         spreadsheetId,
@@ -642,7 +658,6 @@ async function startServer() {
         success: true,
         action: 'appended',
         updatedRange,
-        rowNumber,
         spreadsheetId,
         worksheetName: targetWorksheet,
         fields: Array.from(fieldValues.keys())
@@ -673,7 +688,7 @@ async function startServer() {
         success: true,
         action: syncResult?.action || 'synced',
         updatedRange: syncResult?.updatedRange || null,
-        rowNumber: syncResult?.rowNumber || null,
+        rowNumber: (syncResult as any)?.rowNumber || null,
         spreadsheetId: extractSpreadsheetId(spreadsheetId),
         worksheetName: syncResult?.worksheetName || worksheetName || 'Sheet1'
       });
