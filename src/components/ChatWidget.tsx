@@ -61,11 +61,10 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   const thankYouShownRef = useRef(false);
 
   const showThankYouOnce = () => {
-    // Guard at component level.
+    // Display the completion message immediately. Backend / Google Sheets
+    // delivery continues in the background and must never block the user.
     if (thankYouShownRef.current) return;
 
-    // Guard at browser-session level so a remount/re-render cannot generate
-    // the same completion message again for the same bot conversation.
     const thankYouKey = `mintage_thankyou_${botId}_${conversationId || chatUserId}`;
     try {
       if (sessionStorage.getItem(thankYouKey) === '1') {
@@ -74,27 +73,23 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       }
       sessionStorage.setItem(thankYouKey, '1');
     } catch {
-      // Fall back to the in-memory ref if sessionStorage is unavailable.
+      // In-memory guard below still prevents duplicates.
     }
 
     thankYouShownRef.current = true;
+    setIsTyping(false);
 
-    setIsTyping(true);
-    setTimeout(() => {
-      setIsTyping(false);
-      setMessages(prev => {
-        // Never add more than one lead-completion message to this chat.
-        if (prev.some(msg => msg.sender === 'bot' && msg.type === 'lead-complete')) {
-          return prev;
-        }
-        return [...prev, {
-          id: 'lead-complete-' + Date.now().toString(),
-          text: '🎉 Thank you! Your details have been submitted successfully. Our team will contact you shortly.',
-          sender: 'bot',
-          type: 'lead-complete'
-        }];
-      });
-    }, 600);
+    setMessages(prev => {
+      if (prev.some(msg => msg.sender === 'bot' && msg.type === 'lead-complete')) {
+        return prev;
+      }
+      return [...prev, {
+        id: 'lead-complete-' + Date.now().toString(),
+        text: '🎉 Thank you! Your details have been submitted successfully. Our team will contact you shortly.',
+        sender: 'bot',
+        type: 'lead-complete'
+      }];
+    });
   };
 
   useEffect(() => {
@@ -554,7 +549,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       // 2. Check if currentNode has an explicit nextStepId set
       if (!targetNodeId && currentNode.data?.nextStepId) {
         if (currentNode.data.nextStepId === 'END') {
-          await saveLead(newLeadData, updatedDynamicFields);
+          void saveLead(newLeadData, updatedDynamicFields);
           showThankYouOnce();
           return;
         }
@@ -600,7 +595,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
             // A saveLead node is terminal for lead capture. Do not continue into
             // another terminal/message node, otherwise multiple completion
             // messages can be generated from the same submission.
-            await saveLead(newLeadData, updatedDynamicFields);
+            void saveLead(newLeadData, updatedDynamicFields);
             setCurrentNodeId(null);
             showThankYouOnce();
             return;
@@ -613,12 +608,12 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       }
 
       // End of flow reached - save lead and send exactly one completion message.
-      await saveLead(newLeadData, updatedDynamicFields);
+      void saveLead(newLeadData, updatedDynamicFields);
       setCurrentNodeId(null);
       showThankYouOnce();
     } else {
       // Flow ended previously, user is continuing chat
-      await saveLead(newLeadData, updatedDynamicFields);
+      void saveLead(newLeadData, updatedDynamicFields);
       showThankYouOnce();
     }
   };
