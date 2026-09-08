@@ -56,11 +56,11 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   const ctaActions = Array.isArray(design.ctaActions) && design.ctaActions.length > 0
     ? design.ctaActions
     : [
-        { id: 'team', label: 'Talk to our team', icon: 'headset', action: 'callback' },
-        { id: 'callback', label: 'Get a callback', icon: 'phone', action: 'callback' },
-        { id: 'appointment', label: 'Book an appointment', icon: 'calendar', action: 'appointment' },
-        ...(design.whatsappNumber ? [{ id: 'whatsapp', label: 'WhatsApp us', icon: 'whatsapp', action: `https://wa.me/${String(design.whatsappNumber).replace(/\D/g, '')}` }] : [])
-      ];
+      { id: 'team', label: 'Talk to our team', icon: 'headset', action: 'callback' },
+      { id: 'callback', label: 'Get a callback', icon: 'phone', action: 'callback' },
+      { id: 'appointment', label: 'Book an appointment', icon: 'calendar', action: 'appointment' },
+      ...(design.whatsappNumber ? [{ id: 'whatsapp', label: 'WhatsApp us', icon: 'whatsapp', action: `https://wa.me/${String(design.whatsappNumber).replace(/\D/g, '')}` }] : [])
+    ];
 
   const renderHeaderAvatar = () => {
     if (design.avatarUrl) {
