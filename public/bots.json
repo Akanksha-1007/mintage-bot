@@ -381,71 +381,71 @@
     "name": "My New Bot",
     "nodes": [
       {
-        "type": "input",
-        "id": "1",
-        "position": {
-          "x": 250,
-          "y": 5
-        },
         "data": {
           "label": "Start"
+        },
+        "id": "1",
+        "type": "input",
+        "position": {
+          "y": 5,
+          "x": 250
         }
       },
       {
-        "id": "node_1788432972878",
         "type": "name",
-        "data": {
-          "label": "To start, could you share your full name with us?",
-          "key": "full_name"
+        "position": {
+          "y": 240,
+          "x": 250
         },
+        "data": {
+          "key": "full_name",
+          "label": "To start, could you share your full name with us?"
+        },
+        "id": "node_1788432972878"
+      },
+      {
         "position": {
           "x": 250,
-          "y": 240
-        }
-      },
-      {
-        "id": "node_1788432973510",
-        "type": "phone",
+          "y": 360
+        },
         "data": {
           "label": "Thanks! Could you also give us your phone number?",
           "key": "phone_number"
         },
-        "position": {
-          "x": 250,
-          "y": 360
-        }
+        "id": "node_1788432973510",
+        "type": "phone"
       },
       {
-        "id": "node_1788432974102",
-        "type": "email",
-        "data": {
-          "label": "Perfect! Now please provide your email address so our team can reach out.",
-          "key": "email_address"
-        },
         "position": {
-          "x": 250,
-          "y": 480
-        }
+          "y": 480,
+          "x": 250
+        },
+        "id": "node_1788432974102",
+        "data": {
+          "key": "email_address",
+          "label": "Perfect! Now please provide your email address so our team can reach out."
+        },
+        "type": "email"
       }
     ],
     "edges": [
       {
-        "id": "e_1-node_1788432972878",
-        "source": "1",
         "target": "node_1788432972878",
-        "type": "smoothstep"
+        "type": "smoothstep",
+        "id": "e_1-node_1788432972878",
+        "source": "1"
       },
       {
-        "id": "e_node_1788432972878-node_1788432973510",
         "source": "node_1788432972878",
+        "type": "smoothstep",
         "target": "node_1788432973510",
-        "type": "smoothstep"
+        "id": "e_node_1788432972878-node_1788432973510"
       },
       {
+        "type": "smoothstep",
         "id": "e_node_1788432973510-node_1788432974102",
-        "source": "node_1788432973510",
         "target": "node_1788432974102",
-        "type": "smoothstep"
+        "source": "node_1788432973510"
       }
     ],
     "spreadsheetId": "",
@@ -476,6 +476,6 @@
       "borderRadius": "16px",
       "shadowStyle": "elevated"
     },
-    "updatedAt": "2026-09-03T11:06:08.232Z"
+    "updatedAt": "2026-09-08T05:41:40.467Z"
   }
 ]
