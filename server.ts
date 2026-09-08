@@ -4,7 +4,6 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { google } from 'googleapis';
-import { createHash } from 'crypto';
 import dotenv from 'dotenv';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, getDoc, setDoc, getDocs, collection, query, where, orderBy, limit, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
@@ -34,39 +33,6 @@ try {
 
 // In-memory store for tokens (In production, use Firestore)
 const userTokens = new Map<string, any>();
-
-// ============================================================
-// FAST2SMS OTP VERIFICATION
-// ============================================================
-// Keep the Fast2SMS API key server-side only. Configure these in .env:
-// FAST2SMS_API_KEY=...
-// FAST2SMS_SENDER_ID=MNTAGE
-// FAST2SMS_MESSAGE_ID=159538
-const otpStore = new Map<string, { hash: string; expiresAt: number; attempts: number; sentAt: number; verified: boolean }>();
-const otpSendLog = new Map<string, number>();
-
-function normalizeOtpPhone(value: any): string {
-  let digits = String(value || '').replace(/\D/g, '');
-  if (digits.length === 12 && digits.startsWith('91')) digits = digits.slice(2);
-  return digits;
-}
-
-function hashOtp(otp: string): string {
-  // Lightweight one-way hash using Web Crypto-compatible Node crypto.
-  // Imported lazily so the rest of the server remains unchanged.
-  return createHash('sha256').update(otp).digest('hex');
-}
-
-function generateOtp(): string {
-  return String(Math.floor(100000 + Math.random() * 900000));
-}
-
-function cleanupOtpStore() {
-  const now = Date.now();
-  for (const [phone, record] of otpStore.entries()) {
-    if (record.expiresAt < now || record.verified) otpStore.delete(phone);
-  }
-}
 
 // ============================================================
 // GOOGLE OAUTH CONFIGURATION
@@ -129,106 +95,6 @@ async function startServer() {
   const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json());
-
-  // FAST2SMS OTP routes
-  app.post('/api/otp/send', async (req, res) => {
-    cleanupOtpStore();
-    const phone = normalizeOtpPhone(req.body?.phone);
-    if (!/^\d{10}$/.test(phone)) {
-      return res.status(400).json({ success: false, error: 'Please provide a valid 10-digit mobile number.' });
-    }
-
-    const previousSentAt = otpSendLog.get(phone) || 0;
-    const secondsSinceLastSend = Math.floor((Date.now() - previousSentAt) / 1000);
-    if (secondsSinceLastSend < 30) {
-      return res.status(429).json({ success: false, error: `Please wait ${30 - secondsSinceLastSend} seconds before requesting another OTP.` });
-    }
-
-    const apiKey = process.env.FAST2SMS_API_KEY?.trim();
-    const senderId = process.env.FAST2SMS_SENDER_ID?.trim() || 'MNTAGE';
-    const messageId = process.env.FAST2SMS_MESSAGE_ID?.trim() || '159538';
-    if (!apiKey) {
-      return res.status(500).json({ success: false, error: 'SMS service is not configured on the server.' });
-    }
-
-    const otp = generateOtp();
-    let response: any;
-    try {
-      response = await fetch('https://www.fast2sms.com/dev/bulkV2', {
-        method: 'POST',
-        headers: {
-          Authorization: apiKey,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          route: 'dlt',
-          sender_id: senderId,
-          message: /^\d+$/.test(messageId) ? Number(messageId) : messageId,
-          variables_values: otp,
-          flash: 0,
-          numbers: phone
-        })
-      });
-    } catch (error: any) {
-      console.error('[FAST2SMS_OTP_NETWORK_ERROR]', { phone, error: error?.message || error });
-      return res.status(502).json({ success: false, error: 'Could not connect to the SMS provider. Please try again.' });
-    }
-
-    const responseText = await response.text();
-    let providerData: any = {};
-    try { providerData = JSON.parse(responseText); } catch { providerData = { raw: responseText }; }
-
-    if (!response.ok || providerData?.return === false) {
-      console.error('[FAST2SMS_OTP_SEND_FAILED]', { phone, status: response.status, providerData });
-      const providerMessage = Array.isArray(providerData?.message)
-        ? providerData.message.join(' ')
-        : providerData?.message;
-      return res.status(502).json({ success: false, error: providerMessage || 'SMS provider could not send the OTP.' });
-    }
-
-    otpStore.set(phone, {
-      hash: hashOtp(otp),
-      expiresAt: Date.now() + 5 * 60 * 1000,
-      attempts: 0,
-      sentAt: Date.now(),
-      verified: false
-    });
-    otpSendLog.set(phone, Date.now());
-
-    return res.json({ success: true, message: 'OTP sent successfully.', requestId: providerData?.request_id || null });
-  });
-
-  app.post('/api/otp/verify', async (req, res) => {
-    cleanupOtpStore();
-    const phone = normalizeOtpPhone(req.body?.phone);
-    const otp = String(req.body?.otp || '').trim();
-    if (!/^\d{10}$/.test(phone) || !/^\d{6}$/.test(otp)) {
-      return res.status(400).json({ success: false, error: 'Invalid phone number or OTP.' });
-    }
-
-    const record = otpStore.get(phone);
-    if (!record) {
-      return res.status(400).json({ success: false, error: 'OTP expired or not found. Please request a new OTP.' });
-    }
-    if (record.attempts >= 5) {
-      otpStore.delete(phone);
-      return res.status(429).json({ success: false, error: 'Too many incorrect attempts. Please request a new OTP.' });
-    }
-    if (record.expiresAt < Date.now()) {
-      otpStore.delete(phone);
-      return res.status(400).json({ success: false, error: 'OTP expired. Please request a new OTP.' });
-    }
-
-    if (hashOtp(otp) !== record.hash) {
-      record.attempts += 1;
-      return res.status(400).json({ success: false, error: 'Incorrect OTP. Please try again.' });
-    }
-
-    record.verified = true;
-    otpStore.delete(phone);
-    return res.json({ success: true, verified: true, phone });
-  });
-
 
   // Safe Google OAuth Startup Diagnostics
   const gClientId = process.env.GOOGLE_CLIENT_ID || '';

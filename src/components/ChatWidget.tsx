@@ -47,15 +47,6 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   const [showWelcomeActions, setShowWelcomeActions] = useState(true);
   const [design, setDesign] = useState<any>({});
   const [clientLogo, setClientLogo] = useState('');
-  const [otpSent, setOtpSent] = useState(false);
-  const [otpValue, setOtpValue] = useState('');
-  const [otpPhone, setOtpPhone] = useState('');
-  const [otpSending, setOtpSending] = useState(false);
-  const [otpVerifying, setOtpVerifying] = useState(false);
-  const [otpError, setOtpError] = useState<string | null>(null);
-  const [otpCooldown, setOtpCooldown] = useState(0);
-  const otpTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const pendingPhoneNodeRef = useRef<any>(null);
 
   const welcomeTitle = design.welcomeTitle || `Welcome to ${botTitle}!`;
   const welcomeDescription = design.welcomeDescription || design.subtitle || 'How can we help you today?';
@@ -567,148 +558,6 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     return /\b(phone|mobile)\b/.test(label) && !/email/.test(label);
   };
 
-  const startOtpCooldown = (seconds = 30) => {
-    if (otpTimerRef.current) clearInterval(otpTimerRef.current);
-    setOtpCooldown(seconds);
-    otpTimerRef.current = setInterval(() => {
-      setOtpCooldown(prev => {
-        if (prev <= 1) {
-          if (otpTimerRef.current) clearInterval(otpTimerRef.current);
-          otpTimerRef.current = null;
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  };
-
-  useEffect(() => () => {
-    if (otpTimerRef.current) clearInterval(otpTimerRef.current);
-  }, []);
-
-  const normalizePhone = (value: string) => {
-    const digits = String(value || '').replace(/\D/g, '');
-    if (digits.length === 12 && digits.startsWith('91')) return digits.slice(2);
-    return digits;
-  };
-
-  const sendPhoneOtp = async (phone: string, node: any) => {
-    const normalized = normalizePhone(phone);
-    if (!/^\d{10}$/.test(normalized)) {
-      setOtpError('Please enter a valid 10-digit mobile number.');
-      return false;
-    }
-    if (otpSending || (otpSent && otpCooldown > 0)) return false;
-
-    setOtpSending(true);
-    setOtpError(null);
-    try {
-      const res = await fetch('/api/otp/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: normalized, botId, userId: chatUserId })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Could not send OTP. Please try again.');
-      }
-      setOtpPhone(normalized);
-      setOtpValue('');
-      setOtpSent(true);
-      pendingPhoneNodeRef.current = node;
-      startOtpCooldown(30);
-      setMessages(prev => [...prev, {
-        id: `otp-sent-${Date.now()}`,
-        text: `We sent a verification code to +91 ${normalized.slice(0, 5)} ${normalized.slice(5)}. Please enter the OTP to continue.`,
-        sender: 'bot'
-      }]);
-      return true;
-    } catch (err: any) {
-      setOtpError(err?.message || 'Could not send OTP. Please try again.');
-      return false;
-    } finally {
-      setOtpSending(false);
-    }
-  };
-
-  const verifyPhoneOtp = async () => {
-    if (!/^\d{6}$/.test(otpValue.trim())) {
-      setOtpError('Please enter the 6-digit OTP.');
-      return;
-    }
-    if (otpVerifying) return;
-    setOtpVerifying(true);
-    setOtpError(null);
-    try {
-      const res = await fetch('/api/otp/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: otpPhone, otp: otpValue.trim(), botId, userId: chatUserId })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Invalid OTP. Please try again.');
-      }
-
-      const phoneNode = pendingPhoneNodeRef.current || safeNodes.find((n: any) => n.id === currentNodeId);
-      const cleanPhone = otpPhone;
-      const userMsg: Message = { id: Date.now().toString(), text: cleanPhone, sender: 'user' };
-      setMessages(prev => [...prev, userMsg]);
-      setOtpSent(false);
-      setOtpValue('');
-      setOtpError(null);
-      setOtpPhone('');
-      pendingPhoneNodeRef.current = null;
-
-      if (phoneNode) {
-        const fieldId = phoneNode.id || ('node_' + Date.now());
-        const updatedDynamicFields = [
-          ...dynamicFields.filter(f => f.fieldId !== fieldId),
-          { fieldId, label: 'Phone Number', value: cleanPhone }
-        ];
-        setDynamicFields(updatedDynamicFields);
-        const newLeadData = { ...leadData, phone: cleanPhone };
-        setLeadData(newLeadData);
-        trackMessageToBackend('user', cleanPhone, 'phone', { phone: cleanPhone });
-
-        let targetNodeId: string | null = phoneNode.data?.nextStepId || null;
-        if (targetNodeId === 'END') {
-          await saveLead(newLeadData, updatedDynamicFields);
-          setCurrentNodeId(null);
-          showThankYouOnce();
-          return;
-        }
-        if (!targetNodeId) {
-          const edge = safeEdges.find((e: any) => e.source === phoneNode.id && !e.sourceHandle) || safeEdges.find((e: any) => e.source === phoneNode.id);
-          targetNodeId = edge?.target || null;
-        }
-        if (!targetNodeId) {
-          const idx = safeNodes.findIndex((n: any) => n.id === phoneNode.id);
-          if (idx >= 0 && idx + 1 < safeNodes.length) targetNodeId = safeNodes[idx + 1].id;
-        }
-        const nextNode = targetNodeId ? safeNodes.find((n: any) => n.id === targetNodeId) : null;
-        if (nextNode) {
-          if (nextNode.type === 'saveLead') {
-            await saveLead(newLeadData, updatedDynamicFields);
-            setCurrentNodeId(null);
-            showThankYouOnce();
-            return;
-          }
-          setCurrentNodeId(nextNode.id);
-          processBotStep(nextNode);
-          return;
-        }
-        await saveLead(newLeadData, updatedDynamicFields);
-        setCurrentNodeId(null);
-        showThankYouOnce();
-      }
-    } catch (err: any) {
-      setOtpError(err?.message || 'OTP verification failed.');
-    } finally {
-      setOtpVerifying(false);
-    }
-  };
-
   const handleUserInput = async (text: string) => {
     const cleanText = text.trim();
     if (!cleanText) return;
@@ -722,13 +571,6 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     setInputValue('');
 
     const currentNode = safeNodes.find((n: any) => n.id === currentNodeId);
-
-    // Phone nodes require OTP verification before the phone is added to lead data.
-    // Keep this check tolerant of older/custom node type names.
-    if (isPhoneNode(currentNode)) {
-      await sendPhoneOtp(cleanText, currentNode);
-      return;
-    }
 
     // Determine field label and key
     let fieldLabel = 'Field';
@@ -744,7 +586,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         fieldLabel = 'Email';
         fieldKey = 'email';
         profileUpdate = { email: cleanText };
-      } else if (currentNode.type === 'phone') {
+      } else if (isPhoneNode(currentNode)) {
         fieldLabel = 'Phone Number';
         fieldKey = 'phone';
         profileUpdate = { phone: cleanText };
@@ -1087,42 +929,8 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         <div ref={messagesEndRef} />
       </div>}
 
-      {/* Phone OTP verification */}
-      {!isMinimized && otpSent && !isTyping && (
-        <div className="px-3 pb-3" style={{ background: design.botBubbleBg || '#ffffff' }}>
-          <div className="rounded-2xl border p-3" style={{ borderColor: `${design.accentColor || '#4f46e5'}25`, background: design.widgetBgColor || '#f8fafc' }}>
-            <div className="flex items-center justify-between mb-2">
-              <div>
-                <p className="text-xs font-bold" style={{ color: design.botBubbleText || '#1e293b' }}>Verify your phone</p>
-                <p className="text-[11px] opacity-70">Enter the 6-digit code sent by SMS.</p>
-              </div>
-              <Phone className="w-4 h-4" style={{ color: design.accentColor || '#4f46e5' }} />
-            </div>
-            <div className="flex gap-2">
-              <input
-                type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={6}
-                value={otpValue} onChange={e => setOtpValue(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                placeholder="Enter OTP" className="flex-1 border rounded-xl px-3 py-2.5 text-sm font-semibold tracking-[0.25em] outline-none"
-                style={{ background: '#fff', color: design.botBubbleText || '#1e293b', borderColor: `${design.accentColor || '#4f46e5'}25` }}
-              />
-              <button type="button" onClick={verifyPhoneOtp} disabled={otpVerifying || otpValue.length !== 6}
-                className="px-4 rounded-xl text-xs font-bold text-white disabled:opacity-40" style={{ background: design.accentColor || '#4f46e5' }}>
-                {otpVerifying ? 'Verifying…' : 'Verify'}
-              </button>
-            </div>
-            {otpError && <p className="text-[11px] text-red-600 mt-2">{otpError}</p>}
-            <div className="flex items-center justify-between mt-2">
-              <button type="button" disabled={otpSending || otpCooldown > 0} onClick={() => sendPhoneOtp(otpPhone, pendingPhoneNodeRef.current)} className="text-[11px] font-semibold disabled:opacity-40" style={{ color: design.accentColor || '#4f46e5' }}>
-                {otpCooldown > 0 ? `Resend in ${otpCooldown}s` : (otpSending ? 'Sending…' : 'Resend OTP')}
-              </button>
-              <span className="text-[10px] opacity-50">+91 {otpPhone}</span>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* User Input Area */}
-      {!isMinimized && !isTyping && !otpSent && (
+      {!isMinimized && !isTyping && (
         <form
           onSubmit={(e) => { e.preventDefault(); if (inputValue.trim()) handleUserInput(inputValue); }}
           className="p-3 border-t flex gap-2 items-center" style={{ background: design.botBubbleBg || '#ffffff', borderColor: `${design.accentColor || '#4f46e5'}12` }}
