@@ -547,6 +547,26 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     loadBot();
   }, [botId]);
 
+  const isPhoneNode = (node: any) => {
+    if (!node) return false;
+    const type = String(node.type || '').trim().toLowerCase();
+    if (type === 'phone' || type === 'phonequestion' || type === 'phone_question') return true;
+
+    const key = String(
+      node.data?.key ||
+      node.data?.leadKey ||
+      node.data?.fieldKey ||
+      ''
+    ).trim().toLowerCase();
+
+    if (['phone', 'phone_number', 'phonenumber', 'mobile', 'mobile_number'].includes(key)) {
+      return true;
+    }
+
+    const label = String(node.data?.label || '').toLowerCase();
+    return /\b(phone|mobile)\b/.test(label) && !/email/.test(label);
+  };
+
   const startOtpCooldown = (seconds = 30) => {
     if (otpTimerRef.current) clearInterval(otpTimerRef.current);
     setOtpCooldown(seconds);
@@ -704,7 +724,8 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     const currentNode = safeNodes.find((n: any) => n.id === currentNodeId);
 
     // Phone nodes require OTP verification before the phone is added to lead data.
-    if (currentNode?.type === 'phone') {
+    // Keep this check tolerant of older/custom node type names.
+    if (isPhoneNode(currentNode)) {
       await sendPhoneOtp(cleanText, currentNode);
       return;
     }

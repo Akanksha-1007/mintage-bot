@@ -152,7 +152,7 @@ async function startServer() {
     }
 
     const otp = generateOtp();
-    let response: Response;
+    let response: any;
     try {
       response = await fetch('https://www.fast2sms.com/dev/bulkV2', {
         method: 'POST',
@@ -163,7 +163,7 @@ async function startServer() {
         body: JSON.stringify({
           route: 'dlt',
           sender_id: senderId,
-          message: messageId,
+          message: /^\d+$/.test(messageId) ? Number(messageId) : messageId,
           variables_values: otp,
           flash: 0,
           numbers: phone
@@ -195,7 +195,7 @@ async function startServer() {
     });
     otpSendLog.set(phone, Date.now());
 
-    return res.json({ success: true, message: 'OTP sent successfully.' });
+    return res.json({ success: true, message: 'OTP sent successfully.', requestId: providerData?.request_id || null });
   });
 
   app.post('/api/otp/verify', async (req, res) => {
