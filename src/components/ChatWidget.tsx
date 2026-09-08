@@ -111,6 +111,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   // Prevent duplicate lead submissions and duplicate completion messages.
   const leadSubmitInFlightRef = useRef(false);
   const leadSubmittedRef = useRef(false);
+  const leadSubmissionKeyRef = useRef<string | null>(null);
   const thankYouShownRef = useRef(false);
 
   const showThankYouOnce = () => {
@@ -703,7 +704,9 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const saveLead = async (data: any, fieldsList: Array<{ fieldId: string; label: string; value: string }> = dynamicFields) => {
-    if (leadSubmittedRef.current || leadSubmitInFlightRef.current || isSubmitting) return;
+    const submissionKey = `${botId}::${conversationId || chatUserId}`;
+    if (leadSubmittedRef.current || leadSubmitInFlightRef.current || isSubmitting || leadSubmissionKeyRef.current === submissionKey) return;
+    leadSubmissionKeyRef.current = submissionKey;
     leadSubmitInFlightRef.current = true;
     setIsSubmitting(true);
 
@@ -732,6 +735,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       googleSheetSyncStatus: 'pending'
     };
 
+    let leadSubmissionSucceeded = false;
     try {
       const res = await fetch('/api/leads', {
         method: 'POST',
@@ -741,6 +745,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
       const resData = await res.json();
       if (res.ok && resData.success) {
+        leadSubmissionSucceeded = true;
         console.log('[LEAD] submission success:', resData.leadId);
         newLeadRecord.id = resData.leadId || newLeadRecord.id;
         newLeadRecord.googleSheetSyncStatus = resData.googleSheetSync?.status || 'pending';
@@ -765,6 +770,9 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
     // Completion UI is handled centrally by showThankYouOnce().
     // saveLead itself must never add a bot completion message.
+    if (!leadSubmissionSucceeded) {
+      leadSubmissionKeyRef.current = null;
+    }
     leadSubmitInFlightRef.current = false;
     setIsSubmitting(false);
   };

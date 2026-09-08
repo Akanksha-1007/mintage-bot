@@ -467,21 +467,44 @@ async function startServer() {
     const leadKey = String(lead.id || `anonymous_${Date.now()}`);
 
     return withGoogleSheetLeadLock(spreadsheetId, leadKey, async () => {
+      // If another request already synced this lead, never append the same lead again.
+      // This is especially important when the dashboard auto-sync and the lead endpoint
+      // run at nearly the same time.
+      const currentLead = serverLeadsList.find((item: any) => String(item?.id || '') === leadKey);
+      if (currentLead?.googleSheetSyncStatus === 'synced') {
+        console.log('[GOOGLE_SHEET_SYNC_ALREADY_DONE]', { leadId: leadKey, spreadsheetId });
+        return {
+          success: true,
+          action: 'skipped_already_synced',
+          updatedRange: null,
+          rowNumber: null,
+          spreadsheetId,
+          worksheetName: worksheetName || 'Sheet1'
+        };
+      }
+
       const auth = createOAuth2Client(tokens);
       const sheets = google.sheets({ version: 'v4', auth });
       let targetWorksheet = worksheetName || 'Sheet1';
+      let targetSheetId: number | null = null;
+      let sheetProperties: Array<{ sheetId?: number; title: string }> = [];
 
       try {
         const meta = await sheets.spreadsheets.get({
           spreadsheetId,
-          fields: 'sheets.properties.title'
+          fields: 'sheets.properties(sheetId,title)'
         });
-        const titles = (meta.data.sheets || [])
-          .map((s: any) => s.properties?.title)
-          .filter(Boolean) as string[];
+        sheetProperties = (meta.data.sheets || [])
+          .map((s: any) => s.properties)
+          .filter((p: any) => p?.title) as Array<{ sheetId?: number; title: string }>;
+        const titles = sheetProperties.map((p: any) => p.title) as string[];
+        targetSheetId = sheetProperties.find((p: any) => p.title === targetWorksheet)?.sheetId ?? null;
 
         if (titles.length > 0 && !titles.includes(targetWorksheet)) {
           targetWorksheet = titles[0];
+          targetSheetId = sheetProperties.find((p: any) => p.title === targetWorksheet)?.sheetId ?? null;
+        } else {
+          targetSheetId = sheetProperties.find((p: any) => p.title === targetWorksheet)?.sheetId ?? null;
         }
 
         // Preserve the old metadata-heavy tab. Future lead data goes to a clean tab.
@@ -506,9 +529,11 @@ async function startServer() {
               }
             });
             targetWorksheet = addSheetResponse.data.replies?.[0]?.addSheet?.properties?.title || cleanTabName;
-            console.log('[SHEETS_CLEAN_TAB_CREATED]', { spreadsheetId, targetWorksheet });
+            targetSheetId = addSheetResponse.data.replies?.[0]?.addSheet?.properties?.sheetId ?? null;
+            console.log('[SHEETS_CLEAN_TAB_CREATED]', { spreadsheetId, targetWorksheet, targetSheetId });
           } else {
             targetWorksheet = cleanTabName;
+            targetSheetId = sheetProperties.find((p: any) => p.title === targetWorksheet)?.sheetId ?? null;
           }
         }
       } catch (err: any) {
@@ -618,9 +643,11 @@ async function startServer() {
       }
 
       const submittedDate = new Date(lead.submittedAt || lead.timestamp || Date.now());
-      const dateValue = Number.isNaN(submittedDate.getTime())
-        ? new Date().toISOString().slice(0, 10)
-        : submittedDate.toISOString().slice(0, 10);
+      const safeSubmittedDate = Number.isNaN(submittedDate.getTime()) ? new Date() : submittedDate;
+      // Google Sheets stores dates/times as serial numbers. Writing the serial plus
+      // an explicit number format makes the Date column show both date and time,
+      // instead of exposing a value such as 46273.
+      const dateValue = (safeSubmittedDate.getTime() / 86400000) + 25569;
 
       const rowValues = headers.map(header => {
         if (header.toLowerCase() === 'date') return dateValue;
@@ -634,10 +661,41 @@ async function startServer() {
       const appendRes = await sheets.spreadsheets.values.append({
         spreadsheetId,
         range: `'${targetWorksheet}'`,
-        valueInputOption: 'USER_ENTERED',
+        valueInputOption: 'RAW',
         insertDataOption: 'INSERT_ROWS',
         requestBody: { values: [rowValues] }
       });
+
+      // Force the Date column to display as date + time (24-hour format).
+      // This also fixes existing sheets that were displaying the raw serial
+      // number such as 46273.
+      const dateColumnIndex = headers.findIndex((h: string) => h.toLowerCase() === 'date');
+      if (targetSheetId !== null && dateColumnIndex >= 0) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId,
+          requestBody: {
+            requests: [{
+              repeatCell: {
+                range: {
+                  sheetId: targetSheetId,
+                  startRowIndex: 1,
+                  startColumnIndex: dateColumnIndex,
+                  endColumnIndex: dateColumnIndex + 1
+                },
+                cell: {
+                  userEnteredFormat: {
+                    numberFormat: {
+                      type: 'DATE_TIME',
+                      pattern: 'dd/mm/yyyy hh:mm:ss'
+                    }
+                  }
+                },
+                fields: 'userEnteredFormat.numberFormat'
+              }
+            }]
+          }
+        });
+      }
 
       const updatedRange = appendRes.data.updates?.updatedRange || null;
       console.log('[GOOGLE_SHEET_LEAD_APPENDED]', {
@@ -706,7 +764,7 @@ async function startServer() {
       const sheets = google.sheets({ version: 'v4', auth });
       const response = await sheets.spreadsheets.get({
         spreadsheetId,
-        fields: 'sheets.properties.title',
+        fields: 'sheets.properties(sheetId,title)',
       });
 
       const worksheets = (response.data.sheets || []).map(s => s.properties?.title).filter(Boolean);
@@ -1412,7 +1470,14 @@ async function startServer() {
     // Respond to the widget as soon as the lead is safely persisted. Google Sheets
     // synchronization runs completely in the background so Google/API latency never
     // delays the customer-facing thank-you response.
+    //
+    // IMPORTANT: an update to an existing lead must NOT append another Google Sheet row.
+    // Only the first genuine lead submission is allowed to create the row.
     const runGoogleSheetSyncInBackground = async () => {
+      if (isUpdate) {
+        console.log('[GOOGLE_SHEET_SYNC_SKIP_UPDATE]', { leadId, botId, conversationId });
+        return;
+      }
       const sheetConfig = await resolveClientGoogleSheetsConfig(
         clientId,
         resolvedBot?.spreadsheetId,
