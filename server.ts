@@ -4,7 +4,6 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { google } from 'googleapis';
-import { createHash } from 'crypto';
 import dotenv from 'dotenv';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, getDoc, setDoc, getDocs, collection, query, where, orderBy, limit, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
@@ -34,39 +33,6 @@ try {
 
 // In-memory store for tokens (In production, use Firestore)
 const userTokens = new Map<string, any>();
-
-// ============================================================
-// FAST2SMS OTP VERIFICATION
-// ============================================================
-// Keep the Fast2SMS API key server-side only. Configure these in .env:
-// FAST2SMS_API_KEY=...
-// FAST2SMS_SENDER_ID=MNTAGE
-// FAST2SMS_MESSAGE_ID=159538
-const otpStore = new Map<string, { hash: string; expiresAt: number; attempts: number; sentAt: number; verified: boolean }>();
-const otpSendLog = new Map<string, number>();
-
-function normalizeOtpPhone(value: any): string {
-  let digits = String(value || '').replace(/\D/g, '');
-  if (digits.length === 12 && digits.startsWith('91')) digits = digits.slice(2);
-  return digits;
-}
-
-function hashOtp(otp: string): string {
-  // Lightweight one-way hash using Web Crypto-compatible Node crypto.
-  // Imported lazily so the rest of the server remains unchanged.
-  return createHash('sha256').update(otp).digest('hex');
-}
-
-function generateOtp(): string {
-  return String(Math.floor(100000 + Math.random() * 900000));
-}
-
-function cleanupOtpStore() {
-  const now = Date.now();
-  for (const [phone, record] of otpStore.entries()) {
-    if (record.expiresAt < now || record.verified) otpStore.delete(phone);
-  }
-}
 
 // ============================================================
 // GOOGLE OAUTH CONFIGURATION
@@ -129,106 +95,6 @@ async function startServer() {
   const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json());
-
-  // FAST2SMS OTP routes
-  app.post('/api/otp/send', async (req, res) => {
-    cleanupOtpStore();
-    const phone = normalizeOtpPhone(req.body?.phone);
-    if (!/^\d{10}$/.test(phone)) {
-      return res.status(400).json({ success: false, error: 'Please provide a valid 10-digit mobile number.' });
-    }
-
-    const previousSentAt = otpSendLog.get(phone) || 0;
-    const secondsSinceLastSend = Math.floor((Date.now() - previousSentAt) / 1000);
-    if (secondsSinceLastSend < 30) {
-      return res.status(429).json({ success: false, error: `Please wait ${30 - secondsSinceLastSend} seconds before requesting another OTP.` });
-    }
-
-    const apiKey = process.env.FAST2SMS_API_KEY?.trim();
-    const senderId = process.env.FAST2SMS_SENDER_ID?.trim() || 'MNTAGE';
-    const messageId = process.env.FAST2SMS_MESSAGE_ID?.trim() || '159538';
-    if (!apiKey) {
-      return res.status(500).json({ success: false, error: 'SMS service is not configured on the server.' });
-    }
-
-    const otp = generateOtp();
-    let response: any;
-    try {
-      response = await fetch('https://www.fast2sms.com/dev/bulkV2', {
-        method: 'POST',
-        headers: {
-          Authorization: apiKey,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          route: 'dlt',
-          sender_id: senderId,
-          message: /^\d+$/.test(messageId) ? Number(messageId) : messageId,
-          variables_values: otp,
-          flash: 0,
-          numbers: phone
-        })
-      });
-    } catch (error: any) {
-      console.error('[FAST2SMS_OTP_NETWORK_ERROR]', { phone, error: error?.message || error });
-      return res.status(502).json({ success: false, error: 'Could not connect to the SMS provider. Please try again.' });
-    }
-
-    const responseText = await response.text();
-    let providerData: any = {};
-    try { providerData = JSON.parse(responseText); } catch { providerData = { raw: responseText }; }
-
-    if (!response.ok || providerData?.return === false) {
-      console.error('[FAST2SMS_OTP_SEND_FAILED]', { phone, status: response.status, providerData });
-      const providerMessage = Array.isArray(providerData?.message)
-        ? providerData.message.join(' ')
-        : providerData?.message;
-      return res.status(502).json({ success: false, error: providerMessage || 'SMS provider could not send the OTP.' });
-    }
-
-    otpStore.set(phone, {
-      hash: hashOtp(otp),
-      expiresAt: Date.now() + 5 * 60 * 1000,
-      attempts: 0,
-      sentAt: Date.now(),
-      verified: false
-    });
-    otpSendLog.set(phone, Date.now());
-
-    return res.json({ success: true, message: 'OTP sent successfully.', requestId: providerData?.request_id || null });
-  });
-
-  app.post('/api/otp/verify', async (req, res) => {
-    cleanupOtpStore();
-    const phone = normalizeOtpPhone(req.body?.phone);
-    const otp = String(req.body?.otp || '').trim();
-    if (!/^\d{10}$/.test(phone) || !/^\d{6}$/.test(otp)) {
-      return res.status(400).json({ success: false, error: 'Invalid phone number or OTP.' });
-    }
-
-    const record = otpStore.get(phone);
-    if (!record) {
-      return res.status(400).json({ success: false, error: 'OTP expired or not found. Please request a new OTP.' });
-    }
-    if (record.attempts >= 5) {
-      otpStore.delete(phone);
-      return res.status(429).json({ success: false, error: 'Too many incorrect attempts. Please request a new OTP.' });
-    }
-    if (record.expiresAt < Date.now()) {
-      otpStore.delete(phone);
-      return res.status(400).json({ success: false, error: 'OTP expired. Please request a new OTP.' });
-    }
-
-    if (hashOtp(otp) !== record.hash) {
-      record.attempts += 1;
-      return res.status(400).json({ success: false, error: 'Incorrect OTP. Please try again.' });
-    }
-
-    record.verified = true;
-    otpStore.delete(phone);
-    return res.json({ success: true, verified: true, phone });
-  });
-
 
   // Safe Google OAuth Startup Diagnostics
   const gClientId = process.env.GOOGLE_CLIENT_ID || '';
@@ -601,21 +467,44 @@ async function startServer() {
     const leadKey = String(lead.id || `anonymous_${Date.now()}`);
 
     return withGoogleSheetLeadLock(spreadsheetId, leadKey, async () => {
+      // If another request already synced this lead, never append the same lead again.
+      // This is especially important when the dashboard auto-sync and the lead endpoint
+      // run at nearly the same time.
+      const currentLead = serverLeadsList.find((item: any) => String(item?.id || '') === leadKey);
+      if (currentLead?.googleSheetSyncStatus === 'synced') {
+        console.log('[GOOGLE_SHEET_SYNC_ALREADY_DONE]', { leadId: leadKey, spreadsheetId });
+        return {
+          success: true,
+          action: 'skipped_already_synced',
+          updatedRange: null,
+          rowNumber: null,
+          spreadsheetId,
+          worksheetName: worksheetName || 'Sheet1'
+        };
+      }
+
       const auth = createOAuth2Client(tokens);
       const sheets = google.sheets({ version: 'v4', auth });
       let targetWorksheet = worksheetName || 'Sheet1';
+      let targetSheetId: number | null = null;
+      let sheetProperties: Array<{ sheetId?: number; title: string }> = [];
 
       try {
         const meta = await sheets.spreadsheets.get({
           spreadsheetId,
-          fields: 'sheets.properties.title'
+          fields: 'sheets.properties(sheetId,title)'
         });
-        const titles = (meta.data.sheets || [])
-          .map((s: any) => s.properties?.title)
-          .filter(Boolean) as string[];
+        sheetProperties = (meta.data.sheets || [])
+          .map((s: any) => s.properties)
+          .filter((p: any) => p?.title) as Array<{ sheetId?: number; title: string }>;
+        const titles = sheetProperties.map((p: any) => p.title) as string[];
+        targetSheetId = sheetProperties.find((p: any) => p.title === targetWorksheet)?.sheetId ?? null;
 
         if (titles.length > 0 && !titles.includes(targetWorksheet)) {
           targetWorksheet = titles[0];
+          targetSheetId = sheetProperties.find((p: any) => p.title === targetWorksheet)?.sheetId ?? null;
+        } else {
+          targetSheetId = sheetProperties.find((p: any) => p.title === targetWorksheet)?.sheetId ?? null;
         }
 
         // Preserve the old metadata-heavy tab. Future lead data goes to a clean tab.
@@ -640,9 +529,11 @@ async function startServer() {
               }
             });
             targetWorksheet = addSheetResponse.data.replies?.[0]?.addSheet?.properties?.title || cleanTabName;
-            console.log('[SHEETS_CLEAN_TAB_CREATED]', { spreadsheetId, targetWorksheet });
+            targetSheetId = addSheetResponse.data.replies?.[0]?.addSheet?.properties?.sheetId ?? null;
+            console.log('[SHEETS_CLEAN_TAB_CREATED]', { spreadsheetId, targetWorksheet, targetSheetId });
           } else {
             targetWorksheet = cleanTabName;
+            targetSheetId = sheetProperties.find((p: any) => p.title === targetWorksheet)?.sheetId ?? null;
           }
         }
       } catch (err: any) {
@@ -752,9 +643,11 @@ async function startServer() {
       }
 
       const submittedDate = new Date(lead.submittedAt || lead.timestamp || Date.now());
-      const dateValue = Number.isNaN(submittedDate.getTime())
-        ? new Date().toISOString().slice(0, 10)
-        : submittedDate.toISOString().slice(0, 10);
+      const safeSubmittedDate = Number.isNaN(submittedDate.getTime()) ? new Date() : submittedDate;
+      // Google Sheets stores dates/times as serial numbers. Writing the serial plus
+      // an explicit number format makes the Date column show both date and time,
+      // instead of exposing a value such as 46273.
+      const dateValue = (safeSubmittedDate.getTime() / 86400000) + 25569;
 
       const rowValues = headers.map(header => {
         if (header.toLowerCase() === 'date') return dateValue;
@@ -768,10 +661,41 @@ async function startServer() {
       const appendRes = await sheets.spreadsheets.values.append({
         spreadsheetId,
         range: `'${targetWorksheet}'`,
-        valueInputOption: 'USER_ENTERED',
+        valueInputOption: 'RAW',
         insertDataOption: 'INSERT_ROWS',
         requestBody: { values: [rowValues] }
       });
+
+      // Force the Date column to display as date + time (24-hour format).
+      // This also fixes existing sheets that were displaying the raw serial
+      // number such as 46273.
+      const dateColumnIndex = headers.findIndex((h: string) => h.toLowerCase() === 'date');
+      if (targetSheetId !== null && dateColumnIndex >= 0) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId,
+          requestBody: {
+            requests: [{
+              repeatCell: {
+                range: {
+                  sheetId: targetSheetId,
+                  startRowIndex: 1,
+                  startColumnIndex: dateColumnIndex,
+                  endColumnIndex: dateColumnIndex + 1
+                },
+                cell: {
+                  userEnteredFormat: {
+                    numberFormat: {
+                      type: 'DATE_TIME',
+                      pattern: 'dd/mm/yyyy hh:mm:ss'
+                    }
+                  }
+                },
+                fields: 'userEnteredFormat.numberFormat'
+              }
+            }]
+          }
+        });
+      }
 
       const updatedRange = appendRes.data.updates?.updatedRange || null;
       console.log('[GOOGLE_SHEET_LEAD_APPENDED]', {
@@ -840,7 +764,7 @@ async function startServer() {
       const sheets = google.sheets({ version: 'v4', auth });
       const response = await sheets.spreadsheets.get({
         spreadsheetId,
-        fields: 'sheets.properties.title',
+        fields: 'sheets.properties(sheetId,title)',
       });
 
       const worksheets = (response.data.sheets || []).map(s => s.properties?.title).filter(Boolean);
@@ -1408,37 +1332,6 @@ async function startServer() {
 
 
   // Backend Lead Storage & Retrieval
-  const leadRequestInFlight = new Map<string, object>();
-
-  function validateLeadFields(fields: any[]): string | null {
-    for (const field of Array.isArray(fields) ? fields : []) {
-      const value = String(field?.value ?? '').trim();
-      const label = String(field?.label ?? '').trim().toLowerCase();
-      const fieldKey = String(field?.key ?? field?.leadKey ?? field?.fieldKey ?? '').trim().toLowerCase();
-
-      if (!value) return `Please provide a value for ${field?.label || 'this field'}.`;
-
-      const isPhone = /(^|\b)(phone|mobile|contact number|phone number|mobile number)(\b|$)/.test(label) ||
-        ['phone', 'phone_number', 'phonenumber', 'mobile', 'mobile_number'].includes(fieldKey);
-      const isEmail = label.includes('email') || fieldKey.includes('email');
-      const isName = label === 'name' || label.includes('full name') || fieldKey === 'name' || fieldKey === 'full_name';
-
-      if (isPhone && !/^\d{10}$/.test(value.replace(/\D/g, ''))) {
-        return 'Please provide a valid 10-digit mobile number.';
-      }
-      if (isEmail && (value.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value))) {
-        return 'Please provide a valid email address.';
-      }
-      if (isName) {
-        const letters = value.replace(/[^A-Za-zÀ-ÖØ-öø-ÿ]/g, '');
-        if (value.length < 2 || letters.length < 2 || value.length > 100) {
-          return 'Please provide a valid name (at least 2 characters).';
-        }
-      }
-    }
-    return null;
-  }
-
   app.post('/api/leads', async (req, res) => {
     const leadPayload = req.body || {};
     const botId = leadPayload.botId || leadPayload.flowId;
@@ -1447,27 +1340,6 @@ async function startServer() {
 
     if (!botId) {
       return res.status(400).json({ success: false, error: 'botId is required.' });
-    }
-
-    const requestUserId = leadPayload.userId || leadPayload.chatUserId || '';
-    const requestConversationId = leadPayload.conversationId || '';
-    const requestIdentity = leadPayload.id ||
-      (requestConversationId ? `lead_${botId}_${requestConversationId}` :
-        (requestUserId ? `lead_${botId}_${requestUserId}` : ''));
-
-    let requestLock: object | null = null;
-    if (requestIdentity) {
-      if (leadRequestInFlight.has(requestIdentity)) {
-        console.log('[LEAD_DUPLICATE_REQUEST_BLOCKED]', { requestIdentity, botId });
-        return res.json({ success: true, duplicate: true, message: 'Lead is already being processed.' });
-      }
-      requestLock = {};
-      leadRequestInFlight.set(requestIdentity, requestLock);
-      res.on('finish', () => {
-        if (leadRequestInFlight.get(requestIdentity) === requestLock) {
-          leadRequestInFlight.delete(requestIdentity);
-        }
-      });
     }
 
     const passedClientId = leadPayload.clientId || leadPayload.ownerId;
@@ -1487,11 +1359,6 @@ async function startServer() {
         label: key,
         value: String(val)
       }));
-    }
-
-    const validationError = validateLeadFields(fields);
-    if (validationError) {
-      return res.status(400).json({ success: false, error: validationError });
     }
 
     const flattenedData: Record<string, any> = {};
@@ -1521,8 +1388,10 @@ async function startServer() {
     if (!existingLead && conversationId) {
       existingLead = serverLeadsList.find(l => l.conversationId === conversationId);
     }
-    if (!existingLead && userId && botId) {
-      existingLead = serverLeadsList.find(l => l.userId === userId && l.botId === botId);
+    if (!existingLead && userId && botId && conversationId) {
+      existingLead = serverLeadsList.find(
+        l => l.userId === userId && l.botId === botId && l.conversationId === conversationId
+      );
     }
     if (!existingLead && db && conversationId) {
       try {
@@ -1598,82 +1467,89 @@ async function startServer() {
       fieldsCount: Array.isArray(leadPayload.fields) ? leadPayload.fields.length : 0
     });
 
-    const sheetConfig = await resolveClientGoogleSheetsConfig(clientId, resolvedBot?.spreadsheetId, resolvedBot?.worksheetName, resolvedBot?.googleOwnerId);
+    // Respond to the widget as soon as the lead is safely persisted. Google Sheets
+    // synchronization runs completely in the background so Google/API latency never
+    // delays the customer-facing thank-you response.
+    //
+    // IMPORTANT: an update to an existing lead must NOT append another Google Sheet row.
+    // Only the first genuine lead submission is allowed to create the row.
+    const runGoogleSheetSyncInBackground = async () => {
+      if (isUpdate) {
+        console.log('[GOOGLE_SHEET_SYNC_SKIP_UPDATE]', { leadId, botId, conversationId });
+        return;
+      }
+      const sheetConfig = await resolveClientGoogleSheetsConfig(
+        clientId,
+        resolvedBot?.spreadsheetId,
+        resolvedBot?.worksheetName,
+        resolvedBot?.googleOwnerId
+      );
 
-    // If this is a retry/remount for an already-synced lead, never append a second
-    // row to Google Sheets. A genuine new lead is still appended normally.
-    if (isUpdate && existingLead?.googleSheetSyncStatus === 'synced') {
-      console.log('[GOOGLE_SHEET_SYNC_DEDUP]', { leadId, reason: 'already_synced' });
-      return res.json({
-        success: true,
-        leadId,
-        duplicate: true,
-        googleSheetSync: { status: 'synced', action: 'skipped_duplicate' }
-      });
-    }
+      if (sheetConfig.googleTokens && sheetConfig.spreadsheetId) {
+        try {
+          const syncRes = await syncLeadToGoogleSheets(sheetConfig.googleTokens, sheetConfig.spreadsheetId, sheetConfig.worksheetName, leadRecord);
+          leadRecord.googleSheetSyncStatus = 'synced';
+          leadRecord.googleSheetSyncAction = syncRes?.action || 'synced';
+          leadRecord.googleSheetSyncedAt = new Date().toISOString();
+          leadRecord.spreadsheetId = sheetConfig.spreadsheetId;
+          leadRecord.worksheetName = sheetConfig.worksheetName;
+          delete leadRecord.googleSheetSyncError;
 
-    if (sheetConfig.googleTokens && sheetConfig.spreadsheetId) {
-      try {
-        const syncRes = await syncLeadToGoogleSheets(sheetConfig.googleTokens, sheetConfig.spreadsheetId, sheetConfig.worksheetName, leadRecord);
-        leadRecord.googleSheetSyncStatus = 'synced';
-        leadRecord.googleSheetSyncAction = syncRes?.action || 'synced';
-        leadRecord.googleSheetSyncedAt = new Date().toISOString();
-        leadRecord.spreadsheetId = sheetConfig.spreadsheetId;
-        leadRecord.worksheetName = sheetConfig.worksheetName;
-        delete leadRecord.googleSheetSyncError;
+          if (db) {
+            await setDoc(doc(db, 'leads', leadId), {
+              googleSheetSyncStatus: 'synced',
+              googleSheetSyncedAt: leadRecord.googleSheetSyncedAt,
+              spreadsheetId: sheetConfig.spreadsheetId,
+              worksheetName: sheetConfig.worksheetName,
+              googleSheetSyncError: null
+            }, { merge: true }).catch(() => null);
+          }
+          saveLeadsToFile();
+        } catch (syncErr: any) {
+          console.error('[GOOGLE_SHEET_SYNC_FAILED]', { leadId, botId, spreadsheetId: sheetConfig.spreadsheetId, error: syncErr?.message || syncErr });
+          leadRecord.googleSheetSyncStatus = 'failed';
+          leadRecord.googleSheetSyncError = syncErr?.message || 'Sync failed';
+          leadRecord.spreadsheetId = sheetConfig.spreadsheetId;
+          leadRecord.worksheetName = sheetConfig.worksheetName;
 
-        if (db) {
-          await setDoc(doc(db, 'leads', leadId), {
-            googleSheetSyncStatus: 'synced',
-            googleSheetSyncedAt: leadRecord.googleSheetSyncedAt,
-            spreadsheetId: sheetConfig.spreadsheetId,
-            worksheetName: sheetConfig.worksheetName,
-            googleSheetSyncError: null
-          }, { merge: true }).catch(() => null);
+          if (db) {
+            await setDoc(doc(db, 'leads', leadId), {
+              googleSheetSyncStatus: 'failed',
+              googleSheetSyncError: leadRecord.googleSheetSyncError,
+              spreadsheetId: sheetConfig.spreadsheetId,
+              worksheetName: sheetConfig.worksheetName
+            }, { merge: true }).catch(() => null);
+          }
+          saveLeadsToFile();
         }
-        saveLeadsToFile();
-      } catch (syncErr: any) {
-        console.error('[GOOGLE_SHEET_SYNC_FAILED]', { leadId, botId, spreadsheetId: sheetConfig.spreadsheetId, error: syncErr?.message || syncErr });
-        leadRecord.googleSheetSyncStatus = 'failed';
-        leadRecord.googleSheetSyncError = syncErr?.message || 'Sync failed';
-        leadRecord.spreadsheetId = sheetConfig.spreadsheetId;
-        leadRecord.worksheetName = sheetConfig.worksheetName;
-
+      } else {
+        console.log('[GOOGLE_SHEET_SYNC_FAILED]', { leadId, botId, error: 'Google Account or Spreadsheet not connected for this bot' });
+        leadRecord.googleSheetSyncStatus = 'not_configured';
         if (db) {
-          await setDoc(doc(db, 'leads', leadId), {
-            googleSheetSyncStatus: 'failed',
-            googleSheetSyncError: leadRecord.googleSheetSyncError,
-            spreadsheetId: sheetConfig.spreadsheetId,
-            worksheetName: sheetConfig.worksheetName
-          }, { merge: true }).catch(() => null);
+          await setDoc(doc(db, 'leads', leadId), { googleSheetSyncStatus: 'not_configured' }, { merge: true }).catch(() => null);
         }
         saveLeadsToFile();
       }
-    } else {
-      console.log('[GOOGLE_SHEET_SYNC_FAILED]', { leadId, botId, error: 'Google Account or Spreadsheet not connected for this bot' });
-      leadRecord.googleSheetSyncStatus = 'not_configured';
-      if (db) {
-        await setDoc(doc(db, 'leads', leadId), { googleSheetSyncStatus: 'not_configured' }, { merge: true }).catch(() => null);
-      }
-      saveLeadsToFile();
-    }
+    };
 
     broadcastEvent(isUpdate ? 'LEAD_UPDATED' : 'LEAD_CAPTURED', leadRecord);
 
-    if (leadRecord.googleSheetSyncStatus !== 'synced') {
-      autoSyncPendingLeads(botId, clientId).catch(() => null);
-    }
+    // Start Google Sheets synchronization after the response path has been
+    // prepared. This is intentionally fire-and-forget.
+    void runGoogleSheetSyncInBackground().catch(err => {
+      console.error('[GOOGLE_SHEET_BACKGROUND_SYNC_FAILED]', { leadId, botId, error: err?.message || err });
+    });
 
     return res.json({
       success: true,
       leadId,
       isUpdate,
       googleSheetSync: {
-        status: leadRecord.googleSheetSyncStatus,
-        spreadsheetId: sheetConfig.spreadsheetId || null,
-        worksheetName: sheetConfig.worksheetName || null,
-        action: leadRecord.googleSheetSyncAction || null,
-        error: leadRecord.googleSheetSyncError || null
+        status: 'pending',
+        spreadsheetId: null,
+        worksheetName: null,
+        action: null,
+        error: null
       }
     });
   });

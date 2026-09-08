@@ -47,15 +47,6 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   const [showWelcomeActions, setShowWelcomeActions] = useState(true);
   const [design, setDesign] = useState<any>({});
   const [clientLogo, setClientLogo] = useState('');
-  const [otpSent, setOtpSent] = useState(false);
-  const [otpValue, setOtpValue] = useState('');
-  const [otpPhone, setOtpPhone] = useState('');
-  const [otpSending, setOtpSending] = useState(false);
-  const [otpVerifying, setOtpVerifying] = useState(false);
-  const [otpError, setOtpError] = useState<string | null>(null);
-  const [otpCooldown, setOtpCooldown] = useState(0);
-  const otpTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const pendingPhoneNodeRef = useRef<any>(null);
 
   const welcomeTitle = design.welcomeTitle || `Welcome to ${botTitle}!`;
   const welcomeDescription = design.welcomeDescription || design.subtitle || 'How can we help you today?';
@@ -120,6 +111,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   // Prevent duplicate lead submissions and duplicate completion messages.
   const leadSubmitInFlightRef = useRef(false);
   const leadSubmittedRef = useRef(false);
+  const leadSubmissionKeyRef = useRef<string | null>(null);
   const thankYouShownRef = useRef(false);
 
   const showThankYouOnce = () => {
@@ -141,22 +133,20 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
     thankYouShownRef.current = true;
 
-    setIsTyping(true);
-    setTimeout(() => {
-      setIsTyping(false);
-      setMessages(prev => {
-        // Never add more than one lead-completion message to this chat.
-        if (prev.some(msg => msg.sender === 'bot' && msg.type === 'lead-complete')) {
-          return prev;
-        }
-        return [...prev, {
-          id: 'lead-complete-' + Date.now().toString(),
-          text: '🎉 Thank you! Your details have been submitted successfully. Our team will contact you shortly.',
-          sender: 'bot',
-          type: 'lead-complete'
-        }];
-      });
-    }, 600);
+    // Show completion immediately. Lead persistence / Google Sheets sync must
+    // never delay the customer-facing thank-you response.
+    setIsTyping(false);
+    setMessages(prev => {
+      if (prev.some(msg => msg.sender === 'bot' && msg.type === 'lead-complete')) {
+        return prev;
+      }
+      return [...prev, {
+        id: 'lead-complete-' + Date.now().toString(),
+        text: '🎉 Thank you! Your details have been submitted successfully. Our team will contact you shortly.',
+        sender: 'bot',
+        type: 'lead-complete'
+      }];
+    });
   };
 
   useEffect(() => {
@@ -567,222 +557,9 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     return /\b(phone|mobile)\b/.test(label) && !/email/.test(label);
   };
 
-  const startOtpCooldown = (seconds = 30) => {
-    if (otpTimerRef.current) clearInterval(otpTimerRef.current);
-    setOtpCooldown(seconds);
-    otpTimerRef.current = setInterval(() => {
-      setOtpCooldown(prev => {
-        if (prev <= 1) {
-          if (otpTimerRef.current) clearInterval(otpTimerRef.current);
-          otpTimerRef.current = null;
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  };
-
-  useEffect(() => () => {
-    if (otpTimerRef.current) clearInterval(otpTimerRef.current);
-  }, []);
-
-  const normalizePhone = (value: string) => {
-    const digits = String(value || '').replace(/\D/g, '');
-    if (digits.length === 12 && digits.startsWith('91')) return digits.slice(2);
-    return digits;
-  };
-
-  const sendPhoneOtp = async (phone: string, node: any) => {
-    const normalized = normalizePhone(phone);
-    if (!/^\d{10}$/.test(normalized)) {
-      setOtpError('Please enter a valid 10-digit mobile number.');
-      return false;
-    }
-    if (otpSending || (otpSent && otpCooldown > 0)) return false;
-
-    setOtpSending(true);
-    setOtpError(null);
-    try {
-      const res = await fetch('/api/otp/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: normalized, botId, userId: chatUserId })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Could not send OTP. Please try again.');
-      }
-      setOtpPhone(normalized);
-      setOtpValue('');
-      setOtpSent(true);
-      pendingPhoneNodeRef.current = node;
-      startOtpCooldown(30);
-      setMessages(prev => [...prev, {
-        id: `otp-sent-${Date.now()}`,
-        text: `We sent a verification code to +91 ${normalized.slice(0, 5)} ${normalized.slice(5)}. Please enter the OTP to continue.`,
-        sender: 'bot'
-      }]);
-      return true;
-    } catch (err: any) {
-      setOtpError(err?.message || 'Could not send OTP. Please try again.');
-      return false;
-    } finally {
-      setOtpSending(false);
-    }
-  };
-
-  const verifyPhoneOtp = async () => {
-    if (!/^\d{6}$/.test(otpValue.trim())) {
-      setOtpError('Please enter the 6-digit OTP.');
-      return;
-    }
-    if (otpVerifying) return;
-    setOtpVerifying(true);
-    setOtpError(null);
-    try {
-      const res = await fetch('/api/otp/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: otpPhone, otp: otpValue.trim(), botId, userId: chatUserId })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Invalid OTP. Please try again.');
-      }
-
-      const phoneNode = pendingPhoneNodeRef.current || safeNodes.find((n: any) => n.id === currentNodeId);
-      const cleanPhone = otpPhone;
-      const userMsg: Message = { id: Date.now().toString(), text: cleanPhone, sender: 'user' };
-      setMessages(prev => [...prev, userMsg]);
-      setOtpSent(false);
-      setOtpValue('');
-      setOtpError(null);
-      setOtpPhone('');
-      pendingPhoneNodeRef.current = null;
-
-      if (phoneNode) {
-        const fieldId = phoneNode.id || ('node_' + Date.now());
-        const updatedDynamicFields = [
-          ...dynamicFields.filter(f => f.fieldId !== fieldId),
-          { fieldId, label: 'Phone Number', value: cleanPhone }
-        ];
-        setDynamicFields(updatedDynamicFields);
-        const newLeadData = { ...leadData, phone: cleanPhone };
-        setLeadData(newLeadData);
-        trackMessageToBackend('user', cleanPhone, 'phone', { phone: cleanPhone });
-
-        let targetNodeId: string | null = phoneNode.data?.nextStepId || null;
-        if (targetNodeId === 'END') {
-          await saveLead(newLeadData, updatedDynamicFields);
-          setCurrentNodeId(null);
-          showThankYouOnce();
-          return;
-        }
-        if (!targetNodeId) {
-          const edge = safeEdges.find((e: any) => e.source === phoneNode.id && !e.sourceHandle) || safeEdges.find((e: any) => e.source === phoneNode.id);
-          targetNodeId = edge?.target || null;
-        }
-        if (!targetNodeId) {
-          const idx = safeNodes.findIndex((n: any) => n.id === phoneNode.id);
-          if (idx >= 0 && idx + 1 < safeNodes.length) targetNodeId = safeNodes[idx + 1].id;
-        }
-        const nextNode = targetNodeId ? safeNodes.find((n: any) => n.id === targetNodeId) : null;
-        if (nextNode) {
-          if (nextNode.type === 'saveLead') {
-            await saveLead(newLeadData, updatedDynamicFields);
-            setCurrentNodeId(null);
-            showThankYouOnce();
-            return;
-          }
-          setCurrentNodeId(nextNode.id);
-          processBotStep(nextNode);
-          return;
-        }
-        await saveLead(newLeadData, updatedDynamicFields);
-        setCurrentNodeId(null);
-        showThankYouOnce();
-      }
-    } catch (err: any) {
-      setOtpError(err?.message || 'OTP verification failed.');
-    } finally {
-      setOtpVerifying(false);
-    }
-  };
-
-  // Validate chatbot fields before accepting/submitting the answer.
-  const validateFieldInput = (node: any, value: string): string | null => {
-    if (!node) return null;
-
-    const text = String(value || '').trim();
-    const type = String(node.type || '').trim().toLowerCase();
-
-    const key = String(
-      node.data?.key || node.data?.leadKey || node.data?.fieldKey || ''
-    ).trim().toLowerCase();
-
-    const label = String(node.data?.label || '').trim().toLowerCase();
-    const looksLikePhone = isPhoneNode(node);
-    const looksLikeEmail = type === 'email' || key.includes('email') || (label.includes('email') && !looksLikePhone);
-    const looksLikeName = type === 'name' || key === 'name' || key === 'full_name' || label.includes('full name') || label === 'name';
-
-    if (looksLikePhone) {
-      const digits = normalizePhone(text);
-      if (!/^\d{10}$/.test(digits)) {
-        return 'Please enter a valid 10-digit mobile number.';
-      }
-      return null;
-    }
-
-    if (looksLikeEmail) {
-      if (text.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(text)) {
-        return 'Please enter a valid email address.';
-      }
-      return null;
-    }
-
-    if (looksLikeName) {
-      const lettersOnly = text.replace(/[^A-Za-zÀ-ÖØ-öø-ÿ]/g, '');
-      if (text.length < 2 || lettersOnly.length < 2 || text.length > 100) {
-        return 'Please enter a valid name (at least 2 characters).';
-      }
-      return null;
-    }
-
-    if (type === 'textquestion' || type === 'text') {
-      if (text.length < 2) return 'Please enter at least 2 characters.';
-      if (text.length > 1000) return 'Please keep your answer under 1000 characters.';
-    }
-
-    return null;
-  };
-
   const handleUserInput = async (text: string) => {
     const cleanText = text.trim();
     if (!cleanText) return;
-
-    const currentNode = safeNodes.find((n: any) => n.id === currentNodeId);
-    const validationError = validateFieldInput(currentNode, cleanText);
-    if (validationError) {
-      setOtpError(validationError);
-      return;
-    }
-
-    setOtpError(null);
-
-    // Phone nodes require OTP verification before the phone is added to lead data.
-    // Do not add the phone to the chat/lead until Fast2SMS accepts the OTP request.
-    if (isPhoneNode(currentNode)) {
-      const sent = await sendPhoneOtp(cleanText, currentNode);
-      if (sent) {
-        setMessages(prev => [...prev, {
-          id: Date.now().toString(),
-          text: normalizePhone(cleanText),
-          sender: 'user'
-        }]);
-        setInputValue('');
-      }
-      return;
-    }
 
     const userMsg: Message = {
       id: Date.now().toString(),
@@ -791,6 +568,8 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     };
     setMessages(prev => [...prev, userMsg]);
     setInputValue('');
+
+    const currentNode = safeNodes.find((n: any) => n.id === currentNodeId);
 
     // Determine field label and key
     let fieldLabel = 'Field';
@@ -806,7 +585,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         fieldLabel = 'Email';
         fieldKey = 'email';
         profileUpdate = { email: cleanText };
-      } else if (currentNode.type === 'phone') {
+      } else if (isPhoneNode(currentNode)) {
         fieldLabel = 'Phone Number';
         fieldKey = 'phone';
         profileUpdate = { phone: cleanText };
@@ -849,8 +628,8 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       // 2. Check if currentNode has an explicit nextStepId set
       if (!targetNodeId && currentNode.data?.nextStepId) {
         if (currentNode.data.nextStepId === 'END') {
-          await saveLead(newLeadData, updatedDynamicFields);
           showThankYouOnce();
+          void saveLead(newLeadData, updatedDynamicFields);
           return;
         }
         targetNodeId = currentNode.data.nextStepId;
@@ -895,9 +674,9 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
             // A saveLead node is terminal for lead capture. Do not continue into
             // another terminal/message node, otherwise multiple completion
             // messages can be generated from the same submission.
-            await saveLead(newLeadData, updatedDynamicFields);
             setCurrentNodeId(null);
             showThankYouOnce();
+            void saveLead(newLeadData, updatedDynamicFields);
             return;
           }
 
@@ -908,13 +687,13 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       }
 
       // End of flow reached - save lead and send exactly one completion message.
-      await saveLead(newLeadData, updatedDynamicFields);
       setCurrentNodeId(null);
       showThankYouOnce();
+      void saveLead(newLeadData, updatedDynamicFields);
     } else {
       // Flow ended previously, user is continuing chat
-      await saveLead(newLeadData, updatedDynamicFields);
       showThankYouOnce();
+      void saveLead(newLeadData, updatedDynamicFields);
     }
   };
 
@@ -925,16 +704,14 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const saveLead = async (data: any, fieldsList: Array<{ fieldId: string; label: string; value: string }> = dynamicFields) => {
-    if (leadSubmittedRef.current || leadSubmitInFlightRef.current || isSubmitting) return;
+    const submissionKey = `${botId}::${conversationId || chatUserId}`;
+    if (leadSubmittedRef.current || leadSubmitInFlightRef.current || isSubmitting || leadSubmissionKeyRef.current === submissionKey) return;
+    leadSubmissionKeyRef.current = submissionKey;
     leadSubmitInFlightRef.current = true;
     setIsSubmitting(true);
 
     const effectiveClientId = localStorage.getItem('mintage_effective_user_id') || localStorage.getItem('mintage_client_id') || undefined;
-    // Use the chat conversation as the submission identity so retries/remounts
-    // cannot create a second lead for the same conversation.
-    const submissionId = `lead_${botId}_${conversationId || chatUserId}`;
     const payload = {
-      id: submissionId,
       botId,
       clientId: effectiveClientId,
       userId: chatUserId,
@@ -948,7 +725,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     console.log('[LEAD] submitting', payload);
 
     const newLeadRecord: LeadRecord = {
-      id: submissionId,
+      id: 'lead_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
       botId,
       flowId: botId,
       fields: fieldsList,
@@ -958,6 +735,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       googleSheetSyncStatus: 'pending'
     };
 
+    let leadSubmissionSucceeded = false;
     try {
       const res = await fetch('/api/leads', {
         method: 'POST',
@@ -967,6 +745,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
       const resData = await res.json();
       if (res.ok && resData.success) {
+        leadSubmissionSucceeded = true;
         console.log('[LEAD] submission success:', resData.leadId);
         newLeadRecord.id = resData.leadId || newLeadRecord.id;
         newLeadRecord.googleSheetSyncStatus = resData.googleSheetSync?.status || 'pending';
@@ -991,6 +770,9 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
     // Completion UI is handled centrally by showThankYouOnce().
     // saveLead itself must never add a bot completion message.
+    if (!leadSubmissionSucceeded) {
+      leadSubmissionKeyRef.current = null;
+    }
     leadSubmitInFlightRef.current = false;
     setIsSubmitting(false);
   };
@@ -1156,45 +938,11 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         <div ref={messagesEndRef} />
       </div>}
 
-      {/* Phone OTP verification */}
-      {!isMinimized && otpSent && !isTyping && (
-        <div className="px-3 pb-3" style={{ background: design.botBubbleBg || '#ffffff' }}>
-          <div className="rounded-2xl border p-3" style={{ borderColor: `${design.accentColor || '#4f46e5'}25`, background: design.widgetBgColor || '#f8fafc' }}>
-            <div className="flex items-center justify-between mb-2">
-              <div>
-                <p className="text-xs font-bold" style={{ color: design.botBubbleText || '#1e293b' }}>Verify your phone</p>
-                <p className="text-[11px] opacity-70">Enter the 6-digit code sent by SMS.</p>
-              </div>
-              <Phone className="w-4 h-4" style={{ color: design.accentColor || '#4f46e5' }} />
-            </div>
-            <div className="flex gap-2">
-              <input
-                type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={6}
-                value={otpValue} onChange={e => setOtpValue(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                placeholder="Enter OTP" className="flex-1 border rounded-xl px-3 py-2.5 text-sm font-semibold tracking-[0.25em] outline-none"
-                style={{ background: '#fff', color: design.botBubbleText || '#1e293b', borderColor: `${design.accentColor || '#4f46e5'}25` }}
-              />
-              <button type="button" onClick={verifyPhoneOtp} disabled={otpVerifying || otpValue.length !== 6}
-                className="px-4 rounded-xl text-xs font-bold text-white disabled:opacity-40" style={{ background: design.accentColor || '#4f46e5' }}>
-                {otpVerifying ? 'Verifying…' : 'Verify'}
-              </button>
-            </div>
-            {otpError && <p className="text-[11px] text-red-600 mt-2">{otpError}</p>}
-            <div className="flex items-center justify-between mt-2">
-              <button type="button" disabled={otpSending || otpCooldown > 0} onClick={() => sendPhoneOtp(otpPhone, pendingPhoneNodeRef.current)} className="text-[11px] font-semibold disabled:opacity-40" style={{ color: design.accentColor || '#4f46e5' }}>
-                {otpCooldown > 0 ? `Resend in ${otpCooldown}s` : (otpSending ? 'Sending…' : 'Resend OTP')}
-              </button>
-              <span className="text-[10px] opacity-50">+91 {otpPhone}</span>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* User Input Area */}
-      {!isMinimized && !isTyping && !otpSent && (
+      {!isMinimized && !isTyping && (
         <form
           onSubmit={(e) => { e.preventDefault(); if (inputValue.trim()) handleUserInput(inputValue); }}
-          className="relative p-3 border-t flex gap-2 items-center" style={{ background: design.botBubbleBg || '#ffffff', borderColor: `${design.accentColor || '#4f46e5'}12` }}
+          className="p-3 border-t flex gap-2 items-center" style={{ background: design.botBubbleBg || '#ffffff', borderColor: `${design.accentColor || '#4f46e5'}12` }}
         >
           <input
             type="text"
@@ -1215,7 +963,6 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
           >
             <Send className="w-4 h-4" />
           </button>
-          {otpError && <p className="absolute left-3 right-3 translate-y-8 text-[11px] text-red-600">{otpError}</p>}
         </form>
       )}
 
