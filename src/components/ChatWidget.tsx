@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../lib/firebase';
 import { doc, getDoc, getDocs, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
-import { Send, Bot, Loader2, ChevronRight, Minus, X, Phone, CalendarDays, MessageCircle, Headphones } from 'lucide-react';
+import { Send, Bot, Loader2, ChevronRight, Minus, X, Phone, CalendarDays, MessageCircle, Headphones, ExternalLink } from 'lucide-react';
 
 interface ChatWidgetProps {
   botId: string;
@@ -15,6 +15,8 @@ interface Message {
   type?: string;
   choices?: string[];
   imageUrl?: string;
+  url?: string;
+  urlLabel?: string;
 }
 
 interface LeadRecord {
@@ -248,7 +250,9 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         sender: 'bot',
         type: node.type,
         choices: node.data?.choices,
-        imageUrl: node.data?.imageUrl || node.data?.url,
+        imageUrl: node.data?.imageUrl,
+        url: node.data?.url || node.data?.linkUrl || '',
+        urlLabel: node.data?.urlLabel || 'Open link',
       };
       setMessages(prev => [...prev, newMessage]);
 
@@ -557,9 +561,90 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     return /\b(phone|mobile)\b/.test(label) && !/email/.test(label);
   };
 
+  const validateLeadField = (node: any, value: string): string | null => {
+    const cleanValue = String(value || '').trim();
+    if (!node || !cleanValue) return null;
+
+    const type = String(node.type || '').trim().toLowerCase();
+    const key = String(
+      node.data?.key ||
+      node.data?.leadKey ||
+      node.data?.fieldKey ||
+      ''
+    ).trim().toLowerCase();
+    const label = String(node.data?.label || '').trim().toLowerCase();
+
+    const isNameField = type === 'name' ||
+      ['name', 'full_name', 'fullname'].includes(key) ||
+      /\b(full\s*name|name)\b/.test(label);
+
+    const isEmailField = type === 'email' ||
+      ['email', 'email_address', 'emailaddress'].includes(key) ||
+      /\bemail\b/.test(label);
+
+    const isPhoneField = isPhoneNode(node) ||
+      ['phone', 'phone_number', 'phonenumber', 'mobile', 'mobile_number', 'contact_number'].includes(key) ||
+      /\b(phone|mobile|contact\s*(number|no\.?))\b/.test(label);
+
+    if (isNameField) {
+      // Supports normal names, spaces, hyphens, apostrophes and Unicode letters.
+      const normalizedName = cleanValue.replace(/\s+/g, ' ');
+      if (normalizedName.length < 2 || normalizedName.length > 80) {
+        return 'Please enter your full name (2–80 characters).';
+      }
+      if (!/^[\p{L}\p{M}]+(?:[ .\u0027\u2019-][\p{L}\p{M}]+)*$/u.test(normalizedName)) {
+        return 'Please enter a valid name using letters, spaces, hyphens or apostrophes only.';
+      }
+      return null;
+    }
+
+    if (isPhoneField) {
+      // Accept common international formatting while validating the actual digit count.
+      const phoneDigits = cleanValue.replace(/\D/g, '');
+      if (!/^[+\d][\d\s().-]*$/.test(cleanValue)) {
+        return 'Please enter a valid phone number using digits only (formatting such as +, spaces or hyphens is allowed).';
+      }
+      if (phoneDigits.length < 10 || phoneDigits.length > 15) {
+        return 'Please enter a valid phone number with 10–15 digits.';
+      }
+      return null;
+    }
+
+    if (isEmailField) {
+      if (cleanValue.length > 254 || /\s/.test(cleanValue)) {
+        return 'Please enter a valid email address.';
+      }
+      // Practical email format check for lead capture. The server repeats this validation.
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/i.test(cleanValue)) {
+        return 'Please enter a valid email address, for example name@example.com.';
+      }
+      return null;
+    }
+
+    return null;
+  };
+
   const handleUserInput = async (text: string) => {
     const cleanText = text.trim();
     if (!cleanText) return;
+
+    const currentNode = safeNodes.find((n: any) => n.id === currentNodeId);
+
+    // Validate name, phone and email before storing/tracking the answer or moving
+    // to the next node. Invalid values stay in the input so the user can correct them.
+    const validationError = validateLeadField(currentNode, cleanText);
+    if (validationError) {
+      setMessages(prev => [
+        ...prev,
+        {
+          id: `validation-${Date.now()}`,
+          text: validationError,
+          sender: 'bot',
+          type: 'validation-error'
+        }
+      ]);
+      return;
+    }
 
     const userMsg: Message = {
       id: Date.now().toString(),
@@ -568,8 +653,6 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     };
     setMessages(prev => [...prev, userMsg]);
     setInputValue('');
-
-    const currentNode = safeNodes.find((n: any) => n.id === currentNodeId);
 
     // Determine field label and key
     let fieldLabel = 'Field';
@@ -894,6 +977,19 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
                   ? { background: design.userBubbleBg || '#4f46e5', color: design.userBubbleText || '#ffffff' }
                   : { background: design.botBubbleBg || '#ffffff', color: design.botBubbleText || '#1e293b', borderColor: `${design.accentColor || '#4f46e5'}18` }}
               >
+                {msg.url && /^https?:\/\//i.test(msg.url) && (
+                  <a
+                    href={msg.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-3 w-full inline-flex items-center justify-center gap-2 p-2.5 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 rounded-xl text-xs font-bold text-indigo-600 transition-all"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>{msg.urlLabel || 'Open link'}</span>
+                  </a>
+                )}
+
                 {msg.imageUrl && (
                   <img
                     src={msg.imageUrl}
@@ -945,12 +1041,14 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
           className="p-3 border-t flex gap-2 items-center" style={{ background: design.botBubbleBg || '#ffffff', borderColor: `${design.accentColor || '#4f46e5'}12` }}
         >
           <input
-            type="text"
+            type={currentNode?.type === 'email' ? 'email' : 'text'}
+            inputMode={isPhoneNode(currentNode) ? 'tel' : currentNode?.type === 'email' ? 'email' : 'text'}
+            autoComplete={currentNode?.type === 'name' ? 'name' : isPhoneNode(currentNode) ? 'tel' : currentNode?.type === 'email' ? 'email' : 'off'}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             placeholder={
               currentNode?.type === 'name' ? 'Type your full name...' :
-                currentNode?.type === 'phone' ? 'Type your phone number...' :
+                isPhoneNode(currentNode) ? 'Type your phone number...' :
                   currentNode?.type === 'email' ? 'Type your email address...' :
                     'Type your response...'
             }

@@ -548,6 +548,8 @@ function BuilderContent() {
             type === 'textQuestion' ? 'To start, could you share your full name with us? ✨' :
               'New Node',
         choices: (type === 'singleChoice' || type === 'multipleChoice') ? ['Option 1', 'Option 2'] : undefined,
+        url: '',
+        urlLabel: 'Open link',
       },
       position: { x: 400, y: 200 },
     };
@@ -1041,6 +1043,50 @@ function BuilderContent() {
                       <p className="field-hint">Links this answer to a column in your dashboard and spreadsheet.</p>
                     </div>
                   )}
+
+                  {/* URL Configuration for ALL Component Types */}
+                  <div className="modal-section" style={{ marginTop: 0 }}>
+                    <p className="modal-section-title" style={{ justifyContent: 'space-between' }}>
+                      <span>URL / Link</span>
+                      <span className="tag">Optional</span>
+                    </p>
+                    <p className="field-hint" style={{ marginBottom: '10px', marginTop: 0 }}>Add a link to this component. The chatbot will show an “Open link” button when a URL is provided.</p>
+                    <label className="field-label">URL</label>
+                    <input
+                      type="url"
+                      className="input"
+                      value={(selectedNode.data.url as string) || ''}
+                      onChange={(e) => {
+                        const newUrl = e.target.value;
+                        const updatedNode = {
+                          ...selectedNode,
+                          data: { ...selectedNode.data, url: newUrl }
+                        };
+                        setNodes(safeNodes.map(n => n.id === selectedNode.id ? updatedNode : n));
+                        setSelectedNode(updatedNode);
+                      }}
+                      placeholder="https://example.com/page"
+                      inputMode="url"
+                      autoComplete="url"
+                    />
+                    <label className="field-label" style={{ marginTop: '10px' }}>Button text</label>
+                    <input
+                      type="text"
+                      className="input"
+                      value={(selectedNode.data.urlLabel as string) || 'Open link'}
+                      onChange={(e) => {
+                        const newUrlLabel = e.target.value;
+                        const updatedNode = {
+                          ...selectedNode,
+                          data: { ...selectedNode.data, urlLabel: newUrlLabel }
+                        };
+                        setNodes(safeNodes.map(n => n.id === selectedNode.id ? updatedNode : n));
+                        setSelectedNode(updatedNode);
+                      }}
+                      placeholder="Open link"
+                      maxLength={40}
+                    />
+                  </div>
 
                   {/* Next Step Configuration for ALL Component Types */}
                   <div className="modal-section" style={{ marginTop: 0 }}>
