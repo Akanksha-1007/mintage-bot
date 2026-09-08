@@ -1331,6 +1331,49 @@ async function startServer() {
 
 
 
+  // Server-side lead validation. Client-side validation improves UX, but the API
+  // must validate again because requests can be sent directly without the widget.
+  const validateLeadFieldValue = (label: string, value: any): string | null => {
+    const cleanValue = String(value ?? '').trim();
+    const normalizedLabel = String(label || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!cleanValue || !normalizedLabel) return null;
+
+    const isNameField = /\b(full\s*name|name)\b/.test(normalizedLabel);
+    const isEmailField = /\bemail\b/.test(normalizedLabel);
+    const isPhoneField = /\b(phone|mobile|contact\s*(number|no\.?))\b/.test(normalizedLabel);
+
+    if (isNameField) {
+      const normalizedName = cleanValue.replace(/\s+/g, ' ');
+      if (normalizedName.length < 2 || normalizedName.length > 80) {
+        return 'Please enter your full name (2–80 characters).';
+      }
+      if (!/^[\p{L}\p{M}]+(?:[ .\u0027\u2019-][\p{L}\p{M}]+)*$/u.test(normalizedName)) {
+        return 'Please enter a valid name using letters, spaces, hyphens or apostrophes only.';
+      }
+      return null;
+    }
+
+    if (isEmailField) {
+      if (cleanValue.length > 254 || /\s/.test(cleanValue) || !/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/i.test(cleanValue)) {
+        return 'Please enter a valid email address.';
+      }
+      return null;
+    }
+
+    if (isPhoneField) {
+      const phoneDigits = cleanValue.replace(/\D/g, '');
+      if (!/^[+\d][\d\s().-]*$/.test(cleanValue)) {
+        return 'Please enter a valid phone number using digits only (formatting such as +, spaces or hyphens is allowed).';
+      }
+      if (phoneDigits.length < 10 || phoneDigits.length > 15) {
+        return 'Please enter a valid phone number with 10–15 digits.';
+      }
+      return null;
+    }
+
+    return null;
+  };
+
   // Backend Lead Storage & Retrieval
   app.post('/api/leads', async (req, res) => {
     const leadPayload = req.body || {};
@@ -1365,6 +1408,17 @@ async function startServer() {
     let extractedName = '';
     let extractedEmail = '';
     let extractedPhone = '';
+
+    for (const field of fields) {
+      const validationError = validateLeadFieldValue(String(field?.label || ''), field?.value);
+      if (validationError) {
+        return res.status(400).json({
+          success: false,
+          error: validationError,
+          field: field?.label || ''
+        });
+      }
+    }
 
     fields.forEach(f => {
       if (f.label) {
@@ -1753,28 +1807,41 @@ async function startServer() {
     const cleanId = (leadId || '').trim();
     if (!cleanId) return false;
 
-    // 1. Remove from server in-memory list
     loadLeadsFromFile();
-    let removed = false;
+
+    let removedFromLocal = false;
     for (let i = serverLeadsList.length - 1; i >= 0; i--) {
-      if (serverLeadsList[i] && (serverLeadsList[i].id === cleanId || serverLeadsList[i].docId === cleanId)) {
+      const lead = serverLeadsList[i];
+      if (lead && (String(lead.id || '') === cleanId || String(lead.docId || '') === cleanId)) {
         serverLeadsList.splice(i, 1);
-        removed = true;
+        removedFromLocal = true;
       }
     }
 
-    // 2. Persist updated leads to leads.json file
-    saveLeadsToFile();
+    if (removedFromLocal) {
+      saveLeadsToFile();
+    }
 
-    // 3. Delete from Cloud Firestore
+    let removedFromFirestore = false;
+
     if (db) {
       try {
-        await deleteDoc(doc(db, 'leads', cleanId)).catch(() => null);
+        // Direct document ID delete. This is the normal storage path.
+        const directRef = doc(db, 'leads', cleanId);
+        const directSnap = await getDoc(directRef).catch(() => null);
+        if (directSnap?.exists()) {
+          await deleteDoc(directRef);
+          removedFromFirestore = true;
+        }
+
+        // Also remove legacy documents whose document ID differs but whose stored
+        // lead.id matches the requested ID.
         const q = query(collection(db, 'leads'), where('id', '==', cleanId));
         const qSnap = await getDocs(q).catch(() => null);
         if (qSnap && !qSnap.empty) {
           for (const d of qSnap.docs) {
-            await deleteDoc(doc(db, 'leads', d.id)).catch(() => null);
+            await deleteDoc(doc(db, 'leads', d.id));
+            removedFromFirestore = true;
           }
         }
       } catch (err) {
@@ -1782,25 +1849,97 @@ async function startServer() {
       }
     }
 
-    // 4. Broadcast SSE Event so connected dashboards update instantly
-    broadcastEvent('LEAD_DELETED', { leadId: cleanId });
-    return true;
+    const deleted = removedFromLocal || removedFromFirestore;
+    if (deleted) {
+      broadcastEvent('LEAD_DELETED', { leadId: cleanId });
+    }
+
+    return deleted;
   }
 
   app.delete('/api/leads/:id', async (req, res) => {
     const { id } = req.params;
-    await deleteLeadPermanently(id);
-    res.json({ success: true, deletedId: id });
+    const deleted = await deleteLeadPermanently(id);
+    if (!deleted) {
+      return res.status(404).json({ success: false, error: 'Lead not found.', deletedId: id });
+    }
+    return res.json({ success: true, deletedId: id });
   });
 
   app.post('/api/leads/delete', async (req, res) => {
     const { id, leadId } = req.body || {};
     const targetId = id || leadId;
     if (!targetId) {
-      return res.status(400).json({ error: 'Lead ID is required' });
+      return res.status(400).json({ success: false, error: 'Lead ID is required' });
     }
-    await deleteLeadPermanently(targetId);
-    res.json({ success: true, deletedId: targetId });
+    const deleted = await deleteLeadPermanently(String(targetId));
+    if (!deleted) {
+      return res.status(404).json({ success: false, error: 'Lead not found.', deletedId: targetId });
+    }
+    return res.json({ success: true, deletedId: targetId });
+  });
+
+  // Permanently delete multiple lead records in one request.
+  app.post('/api/leads/bulk-delete', async (req, res) => {
+    // Express request bodies are intentionally normalized here so TypeScript
+    // does not infer the IDs as `unknown[]` under strict settings.
+    const body = req.body as { ids?: unknown } | undefined;
+    const rawIds: unknown[] = Array.isArray(body?.ids) ? body.ids : [];
+
+    const ids: string[] = rawIds
+      .map((value: unknown): string => String(value ?? '').trim())
+      .filter((value: string): value is string => value.length > 0)
+      .filter((value: string, index: number, values: string[]): boolean =>
+        values.indexOf(value) === index
+      );
+
+    if (ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'At least one lead ID is required.',
+      });
+    }
+
+    if (ids.length > 500) {
+      return res.status(400).json({
+        success: false,
+        error: 'You can delete a maximum of 500 leads at once.',
+      });
+    }
+
+    const deletedIds: string[] = [];
+    const failed: Array<{ id: string; error: string }> = [];
+
+    for (const id of ids) {
+      try {
+        const deleted: boolean = await deleteLeadPermanently(id);
+
+        if (deleted) {
+          deletedIds.push(id);
+        } else {
+          failed.push({
+            id,
+            error: 'Lead could not be deleted.',
+          });
+        }
+      } catch (error: unknown) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error ?? 'Delete failed.');
+
+        failed.push({
+          id,
+          error: errorMessage || 'Delete failed.',
+        });
+      }
+    }
+
+    return res.json({
+      success: true,
+      deletedIds,
+      failed,
+      deletedCount: deletedIds.length,
+      failedCount: failed.length,
+    });
   });
 
 

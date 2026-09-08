@@ -120,6 +120,9 @@ export default function Leads() {
 
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [deletingLead, setDeletingLead] = useState<Lead | null>(null);
+  const [selectedLeadIds, setSelectedLeadIds] = useState<Set<string>>(new Set());
+  const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
+  const [isDeletingBulk, setIsDeletingBulk] = useState(false);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
 
   const [isDeletingLead, setIsDeletingLead] = useState(false);
@@ -235,6 +238,45 @@ export default function Leads() {
     setBotNames((previous) => ({ ...previous, ...names }));
   };
 
+  const addDeletedLeadIds = (ids: string[]) => {
+    const existing = new Set(getDeletedLeadIds());
+    ids.forEach((id) => {
+      if (id) existing.add(id);
+    });
+    localStorage.setItem('mintage_deleted_lead_ids', JSON.stringify(Array.from(existing)));
+  };
+
+  const removeLeadsFromLocalCache = (ids: string[]) => {
+    const idSet = new Set(ids);
+    const localLeads = getLocalLeads();
+    localStorage.setItem(
+      'mintage_leads',
+      JSON.stringify(localLeads.filter((lead) => lead?.id && !idSet.has(lead.id))),
+    );
+  };
+
+  const toggleLeadSelection = (leadId: string) => {
+    setSelectedLeadIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(leadId)) next.delete(leadId);
+      else next.add(leadId);
+      return next;
+    });
+  };
+
+  const toggleSelectAllVisible = () => {
+    setSelectedLeadIds((previous) => {
+      const next = new Set(previous);
+      const visibleIds = filteredLeads.map((lead) => lead.id);
+      const allSelected = visibleIds.length > 0 && visibleIds.every((id) => next.has(id));
+
+      if (allSelected) visibleIds.forEach((id) => next.delete(id));
+      else visibleIds.forEach((id) => next.add(id));
+
+      return next;
+    });
+  };
+
   const confirmDeleteLead = async () => {
     if (!deletingLead) return;
 
@@ -242,64 +284,101 @@ export default function Leads() {
     const targetId = deletingLead.id;
 
     try {
-      // Delete from the server APIs. Failure here is tolerated because Firestore
-      // and the local blacklist are also updated below.
-      try {
-        await fetch(`/api/leads/${encodeURIComponent(targetId)}`, {
-          method: 'DELETE',
-        });
+      const response = await fetch(`/api/leads/${encodeURIComponent(targetId)}`, {
+        method: 'DELETE',
+      });
 
-        await fetch('/api/leads/delete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: targetId }),
-        });
-      } catch (apiError) {
-        console.warn('[LEADS_PAGE] Server delete warning:', apiError);
+      if (!response.ok) {
+        throw new Error(`Server delete failed (${response.status}).`);
       }
 
-      // Delete from Firestore.
       try {
         await deleteDoc(doc(db, 'leads', targetId));
       } catch (firestoreError) {
         console.warn('[LEADS_PAGE] Firestore delete warning:', firestoreError);
       }
 
-      // Persist a local blacklist so a stale API/cache record cannot reappear.
-      const deletedIds = getDeletedLeadIds();
-
-      if (!deletedIds.includes(targetId)) {
-        deletedIds.push(targetId);
-        localStorage.setItem(
-          'mintage_deleted_lead_ids',
-          JSON.stringify(deletedIds),
-        );
-      }
-
-      // Remove the lead from the local cache.
-      const localLeads = getLocalLeads();
-      localStorage.setItem(
-        'mintage_leads',
-        JSON.stringify(localLeads.filter((lead) => lead?.id !== targetId)),
-      );
-
+      addDeletedLeadIds([targetId]);
+      removeLeadsFromLocalCache([targetId]);
       setLeads((previous) => previous.filter((lead) => lead.id !== targetId));
+      setSelectedLeadIds((previous) => {
+        const next = new Set(previous);
+        next.delete(targetId);
+        return next;
+      });
 
-      if (selectedLead?.id === targetId) {
-        setSelectedLead(null);
-      }
-
+      if (selectedLead?.id === targetId) setSelectedLead(null);
       setDeletingLead(null);
       showToast('Lead deleted permanently.');
     } catch (error) {
       console.error('[LEADS_PAGE] Error deleting lead:', error);
       showToast(
-        `Failed to delete lead: ${error instanceof Error ? error.message : 'Unknown error'
-        }`,
+        `Failed to delete lead: ${error instanceof Error ? error.message : 'Unknown error'}`,
         'error',
       );
     } finally {
       setIsDeletingLead(false);
+    }
+  };
+
+  const confirmBulkDelete = async () => {
+    const targetIds = Array.from(selectedLeadIds);
+    if (targetIds.length === 0) return;
+
+    setIsDeletingBulk(true);
+
+    try {
+      const response = await fetch('/api/leads/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: targetIds }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || `Bulk delete failed (${response.status}).`);
+      }
+
+      const deletedIds: string[] = Array.isArray(data.deletedIds)
+        ? data.deletedIds.filter((id: unknown): id is string => typeof id === 'string')
+        : [];
+
+      if (deletedIds.length > 0) {
+        // Keep this client-side Firestore cleanup as a second layer. The server is
+        // the source of truth, while this prevents stale snapshot data reappearing.
+        await Promise.allSettled(
+          deletedIds.map((id) => deleteDoc(doc(db, 'leads', id))),
+        );
+
+        addDeletedLeadIds(deletedIds);
+        removeLeadsFromLocalCache(deletedIds);
+        const deletedSet = new Set(deletedIds);
+        setLeads((previous) => previous.filter((lead) => !deletedSet.has(lead.id)));
+        setSelectedLeadIds((previous) => {
+          const next = new Set(previous);
+          deletedIds.forEach((id) => next.delete(id));
+          return next;
+        });
+      }
+
+      setIsBulkDeleteConfirmOpen(false);
+
+      if (data.failedCount > 0) {
+        showToast(
+          `${data.deletedCount || 0} deleted. ${data.failedCount} could not be deleted.`,
+          data.deletedCount > 0 ? 'success' : 'error',
+        );
+      } else {
+        showToast(`${data.deletedCount || deletedIds.length} leads deleted permanently.`);
+      }
+    } catch (error) {
+      console.error('[LEADS_PAGE] Bulk delete error:', error);
+      showToast(
+        `Failed to delete selected leads: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        'error',
+      );
+    } finally {
+      setIsDeletingBulk(false);
     }
   };
 
@@ -695,6 +774,14 @@ export default function Leads() {
     [leads],
   );
 
+  useEffect(() => {
+    const visibleIds = new Set(leads.map((lead) => lead.id));
+    setSelectedLeadIds((previous) => {
+      const next = new Set(Array.from(previous).filter((id) => visibleIds.has(id)));
+      return next.size === previous.size ? previous : next;
+    });
+  }, [leads]);
+
   const filteredLeads = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
 
@@ -864,6 +951,27 @@ export default function Leads() {
         </div>
 
         <div className="page-actions">
+          {selectedLeadIds.size > 0 && (
+            <>
+              <button
+                type="button"
+                onClick={() => setSelectedLeadIds(new Set())}
+                className="button-secondary"
+              >
+                Clear selection ({selectedLeadIds.size})
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsBulkDeleteConfirmOpen(true)}
+                className="button-danger"
+                disabled={isDeletingBulk}
+              >
+                <Trash2 />
+                Delete selected ({selectedLeadIds.size})
+              </button>
+            </>
+          )}
+
           <button
             type="button"
             onClick={exportLeads}
@@ -984,6 +1092,14 @@ export default function Leads() {
           <table className="data-table">
             <thead>
               <tr>
+                <th style={{ width: '48px' }}>
+                  <input
+                    type="checkbox"
+                    checked={filteredLeads.length > 0 && filteredLeads.every((lead) => selectedLeadIds.has(lead.id))}
+                    onChange={toggleSelectAllVisible}
+                    aria-label="Select all visible leads"
+                  />
+                </th>
                 <th>Submitted</th>
                 <th>Chatbot</th>
 
@@ -1005,7 +1121,7 @@ export default function Leads() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={dynamicColumnLabels.length + 6}>
+                  <td colSpan={dynamicColumnLabels.length + 7}>
                     <div className="loading-state is-inline">
                       <Loader2 className="animate-spin" />
                       <span>Loading leads…</span>
@@ -1014,7 +1130,7 @@ export default function Leads() {
                 </tr>
               ) : filteredLeads.length === 0 ? (
                 <tr>
-                  <td colSpan={dynamicColumnLabels.length + 6}>
+                  <td colSpan={dynamicColumnLabels.length + 7}>
                     <div className="loading-state is-inline">
                       <span>No leads match your current filters.</span>
                     </div>
@@ -1049,6 +1165,15 @@ export default function Leads() {
                       onClick={() => setSelectedLead(lead)}
                       style={{ cursor: 'pointer' }}
                     >
+                      <td onClick={(event) => event.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedLeadIds.has(lead.id)}
+                          onChange={() => toggleLeadSelection(lead.id)}
+                          aria-label={`Select lead ${lead.id}`}
+                        />
+                      </td>
+
                       <td>
                         <span className="cell-title block whitespace-nowrap">
                           {date ? format(date, 'MMM d, yyyy') : 'Recently'}
@@ -1496,6 +1621,48 @@ export default function Leads() {
                 <span>
                   {isDeletingLead ? 'Deleting…' : 'Delete lead'}
                 </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isBulkDeleteConfirmOpen && (
+        <div className="modal-backdrop">
+          <div
+            className="app-modal is-centered"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="bulk-delete-leads-title"
+          >
+            <div className="modal-danger-icon">
+              <AlertTriangle />
+            </div>
+
+            <h3 id="bulk-delete-leads-title">Delete selected leads?</h3>
+            <p className="mt-1.5">
+              You are about to permanently delete <strong>{selectedLeadIds.size}</strong> selected lead{selectedLeadIds.size === 1 ? '' : 's'}.
+            </p>
+            <p className="modal-note">This action cannot be undone.</p>
+
+            <div className="modal-actions">
+              <button
+                type="button"
+                onClick={() => setIsBulkDeleteConfirmOpen(false)}
+                disabled={isDeletingBulk}
+                className="button-secondary flex-1"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void confirmBulkDelete()}
+                disabled={isDeletingBulk || selectedLeadIds.size === 0}
+                className="button-danger flex-1"
+              >
+                {isDeletingBulk ? <Loader2 className="animate-spin" /> : <Trash2 />}
+                <span>{isDeletingBulk ? 'Deleting…' : 'Delete selected'}</span>
               </button>
             </div>
           </div>
