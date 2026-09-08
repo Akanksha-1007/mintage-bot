@@ -14,6 +14,7 @@ interface Message {
   sender: 'bot' | 'user';
   type?: string;
   choices?: string[];
+  optionUrls?: Record<string, string>;
   imageUrl?: string;
   url?: string;
   urlLabel?: string;
@@ -55,11 +56,11 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   const ctaActions = Array.isArray(design.ctaActions) && design.ctaActions.length > 0
     ? design.ctaActions
     : [
-      { id: 'team', label: 'Talk to our team', icon: 'headset', action: 'callback' },
-      { id: 'callback', label: 'Get a callback', icon: 'phone', action: 'callback' },
-      { id: 'appointment', label: 'Book an appointment', icon: 'calendar', action: 'appointment' },
-      ...(design.whatsappNumber ? [{ id: 'whatsapp', label: 'WhatsApp us', icon: 'whatsapp', action: `https://wa.me/${String(design.whatsappNumber).replace(/\D/g, '')}` }] : [])
-    ];
+        { id: 'team', label: 'Talk to our team', icon: 'headset', action: 'callback' },
+        { id: 'callback', label: 'Get a callback', icon: 'phone', action: 'callback' },
+        { id: 'appointment', label: 'Book an appointment', icon: 'calendar', action: 'appointment' },
+        ...(design.whatsappNumber ? [{ id: 'whatsapp', label: 'WhatsApp us', icon: 'whatsapp', action: `https://wa.me/${String(design.whatsappNumber).replace(/\D/g, '')}` }] : [])
+      ];
 
   const renderHeaderAvatar = () => {
     if (design.avatarUrl) {
@@ -250,6 +251,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         sender: 'bot',
         type: node.type,
         choices: node.data?.choices,
+        optionUrls: node.data?.optionUrls,
         imageUrl: node.data?.imageUrl,
         url: node.data?.url || node.data?.linkUrl || '',
         urlLabel: node.data?.urlLabel || 'Open link',
@@ -780,7 +782,11 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     }
   };
 
-  const handleChoice = (choice: string) => {
+  const handleChoice = (choice: string, url?: string) => {
+    const cleanUrl = String(url || '').trim();
+    if (cleanUrl && /^(https?:\/\/|mailto:|tel:)/i.test(cleanUrl)) {
+      window.open(cleanUrl, '_blank', 'noopener,noreferrer');
+    }
     handleUserInput(choice);
   };
 
@@ -1001,17 +1007,23 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
                 {msg.choices && msg.sender === 'bot' && (
                   <div className="mt-3 space-y-2">
-                    {msg.choices.map((choice, i) => (
-                      <button
-                        key={i}
-                        onClick={() => handleChoice(choice)}
-                        className="w-full text-left p-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-between group border"
-                        style={{ borderColor: `${design.accentColor || '#4f46e5'}35`, color: design.accentColor || '#4f46e5', backgroundColor: `${design.accentColor || '#4f46e5'}0a` }}
-                      >
-                        {choice}
-                        <ChevronRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      </button>
-                    ))}
+                    {msg.choices.map((choice, i) => {
+                      const choiceUrl = msg.optionUrls?.[choice] || '';
+                      return (
+                        <button
+                          key={i}
+                          onClick={() => handleChoice(choice, choiceUrl)}
+                          className="w-full text-left p-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-between group border"
+                          style={{ borderColor: `${design.accentColor || '#4f46e5'}35`, color: design.accentColor || '#4f46e5', backgroundColor: `${design.accentColor || '#4f46e5'}0a` }}
+                        >
+                          <span className="flex items-center gap-2">
+                            {choice}
+                            {choiceUrl && <span className="text-[10px] opacity-70">↗</span>}
+                          </span>
+                          <ChevronRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>

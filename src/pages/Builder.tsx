@@ -1143,6 +1143,7 @@ function BuilderContent() {
                       <div>
                         {(selectedNode.data.choices as string[] || []).map((choice, i) => {
                           const currentRoute = (selectedNode.data.optionRoutes as Record<string, string>)?.[choice] || '';
+                          const currentUrl = (selectedNode.data.optionUrls as Record<string, string>)?.[choice] || '';
 
                           return (
                             <div key={i} className="choice-editor">
@@ -1157,14 +1158,21 @@ function BuilderContent() {
                                     oldChoices[i] = newChoiceName;
 
                                     const oldRoutes = { ...((selectedNode.data.optionRoutes as Record<string, string>) || {}) };
-                                    if (oldRoutes[choice] && choice !== newChoiceName) {
-                                      oldRoutes[newChoiceName] = oldRoutes[choice];
-                                      delete oldRoutes[choice];
+                                    const oldUrls = { ...((selectedNode.data.optionUrls as Record<string, string>) || {}) };
+                                    if (choice !== newChoiceName) {
+                                      if (oldRoutes[choice]) {
+                                        oldRoutes[newChoiceName] = oldRoutes[choice];
+                                        delete oldRoutes[choice];
+                                      }
+                                      if (oldUrls[choice]) {
+                                        oldUrls[newChoiceName] = oldUrls[choice];
+                                        delete oldUrls[choice];
+                                      }
                                     }
 
                                     const updatedNode = {
                                       ...selectedNode,
-                                      data: { ...selectedNode.data, choices: oldChoices, optionRoutes: oldRoutes }
+                                      data: { ...selectedNode.data, choices: oldChoices, optionRoutes: oldRoutes, optionUrls: oldUrls }
                                     };
                                     setNodes(safeNodes.map(n => n.id === selectedNode.id ? updatedNode : n));
                                     setSelectedNode(updatedNode);
@@ -1174,11 +1182,13 @@ function BuilderContent() {
                                   onClick={() => {
                                     const newChoices = (selectedNode.data.choices as string[]).filter((_, idx) => idx !== i);
                                     const oldRoutes = { ...((selectedNode.data.optionRoutes as Record<string, string>) || {}) };
+                                    const oldUrls = { ...((selectedNode.data.optionUrls as Record<string, string>) || {}) };
                                     delete oldRoutes[choice];
+                                    delete oldUrls[choice];
 
                                     const updatedNode = {
                                       ...selectedNode,
-                                      data: { ...selectedNode.data, choices: newChoices, optionRoutes: oldRoutes }
+                                      data: { ...selectedNode.data, choices: newChoices, optionRoutes: oldRoutes, optionUrls: oldUrls }
                                     };
                                     setNodes(safeNodes.map(n => n.id === selectedNode.id ? updatedNode : n));
                                     setSelectedNode(updatedNode);
@@ -1191,6 +1201,32 @@ function BuilderContent() {
                                 >
                                   <X />
                                 </button>
+                              </div>
+
+                              <div className="choice-editor-route">
+                                <span>URL</span>
+                                <input
+                                  type="url"
+                                  className="input compact"
+                                  value={currentUrl}
+                                  onChange={(e) => {
+                                    const url = e.target.value;
+                                    const oldUrls = { ...((selectedNode.data.optionUrls as Record<string, string>) || {}) };
+                                    if (url.trim()) {
+                                      oldUrls[choice] = url.trim();
+                                    } else {
+                                      delete oldUrls[choice];
+                                    }
+
+                                    const updatedNode = {
+                                      ...selectedNode,
+                                      data: { ...selectedNode.data, optionUrls: oldUrls }
+                                    };
+                                    setNodes(safeNodes.map(n => n.id === selectedNode.id ? updatedNode : n));
+                                    setSelectedNode(updatedNode);
+                                  }}
+                                  placeholder="https://example.com"
+                                />
                               </div>
 
                               <div className="choice-editor-route">
