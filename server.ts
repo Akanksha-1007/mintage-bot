@@ -1330,8 +1330,10 @@ async function startServer() {
     if (!existingLead && conversationId) {
       existingLead = serverLeadsList.find(l => l.conversationId === conversationId);
     }
-    if (!existingLead && userId && botId) {
-      existingLead = serverLeadsList.find(l => l.userId === userId && l.botId === botId);
+    if (!existingLead && userId && botId && conversationId) {
+      existingLead = serverLeadsList.find(
+        l => l.userId === userId && l.botId === botId && l.conversationId === conversationId
+      );
     }
     if (!existingLead && db && conversationId) {
       try {
@@ -1407,70 +1409,82 @@ async function startServer() {
       fieldsCount: Array.isArray(leadPayload.fields) ? leadPayload.fields.length : 0
     });
 
-    const sheetConfig = await resolveClientGoogleSheetsConfig(clientId, resolvedBot?.spreadsheetId, resolvedBot?.worksheetName, resolvedBot?.googleOwnerId);
+    // Respond to the widget as soon as the lead is safely persisted. Google Sheets
+    // synchronization runs completely in the background so Google/API latency never
+    // delays the customer-facing thank-you response.
+    const runGoogleSheetSyncInBackground = async () => {
+      const sheetConfig = await resolveClientGoogleSheetsConfig(
+        clientId,
+        resolvedBot?.spreadsheetId,
+        resolvedBot?.worksheetName,
+        resolvedBot?.googleOwnerId
+      );
 
-    if (sheetConfig.googleTokens && sheetConfig.spreadsheetId) {
-      try {
-        const syncRes = await syncLeadToGoogleSheets(sheetConfig.googleTokens, sheetConfig.spreadsheetId, sheetConfig.worksheetName, leadRecord);
-        leadRecord.googleSheetSyncStatus = 'synced';
-        leadRecord.googleSheetSyncAction = syncRes?.action || 'synced';
-        leadRecord.googleSheetSyncedAt = new Date().toISOString();
-        leadRecord.spreadsheetId = sheetConfig.spreadsheetId;
-        leadRecord.worksheetName = sheetConfig.worksheetName;
-        delete leadRecord.googleSheetSyncError;
+      if (sheetConfig.googleTokens && sheetConfig.spreadsheetId) {
+        try {
+          const syncRes = await syncLeadToGoogleSheets(sheetConfig.googleTokens, sheetConfig.spreadsheetId, sheetConfig.worksheetName, leadRecord);
+          leadRecord.googleSheetSyncStatus = 'synced';
+          leadRecord.googleSheetSyncAction = syncRes?.action || 'synced';
+          leadRecord.googleSheetSyncedAt = new Date().toISOString();
+          leadRecord.spreadsheetId = sheetConfig.spreadsheetId;
+          leadRecord.worksheetName = sheetConfig.worksheetName;
+          delete leadRecord.googleSheetSyncError;
 
-        if (db) {
-          await setDoc(doc(db, 'leads', leadId), {
-            googleSheetSyncStatus: 'synced',
-            googleSheetSyncedAt: leadRecord.googleSheetSyncedAt,
-            spreadsheetId: sheetConfig.spreadsheetId,
-            worksheetName: sheetConfig.worksheetName,
-            googleSheetSyncError: null
-          }, { merge: true }).catch(() => null);
+          if (db) {
+            await setDoc(doc(db, 'leads', leadId), {
+              googleSheetSyncStatus: 'synced',
+              googleSheetSyncedAt: leadRecord.googleSheetSyncedAt,
+              spreadsheetId: sheetConfig.spreadsheetId,
+              worksheetName: sheetConfig.worksheetName,
+              googleSheetSyncError: null
+            }, { merge: true }).catch(() => null);
+          }
+          saveLeadsToFile();
+        } catch (syncErr: any) {
+          console.error('[GOOGLE_SHEET_SYNC_FAILED]', { leadId, botId, spreadsheetId: sheetConfig.spreadsheetId, error: syncErr?.message || syncErr });
+          leadRecord.googleSheetSyncStatus = 'failed';
+          leadRecord.googleSheetSyncError = syncErr?.message || 'Sync failed';
+          leadRecord.spreadsheetId = sheetConfig.spreadsheetId;
+          leadRecord.worksheetName = sheetConfig.worksheetName;
+
+          if (db) {
+            await setDoc(doc(db, 'leads', leadId), {
+              googleSheetSyncStatus: 'failed',
+              googleSheetSyncError: leadRecord.googleSheetSyncError,
+              spreadsheetId: sheetConfig.spreadsheetId,
+              worksheetName: sheetConfig.worksheetName
+            }, { merge: true }).catch(() => null);
+          }
+          saveLeadsToFile();
         }
-        saveLeadsToFile();
-      } catch (syncErr: any) {
-        console.error('[GOOGLE_SHEET_SYNC_FAILED]', { leadId, botId, spreadsheetId: sheetConfig.spreadsheetId, error: syncErr?.message || syncErr });
-        leadRecord.googleSheetSyncStatus = 'failed';
-        leadRecord.googleSheetSyncError = syncErr?.message || 'Sync failed';
-        leadRecord.spreadsheetId = sheetConfig.spreadsheetId;
-        leadRecord.worksheetName = sheetConfig.worksheetName;
-
+      } else {
+        console.log('[GOOGLE_SHEET_SYNC_FAILED]', { leadId, botId, error: 'Google Account or Spreadsheet not connected for this bot' });
+        leadRecord.googleSheetSyncStatus = 'not_configured';
         if (db) {
-          await setDoc(doc(db, 'leads', leadId), {
-            googleSheetSyncStatus: 'failed',
-            googleSheetSyncError: leadRecord.googleSheetSyncError,
-            spreadsheetId: sheetConfig.spreadsheetId,
-            worksheetName: sheetConfig.worksheetName
-          }, { merge: true }).catch(() => null);
+          await setDoc(doc(db, 'leads', leadId), { googleSheetSyncStatus: 'not_configured' }, { merge: true }).catch(() => null);
         }
         saveLeadsToFile();
       }
-    } else {
-      console.log('[GOOGLE_SHEET_SYNC_FAILED]', { leadId, botId, error: 'Google Account or Spreadsheet not connected for this bot' });
-      leadRecord.googleSheetSyncStatus = 'not_configured';
-      if (db) {
-        await setDoc(doc(db, 'leads', leadId), { googleSheetSyncStatus: 'not_configured' }, { merge: true }).catch(() => null);
-      }
-      saveLeadsToFile();
-    }
+    };
 
     broadcastEvent(isUpdate ? 'LEAD_UPDATED' : 'LEAD_CAPTURED', leadRecord);
 
-    if (leadRecord.googleSheetSyncStatus !== 'synced') {
-      autoSyncPendingLeads(botId, clientId).catch(() => null);
-    }
+    // Start Google Sheets synchronization after the response path has been
+    // prepared. This is intentionally fire-and-forget.
+    void runGoogleSheetSyncInBackground().catch(err => {
+      console.error('[GOOGLE_SHEET_BACKGROUND_SYNC_FAILED]', { leadId, botId, error: err?.message || err });
+    });
 
     return res.json({
       success: true,
       leadId,
       isUpdate,
       googleSheetSync: {
-        status: leadRecord.googleSheetSyncStatus,
-        spreadsheetId: sheetConfig.spreadsheetId || null,
-        worksheetName: sheetConfig.worksheetName || null,
-        action: leadRecord.googleSheetSyncAction || null,
-        error: leadRecord.googleSheetSyncError || null
+        status: 'pending',
+        spreadsheetId: null,
+        worksheetName: null,
+        action: null,
+        error: null
       }
     });
   });

@@ -132,22 +132,20 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
     thankYouShownRef.current = true;
 
-    setIsTyping(true);
-    setTimeout(() => {
-      setIsTyping(false);
-      setMessages(prev => {
-        // Never add more than one lead-completion message to this chat.
-        if (prev.some(msg => msg.sender === 'bot' && msg.type === 'lead-complete')) {
-          return prev;
-        }
-        return [...prev, {
-          id: 'lead-complete-' + Date.now().toString(),
-          text: '🎉 Thank you! Your details have been submitted successfully. Our team will contact you shortly.',
-          sender: 'bot',
-          type: 'lead-complete'
-        }];
-      });
-    }, 600);
+    // Show completion immediately. Lead persistence / Google Sheets sync must
+    // never delay the customer-facing thank-you response.
+    setIsTyping(false);
+    setMessages(prev => {
+      if (prev.some(msg => msg.sender === 'bot' && msg.type === 'lead-complete')) {
+        return prev;
+      }
+      return [...prev, {
+        id: 'lead-complete-' + Date.now().toString(),
+        text: '🎉 Thank you! Your details have been submitted successfully. Our team will contact you shortly.',
+        sender: 'bot',
+        type: 'lead-complete'
+      }];
+    });
   };
 
   useEffect(() => {
@@ -629,8 +627,8 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       // 2. Check if currentNode has an explicit nextStepId set
       if (!targetNodeId && currentNode.data?.nextStepId) {
         if (currentNode.data.nextStepId === 'END') {
-          await saveLead(newLeadData, updatedDynamicFields);
           showThankYouOnce();
+          void saveLead(newLeadData, updatedDynamicFields);
           return;
         }
         targetNodeId = currentNode.data.nextStepId;
@@ -675,9 +673,9 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
             // A saveLead node is terminal for lead capture. Do not continue into
             // another terminal/message node, otherwise multiple completion
             // messages can be generated from the same submission.
-            await saveLead(newLeadData, updatedDynamicFields);
             setCurrentNodeId(null);
             showThankYouOnce();
+            void saveLead(newLeadData, updatedDynamicFields);
             return;
           }
 
@@ -688,13 +686,13 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       }
 
       // End of flow reached - save lead and send exactly one completion message.
-      await saveLead(newLeadData, updatedDynamicFields);
       setCurrentNodeId(null);
       showThankYouOnce();
+      void saveLead(newLeadData, updatedDynamicFields);
     } else {
       // Flow ended previously, user is continuing chat
-      await saveLead(newLeadData, updatedDynamicFields);
       showThankYouOnce();
+      void saveLead(newLeadData, updatedDynamicFields);
     }
   };
 
@@ -713,6 +711,9 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     const payload = {
       botId,
       clientId: effectiveClientId,
+      userId: chatUserId,
+      chatUserId,
+      conversationId: conversationId || '',
       fields: fieldsList,
       sourceUrl: window.location.href,
       submittedAt: new Date().toISOString()
