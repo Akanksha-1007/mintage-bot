@@ -47,15 +47,21 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   const [isTyping, setIsTyping] = useState(false);
   const [botTitle, setBotTitle] = useState('BotFlow Assistant');
   const [isMinimized, setIsMinimized] = useState(false);
+  const [showWelcomeActions, setShowWelcomeActions] = useState(true);
   const [design, setDesign] = useState<any>({});
   const [clientLogo, setClientLogo] = useState('');
 
   const welcomeTitle = design.welcomeTitle || `Welcome to ${botTitle}!`;
   const welcomeDescription = design.welcomeDescription || design.subtitle || 'How can we help you today?';
+  const ctaActions = Array.isArray(design.ctaActions) && design.ctaActions.length > 0
+    ? design.ctaActions
+    : [
+      { id: 'team', label: 'Talk to our team', icon: 'headset', action: 'callback' },
+      { id: 'callback', label: 'Get a callback', icon: 'phone', action: 'callback' },
+      { id: 'appointment', label: 'Book an appointment', icon: 'calendar', action: 'appointment' },
+      ...(design.whatsappNumber ? [{ id: 'whatsapp', label: 'WhatsApp us', icon: 'whatsapp', action: `https://wa.me/${String(design.whatsappNumber).replace(/\D/g, '')}` }] : [])
+    ];
 
-  // Allow normal web links plus common contact/navigation links such as
-  // Google Maps, phone numbers, email and WhatsApp links.
-  const isAllowedLink = (value: string) => /^(https?:\/\/|mailto:|tel:|whatsapp:)/i.test(String(value || '').trim());
   const renderHeaderAvatar = () => {
     if (design.avatarUrl) {
       return <img src={design.avatarUrl} alt={design.botTitle || botTitle} className="w-full h-full object-cover" />;
@@ -76,7 +82,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   const handleCtaAction = (action: string) => {
     const value = String(action || '').trim();
     if (!value) return;
-    if (isAllowedLink(value)) {
+    if (/^(https?:\/\/|tel:|mailto:)/i.test(value)) {
       window.open(value, '_blank', 'noopener,noreferrer');
       return;
     }
@@ -258,7 +264,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       }
 
       // Check if this node is non-interactive (does not require user input)
-      const isInteractive = ['name', 'email', 'phone', 'textQuestion', 'singleChoice', 'multipleChoice'].includes(node.type);
+      const isInteractive = ['name', 'email', 'phone', 'textQuestion', 'singleChoice', 'multipleChoice', 'dateTime'].includes(node.type);
 
       if (!isInteractive) {
         // Automatically find next node
@@ -778,9 +784,8 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
   const handleChoice = (choice: string, url?: string) => {
     const cleanUrl = String(url || '').trim();
-    if (cleanUrl && isAllowedLink(cleanUrl)) {
+    if (cleanUrl && /^(https?:\/\/|mailto:|tel:)/i.test(cleanUrl)) {
       window.open(cleanUrl, '_blank', 'noopener,noreferrer');
-      return;
     }
     handleUserInput(choice);
   };
@@ -949,6 +954,21 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
       {/* Messages + welcome experience */}
       {!isMinimized && <div className="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth">
+        {messages.length <= 1 && showWelcomeActions && (
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="rounded-2xl p-4 border shadow-sm" style={{ background: design.botBubbleBg || '#fff', color: design.botBubbleText || '#1e293b', borderColor: `${design.accentColor || '#4f46e5'}18` }}>
+            <p className="text-sm font-bold mb-1">{welcomeTitle}</p>
+            {welcomeDescription && <p className="text-xs opacity-70 leading-relaxed mb-3">{welcomeDescription}</p>}
+            <div className="flex flex-wrap gap-2">
+              {ctaActions.map((cta: any, i: number) => (
+                <button key={cta.id || i} type="button" onClick={() => handleCtaAction(cta.action || cta.url || '')} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold border transition-all hover:-translate-y-0.5" style={{ color: design.accentColor || '#4f46e5', borderColor: `${design.accentColor || '#4f46e5'}35`, backgroundColor: `${design.accentColor || '#4f46e5'}0a` }}>
+                  {renderCtaIcon(cta.icon || 'phone')}
+                  {cta.label}
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        )}
+
         <AnimatePresence initial={false}>
           {messages.map((msg) => (
             <motion.div
@@ -963,7 +983,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
                   ? { background: design.userBubbleBg || '#4f46e5', color: design.userBubbleText || '#ffffff' }
                   : { background: design.botBubbleBg || '#ffffff', color: design.botBubbleText || '#1e293b', borderColor: `${design.accentColor || '#4f46e5'}18` }}
               >
-                {msg.url && isAllowedLink(msg.url) && (
+                {msg.url && /^https?:\/\//i.test(msg.url) && (
                   <a
                     href={msg.url}
                     target="_blank"
@@ -1033,16 +1053,28 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
           className="p-3 border-t flex gap-2 items-center" style={{ background: design.botBubbleBg || '#ffffff', borderColor: `${design.accentColor || '#4f46e5'}12` }}
         >
           <input
-            type={currentNode?.type === 'email' ? 'email' : 'text'}
-            inputMode={isPhoneNode(currentNode) ? 'tel' : currentNode?.type === 'email' ? 'email' : 'text'}
-            autoComplete={currentNode?.type === 'name' ? 'name' : isPhoneNode(currentNode) ? 'tel' : currentNode?.type === 'email' ? 'email' : 'off'}
+            type={
+              currentNode?.type === 'email' ? 'email' :
+                currentNode?.type === 'dateTime' ? 'datetime-local' : 'text'
+            }
+            inputMode={
+              isPhoneNode(currentNode) ? 'tel' :
+                currentNode?.type === 'email' ? 'email' :
+                  currentNode?.type === 'dateTime' ? 'datetime' : 'text'
+            }
+            autoComplete={
+              currentNode?.type === 'name' ? 'name' :
+                isPhoneNode(currentNode) ? 'tel' :
+                  currentNode?.type === 'email' ? 'email' : 'off'
+            }
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             placeholder={
               currentNode?.type === 'name' ? 'Type your full name...' :
                 isPhoneNode(currentNode) ? 'Type your phone number...' :
                   currentNode?.type === 'email' ? 'Type your email address...' :
-                    'Type your response...'
+                    currentNode?.type === 'dateTime' ? 'Select date and time...' :
+                      'Type your response...'
             }
             className="flex-1 border rounded-xl px-4 py-2.5 text-xs font-medium outline-none transition-all" style={{ background: design.widgetBgColor || '#f8fafc', color: design.botBubbleText || '#1e293b', borderColor: `${design.accentColor || '#4f46e5'}25` }}
           />
