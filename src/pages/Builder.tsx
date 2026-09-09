@@ -1,1347 +1,1061 @@
-import React, { useCallback, useState, useMemo, useEffect } from 'react';
-import { ReactFlow, Controls, Background, Node, Edge, ReactFlowProvider } from '@xyflow/react';
-import '@xyflow/react/dist/style.css';
-import { useBotStore } from '../store/useBotStore';
-import {
-  AlertCircle, CheckCircle2, CheckSquare, ChevronRight, ExternalLink,
-  FileSpreadsheet, HelpCircle, Layers, List, Loader2, Mail, MessageSquare,
-  Phone, Plus, Save, Send, Sparkles, Trash2, User,
-} from 'lucide-react';
-import { db, auth } from '../lib/firebase';
-import { serverTimestamp, doc, updateDoc, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
-import { useParams, useNavigate } from 'react-router-dom';
-import {
-  ImageNode, MessageNode, NameNode, PhoneNode, EmailNode, SingleChoiceNode,
-  MultipleChoiceNode, TextQuestionNode, AiResponseNode, ApiNode, SaveNode,
-} from '../components/CustomNodes';
-import { Check, Copy, Database, Share2, X } from 'lucide-react';
-import ClassicChatBuilder from '../components/ClassicChatBuilder';
-import { useAuth } from '../context/AuthContext';
+import React, { useState, useEffect, useRef } from 'react';
+import { db } from '../lib/firebase';
+import { doc, getDoc, getDocs, collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { motion, AnimatePresence } from 'motion/react';
+import { Send, Bot, Loader2, ChevronRight, Minus, X, Phone, CalendarDays, MessageCircle, Headphones, ExternalLink } from 'lucide-react';
 
-const nodeTypes = {
-  image: ImageNode,
-  message: MessageNode,
-  name: NameNode,
-  phone: PhoneNode,
-  email: EmailNode,
-  singleChoice: SingleChoiceNode,
-  multipleChoice: MultipleChoiceNode,
-  textQuestion: TextQuestionNode,
-  aiResponse: AiResponseNode,
-  api: ApiNode,
-  saveLead: SaveNode,
-};
+interface ChatWidgetProps {
+  botId: string;
+}
 
-function BuilderContent() {
-  const { id } = useParams();
-  const navigate = useNavigate();
-  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, setNodes, setEdges } = useBotStore();
-  const safeNodes = useMemo(() => Array.isArray(nodes) ? nodes : (nodes && typeof nodes === 'object' ? Object.values(nodes) as Node[] : []), [nodes]);
-  const safeEdges = useMemo(() => Array.isArray(edges) ? edges : (edges && typeof edges === 'object' ? Object.values(edges) as Edge[] : []), [edges]);
-  const [selectedNode, setSelectedNode] = useState<Node | null>(null);
-  const [botName, setBotName] = useState('My New Bot');
-  const [botSpreadsheetId, setBotSpreadsheetId] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
-  const [showShareModal, setShowShareModal] = useState(false);
-  const [showSheetsModal, setShowSheetsModal] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [isDeletingBot, setIsDeletingBot] = useState(false);
-  const [builderMode, setBuilderMode] = useState<'classic' | 'visual'>('classic');
+interface Message {
+  id: string;
+  text: string;
+  sender: 'bot' | 'user';
+  type?: string;
+  choices?: string[];
+  optionUrls?: Record<string, string>;
+  imageUrl?: string;
+  url?: string;
+  urlLabel?: string;
+}
 
-  const handleDeleteBotInBuilder = async () => {
-    if (!id) return;
-    setIsDeletingBot(true);
-    try {
-      // 1. Delete from Server API
-      try {
-        await fetch(`/api/bots/${encodeURIComponent(id)}`, { method: 'DELETE' });
-        await fetch('/api/bots/delete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id })
-        });
-      } catch (e) { }
+interface LeadRecord {
+  id: string;
+  botId: string;
+  flowId: string;
+  fields: Array<{ fieldId: string; label: string; value: string }>;
+  data: any;
+  sourceUrl: string;
+  submittedAt: string;
+  googleSheetSyncStatus: string;
+  googleSheetSyncAction?: string | null;
+}
 
-      // 2. Delete from Firestore
-      await deleteDoc(doc(db, 'bot_configurations', id)).catch(() => null);
+export default function ChatWidget({ botId }: ChatWidgetProps) {
+  const [nodes, setNodes] = useState<any[]>([]);
+  const [edges, setEdges] = useState<any[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [currentNodeId, setCurrentNodeId] = useState<string | null>(null);
+  const [inputValue, setInputValue] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [leadData, setLeadData] = useState<Record<string, any>>({});
+  const [dynamicFields, setDynamicFields] = useState<Array<{ fieldId: string; label: string; value: string }>>([]);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-      // 3. Blacklist in localStorage
-      const deletedIdsRaw = localStorage.getItem('mintage_deleted_bot_ids');
-      let deletedIds: string[] = [];
-      if (deletedIdsRaw) {
-        try { deletedIds = JSON.parse(deletedIdsRaw); } catch { }
-      }
-      if (!deletedIds.includes(id)) {
-        deletedIds.push(id);
-        localStorage.setItem('mintage_deleted_bot_ids', JSON.stringify(deletedIds));
-      }
+  const [isTyping, setIsTyping] = useState(false);
+  const [botTitle, setBotTitle] = useState('BotFlow Assistant');
+  const [isMinimized, setIsMinimized] = useState(false);
+  const [design, setDesign] = useState<any>({});
+  const [clientLogo, setClientLogo] = useState('');
 
-      // 4. Remove from all local caches
-      ['mintage_bots', 'botflow_local_bots', 'mintage_bot_configurations'].forEach(key => {
-        const raw = localStorage.getItem(key);
-        if (raw) {
-          try {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed)) {
-              localStorage.setItem(key, JSON.stringify(parsed.filter((b: any) => b && b.id !== id)));
-            }
-          } catch { }
-        }
-      });
+  const welcomeTitle = design.welcomeTitle || `Welcome to ${botTitle}!`;
+  const welcomeDescription = design.welcomeDescription || design.subtitle || 'How can we help you today?';
 
-      window.dispatchEvent(new CustomEvent('mintage_bot_deleted', { detail: { id } }));
-
-      navigate('/bots');
-    } catch (error) {
-      console.error('Error deleting bot:', error);
-      showToast('Failed to delete bot. Please try again.', 'error');
-      setIsDeletingBot(false);
+  // Allow normal web links plus common contact/navigation links such as
+  // Google Maps, phone numbers, email and WhatsApp links.
+  const isAllowedLink = (value: string) => /^(https?:\/\/|mailto:|tel:|whatsapp:)/i.test(String(value || '').trim());
+  const renderHeaderAvatar = () => {
+    if (design.avatarUrl) {
+      return <img src={design.avatarUrl} alt={design.botTitle || botTitle} className="w-full h-full object-cover" />;
     }
-  };
-  const [googleTokens, setGoogleTokens] = useState<any>(null);
-  const [userSheets, setUserSheets] = useState<any[]>([]);
-  const [isLoadingSheets, setIsLoadingSheets] = useState(false);
-  const [isCreatingSheet, setIsCreatingSheet] = useState(false);
-  const [isTestingSheet, setIsTestingSheet] = useState(false);
-  const [sheetTestResult, setSheetTestResult] = useState<{ success: boolean; message: string } | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-
-  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => {
-      setToast(null);
-    }, 4000);
+    return <Bot className="w-5 h-5" />;
   };
 
-  const { effectiveUserId } = useAuth();
-
-  const loadUserTokens = useCallback(async () => {
-    // 1. Try local storage first for instant responsiveness
-    const localTokens = localStorage.getItem('mintage_google_tokens');
-    if (localTokens) {
-      try {
-        setGoogleTokens(JSON.parse(localTokens));
-      } catch { }
-    }
-
-    // 2. Fetch from Firestore users collection if logged in
-    const userUid = auth.currentUser?.uid || effectiveUserId;
-    if (userUid) {
-      try {
-        const userDoc = await getDoc(doc(db, 'users', userUid));
-        if (userDoc.exists()) {
-          const data = userDoc.data();
-          if (data.googleTokens) {
-            setGoogleTokens(data.googleTokens);
-            localStorage.setItem('mintage_google_tokens', JSON.stringify(data.googleTokens));
-          }
-        }
-      } catch (err: any) {
-        if (err?.code !== 'permission-denied') {
-          console.warn('Notice fetching Google tokens:', err?.message || err);
-        }
-      }
-    }
-  }, [effectiveUserId]);
-
-  useEffect(() => {
-    loadUserTokens();
-  }, [loadUserTokens]);
-
-  useEffect(() => {
-    if (showSheetsModal) {
-      loadUserTokens();
-    }
-  }, [showSheetsModal, loadUserTokens]);
-
-  useEffect(() => {
-    const handleMessage = async (event: MessageEvent) => {
-      if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
-        const { tokens } = event.data;
-        localStorage.setItem('mintage_google_tokens', JSON.stringify(tokens));
-        setGoogleTokens(tokens);
-
-        const userUid = auth.currentUser?.uid || effectiveUserId;
-        if (userUid) {
-          try {
-            await setDoc(doc(db, 'users', userUid), {
-              googleTokens: tokens,
-              updatedAt: serverTimestamp(),
-            }, { merge: true });
-          } catch (error) {
-            console.error('Error saving tokens:', error);
-          }
-        }
-        showToast('Google Account connected successfully!');
-      }
-    };
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [effectiveUserId]);
-
-  const saveBotSpreadsheetId = async (sheetId: string) => {
-    let cleanId = sheetId.trim();
-    if (cleanId.includes('/d/')) {
-      const match = cleanId.match(/\/d\/([\w-_]+)/);
-      if (match && match[1]) cleanId = match[1];
-    }
-    setBotSpreadsheetId(cleanId);
-
-    const targetUserId = effectiveUserId || auth.currentUser?.uid || 'guest_user';
-
-    if (id) {
-      try {
-        await updateDoc(doc(db, 'bot_configurations', id), {
-          spreadsheetId: cleanId,
-          updatedAt: serverTimestamp(),
-        });
-      } catch (err) {
-        console.warn('Firestore bot update warning:', err);
-      }
-
-      // Sync to LocalStorage cache
-      const localBotsRaw = localStorage.getItem('mintage_bots');
-      if (localBotsRaw) {
-        try {
-          const parsed = JSON.parse(localBotsRaw);
-          const updated = parsed.map((b: any) => b.id === id ? { ...b, spreadsheetId: cleanId } : b);
-          localStorage.setItem('mintage_bots', JSON.stringify(updated));
-        } catch { }
-      }
-    }
-    showToast('Google Sheet linked to Chatbot!');
-  };
-
-  useEffect(() => {
-    if (id) {
-      const loadBot = async () => {
-        try {
-          const docRef = doc(db, 'bot_configurations', id);
-          const docSnap = await getDoc(docRef).catch(() => null);
-          if (docSnap && docSnap.exists()) {
-            const data = docSnap.data();
-            setBotName(data.name || '');
-            const rawNodes = data.nodes;
-            const nodesArr = Array.isArray(rawNodes) ? rawNodes : (rawNodes && typeof rawNodes === 'object' ? Object.values(rawNodes) : []);
-            const rawEdges = data.edges;
-            const edgesArr = Array.isArray(rawEdges) ? rawEdges : (rawEdges && typeof rawEdges === 'object' ? Object.values(rawEdges) : []);
-            setNodes(nodesArr);
-            setEdges(edgesArr);
-            if (data.spreadsheetId) {
-              setBotSpreadsheetId(data.spreadsheetId);
-            }
-            return;
-          }
-        } catch (err) {
-          console.warn('Firestore loadBot error, checking cache:', err);
-        }
-
-        // Fallback to local storage cache
-        const localBotsRaw = localStorage.getItem('mintage_bots');
-        if (localBotsRaw) {
-          try {
-            const localBots = JSON.parse(localBotsRaw);
-            const found = localBots.find((b: any) => b.id === id);
-            if (found) {
-              setBotName(found.name || '');
-              const rawLocalNodes = found.nodes;
-              const localNodesArr = Array.isArray(rawLocalNodes) ? rawLocalNodes : (rawLocalNodes && typeof rawLocalNodes === 'object' ? Object.values(rawLocalNodes) : []);
-              const rawLocalEdges = found.edges;
-              const localEdgesArr = Array.isArray(rawLocalEdges) ? rawLocalEdges : (rawLocalEdges && typeof rawLocalEdges === 'object' ? Object.values(rawLocalEdges) : []);
-              setNodes(localNodesArr);
-              setEdges(localEdgesArr);
-              if (found.spreadsheetId) setBotSpreadsheetId(found.spreadsheetId);
-            }
-          } catch (e) {
-            console.error('Local cache parse error:', e);
-          }
-        }
-      };
-      loadBot();
-    }
-  }, [id, setNodes, setEdges]);
-
-  const loadUserGoogleSheets = async () => {
-    if (!googleTokens) return;
-    setIsLoadingSheets(true);
-    try {
-      const res = await fetch('/api/sheets/list', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tokens: googleTokens }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setUserSheets(data.files || []);
-      }
-    } catch (error) {
-      console.error('Failed to load sheets:', error);
-    } finally {
-      setIsLoadingSheets(false);
+  const renderCtaIcon = (icon: string) => {
+    switch (String(icon).toLowerCase()) {
+      case 'phone': case 'callback': return <Phone className="w-3.5 h-3.5" />;
+      case 'calendar': case 'appointment': return <CalendarDays className="w-3.5 h-3.5" />;
+      case 'whatsapp': return <MessageCircle className="w-3.5 h-3.5" />;
+      case 'headset': case 'team': return <Headphones className="w-3.5 h-3.5" />;
+      default: return <ChevronRight className="w-3.5 h-3.5" />;
     }
   };
 
-  useEffect(() => {
-    if (showSheetsModal && googleTokens) {
-      loadUserGoogleSheets();
-    }
-  }, [showSheetsModal, googleTokens]);
-
-  const handleConnectGoogle = async () => {
-    try {
-      const response = await fetch('/api/auth/google/url');
-      const data = await response.json();
-      if (!response.ok) {
-        showToast(data.error || 'Failed to get auth URL', 'error');
-        return;
-      }
-      window.open(data.url, 'google_oauth', 'width=600,height=700');
-    } catch (error) {
-      showToast('An unexpected error occurred during Google Auth', 'error');
-    }
-  };
-
-  const handleCreateNewSheet = async () => {
-    if (!googleTokens) {
-      showToast('Please connect your Google Account first', 'error');
+  const handleCtaAction = (action: string) => {
+    const value = String(action || '').trim();
+    if (!value) return;
+    if (isAllowedLink(value)) {
+      window.open(value, '_blank', 'noopener,noreferrer');
       return;
     }
-    setIsCreatingSheet(true);
+    if (value === 'callback' || value === 'appointment' || value === 'contact') {
+      setInputValue('');
+      const target = safeNodes.find((n: any) => ['phone', 'name', 'email'].includes(n.type));
+      if (target) {
+        setCurrentNodeId(target.id);
+        setMessages(prev => [...prev, {
+          id: `cta-${Date.now()}`,
+          text: value === 'appointment' ? 'Sure! Let’s get your details and help you book an appointment.' : 'Sure! Please share your details and our team will get in touch with you.',
+          sender: 'bot'
+        }]);
+      }
+    }
+  };
+
+  // Real-time Chatbot User Identification & Session Tracking
+  const [chatUserId, setChatUserId] = useState<string>(() => {
+    let stored = localStorage.getItem('mintage_chatbot_user_id');
+    if (!stored) {
+      stored = 'cb_user_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+      localStorage.setItem('mintage_chatbot_user_id', stored);
+    }
+    return stored;
+  });
+  const [conversationId, setConversationId] = useState<string | null>(null);
+
+  // Prevent duplicate lead submissions and duplicate completion messages.
+  const leadSubmitInFlightRef = useRef(false);
+  const leadSubmittedRef = useRef(false);
+  const leadSubmissionKeyRef = useRef<string | null>(null);
+  const thankYouShownRef = useRef(false);
+
+  const showThankYouOnce = () => {
+    // Guard at component level.
+    if (thankYouShownRef.current) return;
+
+    // Guard at browser-session level so a remount/re-render cannot generate
+    // the same completion message again for the same bot conversation.
+    const thankYouKey = `mintage_thankyou_${botId}_${conversationId || chatUserId}`;
     try {
-      const res = await fetch('/api/sheets/create', {
+      if (sessionStorage.getItem(thankYouKey) === '1') {
+        thankYouShownRef.current = true;
+        return;
+      }
+      sessionStorage.setItem(thankYouKey, '1');
+    } catch {
+      // Fall back to the in-memory ref if sessionStorage is unavailable.
+    }
+
+    thankYouShownRef.current = true;
+
+    // Show completion immediately. Lead persistence / Google Sheets sync must
+    // never delay the customer-facing thank-you response.
+    setIsTyping(false);
+    setMessages(prev => {
+      if (prev.some(msg => msg.sender === 'bot' && msg.type === 'lead-complete')) {
+        return prev;
+      }
+      return [...prev, {
+        id: 'lead-complete-' + Date.now().toString(),
+        text: '🎉 Thank you! Your details have been submitted successfully. Our team will contact you shortly.',
+        sender: 'bot',
+        type: 'lead-complete'
+      }];
+    });
+  };
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isTyping]);
+
+  // Initialize or restore session with backend API
+  useEffect(() => {
+    const initSession = async () => {
+      try {
+        const res = await fetch('/api/chatbot/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: chatUserId,
+            botId: botId || 'default_bot',
+            source: window.location.href,
+            consent: true
+          })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success) {
+            if (data.userId) {
+              setChatUserId(data.userId);
+              localStorage.setItem('mintage_chatbot_user_id', data.userId);
+            }
+            if (data.conversationId) {
+              setConversationId(data.conversationId);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[SESSION_INIT_NOTICE]', err);
+      }
+    };
+
+    initSession();
+  }, [botId]);
+
+  // Helper to persist every message & response through backend API to Firebase
+  const trackMessageToBackend = async (
+    sender: 'bot' | 'user' | 'system',
+    text: string,
+    messageType: string = 'text',
+    profileUpdate?: { name?: string; email?: string; phone?: string }
+  ) => {
+    if (!chatUserId) return;
+    try {
+      let activeConvId = conversationId;
+      if (!activeConvId) {
+        const sessRes = await fetch('/api/chatbot/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: chatUserId, botId: botId || 'default_bot', source: window.location.href })
+        });
+        if (sessRes.ok) {
+          const sessData = await sessRes.json();
+          if (sessData.conversationId) {
+            activeConvId = sessData.conversationId;
+            setConversationId(activeConvId);
+          }
+        }
+      }
+
+      if (!activeConvId) return;
+
+      await fetch('/api/chatbot/message', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          tokens: googleTokens,
-          title: `Leads - ${botName || 'BotFlow Chatbot'}`
-        }),
+          userId: chatUserId,
+          conversationId: activeConvId,
+          botId: botId || 'default_bot',
+          sender,
+          message: text,
+          messageType,
+          userProfileUpdate: profileUpdate
+        })
       });
-      const data = await res.json();
-      if (res.ok && data.spreadsheetId) {
-        await saveBotSpreadsheetId(data.spreadsheetId);
-        setSheetTestResult({
-          success: true,
-          message: `Created sheet "${data.title}" and linked to this chatbot!`
-        });
-        showToast('New Google Sheet created and linked!');
-        loadUserGoogleSheets();
-      } else {
-        showToast(data.error || 'Failed to create sheet', 'error');
-      }
-    } catch (error) {
-      console.error('Error creating sheet:', error);
-      showToast('Error creating new sheet', 'error');
-    } finally {
-      setIsCreatingSheet(false);
+    } catch (err) {
+      console.warn('[MESSAGE_TRACKING_NOTICE]', err);
     }
   };
 
-  const handleTestConnection = async () => {
-    let cleanId = botSpreadsheetId.trim();
-    if (cleanId.includes('/d/')) {
-      const match = cleanId.match(/\/d\/([\w-_]+)/);
-      if (match && match[1]) cleanId = match[1];
+  const safeNodes = Array.isArray(nodes) ? nodes : (nodes && typeof nodes === 'object' ? Object.values(nodes) : []);
+  const safeEdges = Array.isArray(edges) ? edges : (edges && typeof edges === 'object' ? Object.values(edges) : []);
+
+  const processBotStep = (node: any, allNodes: any[] = safeNodes, allEdges: any[] = safeEdges) => {
+    const nodesList = Array.isArray(allNodes) && allNodes.length > 0 ? allNodes : safeNodes;
+    const edgesList = Array.isArray(allEdges) && allEdges.length > 0 ? allEdges : safeEdges;
+
+    setIsTyping(true);
+    setTimeout(() => {
+      setIsTyping(false);
+      const newMessage: Message = {
+        id: Date.now().toString() + '_' + Math.random().toString(36).substring(2, 6),
+        text: node.data?.label || node.data?.text || '',
+        sender: 'bot',
+        type: node.type,
+        choices: node.data?.choices,
+        optionUrls: node.data?.optionUrls,
+        imageUrl: node.data?.imageUrl,
+        url: node.data?.url || node.data?.linkUrl || '',
+        urlLabel: node.data?.urlLabel || 'Open link',
+      };
+      setMessages(prev => [...prev, newMessage]);
+
+      // Track bot response in Firebase / Backend
+      if (newMessage.text) {
+        trackMessageToBackend('bot', newMessage.text, node.type || 'text');
+      }
+
+      // Check if this node is non-interactive (does not require user input)
+      const isInteractive = ['name', 'email', 'phone', 'textQuestion', 'singleChoice', 'multipleChoice'].includes(node.type);
+
+      if (!isInteractive) {
+        // Automatically find next node
+        let targetNodeId: string | null = null;
+        if (node.data?.nextStepId) {
+          if (node.data.nextStepId !== 'END') {
+            targetNodeId = node.data.nextStepId;
+          } else {
+            return; // Explicitly end flow
+          }
+        }
+
+        if (!targetNodeId) {
+          const defaultEdge = edgesList.find((e: any) => e.source === node.id && !e.sourceHandle);
+          if (defaultEdge) {
+            targetNodeId = defaultEdge.target;
+          } else {
+            const anyEdge = edgesList.find((e: any) => e.source === node.id);
+            if (anyEdge) targetNodeId = anyEdge.target;
+          }
+        }
+
+        if (!targetNodeId) {
+          const currentIdx = nodesList.findIndex((n: any) => n.id === node.id);
+          if (currentIdx !== -1 && currentIdx + 1 < nodesList.length) {
+            targetNodeId = nodesList[currentIdx + 1].id;
+          }
+        }
+
+        if (targetNodeId) {
+          const nextNode = nodesList.find((n: any) => n.id === targetNodeId);
+          if (nextNode) {
+            setCurrentNodeId(nextNode.id);
+            // Auto advance to next step with natural typing pause
+            setTimeout(() => {
+              processBotStep(nextNode, nodesList, edgesList);
+            }, 800);
+          }
+        }
+      }
+    }, 600);
+  };
+
+  useEffect(() => {
+    const loadBot = async () => {
+      setIsLoading(true);
+      setError(null);
+
+      let botData: any = null;
+      const cleanBotId = (botId || '').trim();
+      const lowerBotId = cleanBotId.toLowerCase();
+
+      // 1. Try loading from Firestore if botId is given and not SAVE_FIRST
+      if (cleanBotId && cleanBotId !== 'SAVE_FIRST') {
+        try {
+          const botRef = doc(db, 'bot_configurations', cleanBotId);
+          const botSnap = await getDoc(botRef).catch(() => null);
+          if (botSnap && botSnap.exists()) {
+            botData = botSnap.data();
+          } else {
+            // Match specifically by exact ID or exact client name in Firestore (NO cross-client matching)
+            const allSnap = await getDocs(collection(db, 'bot_configurations')).catch(() => null);
+            if (allSnap && !allSnap.empty) {
+              const matchedDoc = allSnap.docs.find(d => {
+                const data = d.data();
+                const dId = (d.id || '').toLowerCase();
+                const name = (data?.name || '').toLowerCase();
+                if (dId === lowerBotId || data?.id === cleanBotId) return true;
+                if (name === lowerBotId) return true;
+                if (lowerBotId.includes('risinia') && name.includes('risinia') && !lowerBotId.includes('river')) return true;
+                if (lowerBotId.includes('river') && name.includes('river') && !lowerBotId.includes('risinia')) return true;
+                return false;
+              });
+              if (matchedDoc && matchedDoc.exists()) {
+                botData = matchedDoc.data();
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('Firestore bot loading notice:', err);
+        }
+      }
+
+      // 2. Try loading from Server API (/api/bots/:id)
+      if (!botData && cleanBotId && cleanBotId !== 'SAVE_FIRST') {
+        try {
+          const res = await fetch(`/api/bots/${encodeURIComponent(cleanBotId)}`);
+          const contentType = res.headers.get('content-type') || '';
+          if (res.ok && contentType.includes('application/json')) {
+            const apiRes = await res.json();
+            if (apiRes.success && apiRes.bot) {
+              botData = apiRes.bot;
+            }
+          }
+        } catch (apiErr) {
+          console.warn('Server API bot loading notice:', apiErr);
+        }
+      }
+
+      // 3. Try loading from localStorage
+      if (!botData && cleanBotId && cleanBotId !== 'SAVE_FIRST') {
+        try {
+          const localBotsRaw = localStorage.getItem('mintage_bots') || localStorage.getItem('botflow_local_bots');
+          if (localBotsRaw) {
+            const localBots = JSON.parse(localBotsRaw);
+            const botsList = Array.isArray(localBots) ? localBots : Object.values(localBots);
+            if (Array.isArray(botsList) && botsList.length > 0) {
+              botData = botsList.find((b: any) => {
+                const idMatch = (b.id || '').toLowerCase() === lowerBotId;
+                const nameMatch = (b.name || '').toLowerCase() === lowerBotId;
+                const risiniaMatch = lowerBotId.includes('risinia') && !lowerBotId.includes('river') && (b.name || '').toLowerCase().includes('risinia');
+                const riverMatch = lowerBotId.includes('river') && !lowerBotId.includes('risinia') && (b.name || '').toLowerCase().includes('river');
+                return idMatch || nameMatch || risiniaMatch || riverMatch;
+              });
+            }
+          }
+        } catch (lsErr) {
+          console.warn('Local storage bot loading notice:', lsErr);
+        }
+      }
+
+      // 4. Try loading static bots.json file
+      if (!botData && cleanBotId && cleanBotId !== 'SAVE_FIRST') {
+        const baseUrl = import.meta.env.BASE_URL || '/';
+        const cleanBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+        const fetchTargets = [
+          'bots.json',
+          './bots.json',
+          `${cleanBase}bots.json`,
+          'https://akanksha-1007.github.io/mintage-bot/bots.json'
+        ];
+
+        for (const targetUrl of fetchTargets) {
+          try {
+            const res = await fetch(targetUrl);
+            const contentType = res.headers.get('content-type') || '';
+            if (res.ok && (contentType.includes('json') || contentType.includes('text/plain') || targetUrl.endsWith('.json'))) {
+              const staticBots = await res.json();
+              if (Array.isArray(staticBots) && staticBots.length > 0) {
+                botData = staticBots.find((b: any) => {
+                  const idMatch = (b.id || '').toLowerCase() === lowerBotId;
+                  const nameMatch = (b.name || '').toLowerCase() === lowerBotId;
+                  const risiniaMatch = lowerBotId.includes('risinia') && !lowerBotId.includes('river') && (b.name || '').toLowerCase().includes('risinia');
+                  const riverMatch = lowerBotId.includes('river') && !lowerBotId.includes('risinia') && (b.name || '').toLowerCase().includes('river');
+                  return idMatch || nameMatch || risiniaMatch || riverMatch;
+                });
+                if (botData) break;
+              }
+            }
+          } catch (e) { }
+        }
+      }
+
+      // 5. Fallback distinct default flow for requested client/bot ID if not found
+      if (!botData) {
+        const refUrl = (document.referrer || window.location.href || '').toLowerCase();
+        const isRiver = lowerBotId.includes('river') || refUrl.includes('river') || refUrl.includes('riverscape');
+        const isRisinia = lowerBotId.includes('risinia') || refUrl.includes('risinia');
+        const clientName = isRiver
+          ? 'River Scape Residences'
+          : (isRisinia ? 'Risinia Builders' : 'BotFlow Assistant');
+
+        botData = {
+          id: cleanBotId || 'default_bot',
+          name: clientName,
+          nodes: [
+            {
+              id: 'node_welcome',
+              type: 'message',
+              data: {
+                label: isRiver
+                  ? '🌿 Welcome to River Scape Residences!\n\nExperience serene waterfront luxury homes with breathtaking views and modern lifestyle amenities.'
+                  : (isRisinia
+                    ? '👋 Welcome to Risinia Builders!\n\nDiscover thoughtfully designed 2 & 3 BHK Premium Apartments where luxury, comfort, and modern living come together.'
+                    : '👋 Welcome! How can we assist you today?')
+              },
+              position: { x: 250, y: 120 }
+            },
+            {
+              id: 'node_name',
+              type: 'name',
+              data: { label: 'To start, could you share your full name with us? ✨', key: 'full_name' },
+              position: { x: 250, y: 240 }
+            },
+            {
+              id: 'node_phone',
+              type: 'phone',
+              data: { label: 'Thanks! Could you also give us your phone number? 📞', key: 'phone_number' },
+              position: { x: 250, y: 360 }
+            },
+            {
+              id: 'node_email',
+              type: 'email',
+              data: { label: 'Perfect! Now please provide your email address so our team can reach out! ✉️', key: 'email_address' },
+              position: { x: 250, y: 480 }
+            }
+          ],
+          edges: [
+            { id: 'e1', source: 'node_welcome', target: 'node_name' },
+            { id: 'e2', source: 'node_name', target: 'node_phone' },
+            { id: 'e3', source: 'node_phone', target: 'node_email' }
+          ]
+        };
+      }
+
+      if (!botData) {
+        setError('No custom bot flow found. Please build and save your bot flow in the dashboard.');
+        setIsLoading(false);
+        return;
+      }
+
+      setBotTitle(botData.name || 'BotFlow Assistant');
+      setDesign(botData.designConfig || botData.design || {});
+      setClientLogo(botData.clientLogo || botData.logo || botData.designConfig?.avatarUrl || botData.design?.avatarUrl || '');
+
+      const nodesData = Array.isArray(botData.nodes)
+        ? botData.nodes
+        : botData.nodes && typeof botData.nodes === 'object'
+          ? Object.values(botData.nodes)
+          : [];
+
+      const edgesData = Array.isArray(botData.edges)
+        ? botData.edges
+        : botData.edges && typeof botData.edges === 'object'
+          ? Object.values(botData.edges)
+          : [];
+
+      if (nodesData.length === 0) {
+        setError('This bot exists, but it has no configured flow.');
+        setIsLoading(false);
+        return;
+      }
+
+      setNodes(nodesData);
+      setEdges(edgesData);
+      setMessages([]);
+      leadSubmitInFlightRef.current = false;
+      leadSubmittedRef.current = false;
+      thankYouShownRef.current = false;
+
+      const startNode =
+        nodesData.find((node: any) => node.type === 'input') ||
+        nodesData[0];
+
+      if (!startNode) {
+        setError('This bot has no starting node.');
+        setIsLoading(false);
+        return;
+      }
+
+      // Skip empty Start/Input node if present
+      if (startNode.type === 'input') {
+        const firstEdge = edgesData.find(
+          (edge: any) => edge.source === startNode.id
+        );
+
+        if (firstEdge) {
+          const nextNode = nodesData.find(
+            (node: any) => node.id === firstEdge.target
+          );
+
+          if (nextNode) {
+            setCurrentNodeId(nextNode.id);
+            processBotStep(nextNode, nodesData, edgesData);
+            setIsLoading(false);
+            return;
+          }
+        }
+      }
+
+      setCurrentNodeId(startNode.id);
+      processBotStep(startNode, nodesData, edgesData);
+      setIsLoading(false);
+    };
+
+    loadBot();
+  }, [botId]);
+
+  const isPhoneNode = (node: any) => {
+    if (!node) return false;
+    const type = String(node.type || '').trim().toLowerCase();
+    if (type === 'phone' || type === 'phonequestion' || type === 'phone_question') return true;
+
+    const key = String(
+      node.data?.key ||
+      node.data?.leadKey ||
+      node.data?.fieldKey ||
+      ''
+    ).trim().toLowerCase();
+
+    if (['phone', 'phone_number', 'phonenumber', 'mobile', 'mobile_number'].includes(key)) {
+      return true;
     }
-    if (!cleanId) {
-      showToast('Please enter a Spreadsheet ID or URL', 'error');
+
+    const label = String(node.data?.label || '').toLowerCase();
+    return /\b(phone|mobile)\b/.test(label) && !/email/.test(label);
+  };
+
+  const validateLeadField = (node: any, value: string): string | null => {
+    const cleanValue = String(value || '').trim();
+    if (!node || !cleanValue) return null;
+
+    const type = String(node.type || '').trim().toLowerCase();
+    const key = String(
+      node.data?.key ||
+      node.data?.leadKey ||
+      node.data?.fieldKey ||
+      ''
+    ).trim().toLowerCase();
+    const label = String(node.data?.label || '').trim().toLowerCase();
+
+    const isNameField = type === 'name' ||
+      ['name', 'full_name', 'fullname'].includes(key) ||
+      /\b(full\s*name|name)\b/.test(label);
+
+    const isEmailField = type === 'email' ||
+      ['email', 'email_address', 'emailaddress'].includes(key) ||
+      /\bemail\b/.test(label);
+
+    const isPhoneField = isPhoneNode(node) ||
+      ['phone', 'phone_number', 'phonenumber', 'mobile', 'mobile_number', 'contact_number'].includes(key) ||
+      /\b(phone|mobile|contact\s*(number|no\.?))\b/.test(label);
+
+    if (isNameField) {
+      // Supports normal names, spaces, hyphens, apostrophes and Unicode letters.
+      const normalizedName = cleanValue.replace(/\s+/g, ' ');
+      if (normalizedName.length < 2 || normalizedName.length > 80) {
+        return 'Please enter your full name (2–80 characters).';
+      }
+      if (!/^[\p{L}\p{M}]+(?:[ .\u0027\u2019-][\p{L}\p{M}]+)*$/u.test(normalizedName)) {
+        return 'Please enter a valid name using letters, spaces, hyphens or apostrophes only.';
+      }
+      return null;
+    }
+
+    if (isPhoneField) {
+      // Accept common international formatting while validating the actual digit count.
+      const phoneDigits = cleanValue.replace(/\D/g, '');
+      if (!/^[+\d][\d\s().-]*$/.test(cleanValue)) {
+        return 'Please enter a valid phone number using digits only (formatting such as +, spaces or hyphens is allowed).';
+      }
+      if (phoneDigits.length < 10 || phoneDigits.length > 15) {
+        return 'Please enter a valid phone number with 10–15 digits.';
+      }
+      return null;
+    }
+
+    if (isEmailField) {
+      if (cleanValue.length > 254 || /\s/.test(cleanValue)) {
+        return 'Please enter a valid email address.';
+      }
+      // Practical email format check for lead capture. The server repeats this validation.
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/i.test(cleanValue)) {
+        return 'Please enter a valid email address, for example name@example.com.';
+      }
+      return null;
+    }
+
+    return null;
+  };
+
+  const handleUserInput = async (text: string) => {
+    const cleanText = text.trim();
+    if (!cleanText) return;
+
+    const currentNode = safeNodes.find((n: any) => n.id === currentNodeId);
+
+    // Validate name, phone and email before storing/tracking the answer or moving
+    // to the next node. Invalid values stay in the input so the user can correct them.
+    const validationError = validateLeadField(currentNode, cleanText);
+    if (validationError) {
+      setMessages(prev => [
+        ...prev,
+        {
+          id: `validation-${Date.now()}`,
+          text: validationError,
+          sender: 'bot',
+          type: 'validation-error'
+        }
+      ]);
       return;
     }
-    if (!googleTokens) {
-      showToast('Please connect Google Account first', 'error');
+
+    const userMsg: Message = {
+      id: Date.now().toString(),
+      text: cleanText,
+      sender: 'user',
+    };
+    setMessages(prev => [...prev, userMsg]);
+    setInputValue('');
+
+    // Determine field label and key
+    let fieldLabel = 'Field';
+    let fieldKey = 'custom_field';
+    let profileUpdate: { name?: string; email?: string; phone?: string } | undefined = undefined;
+
+    if (currentNode) {
+      if (currentNode.type === 'name') {
+        fieldLabel = 'Name';
+        fieldKey = 'name';
+        profileUpdate = { name: cleanText };
+      } else if (currentNode.type === 'email') {
+        fieldLabel = 'Email';
+        fieldKey = 'email';
+        profileUpdate = { email: cleanText };
+      } else if (isPhoneNode(currentNode)) {
+        fieldLabel = 'Phone Number';
+        fieldKey = 'phone';
+        profileUpdate = { phone: cleanText };
+      } else {
+        fieldLabel = currentNode.data?.label || currentNode.data?.key || currentNode.data?.leadKey || 'Field';
+        fieldKey = currentNode.data?.key || currentNode.data?.leadKey || currentNode.data?.label || ('field_' + Date.now());
+      }
+    }
+
+    // Track user message in Backend / Firebase
+    trackMessageToBackend('user', cleanText, currentNode?.type || 'text', profileUpdate);
+
+    const fieldId = currentNode?.id || ('node_' + Date.now());
+
+    // Update dynamic fields array
+    const updatedDynamicFields = [
+      ...dynamicFields.filter(f => f.fieldId !== fieldId),
+      { fieldId, label: fieldLabel, value: cleanText }
+    ];
+    setDynamicFields(updatedDynamicFields);
+
+    // Update legacy leadData map for backwards compatibility
+    const newLeadData = { ...leadData, [fieldKey]: cleanText };
+    setLeadData(newLeadData);
+
+    if (currentNode) {
+      let targetNodeId: string | null = null;
+
+      // 1. Check if choice matching or optionRoutes match (case-insensitive)
+      if (currentNode.data?.optionRoutes) {
+        const routes = currentNode.data.optionRoutes;
+        const matchedRouteKey = Object.keys(routes).find(
+          k => k.toLowerCase().trim() === cleanText.toLowerCase()
+        );
+        if (matchedRouteKey) {
+          targetNodeId = routes[matchedRouteKey];
+        }
+      }
+
+      // 2. Check if currentNode has an explicit nextStepId set
+      if (!targetNodeId && currentNode.data?.nextStepId) {
+        if (currentNode.data.nextStepId === 'END') {
+          showThankYouOnce();
+          void saveLead(newLeadData, updatedDynamicFields);
+          return;
+        }
+        targetNodeId = currentNode.data.nextStepId;
+      }
+
+      // 3. Check if an edge explicitly matches this choice text
+      if (!targetNodeId) {
+        const choiceEdge = safeEdges.find((e: any) =>
+          e.source === currentNodeId &&
+          ((e.label && e.label.toLowerCase().trim() === cleanText.toLowerCase()) ||
+            (e.sourceHandle && e.sourceHandle.toLowerCase().trim() === cleanText.toLowerCase()) ||
+            (e.choice && e.choice.toLowerCase().trim() === cleanText.toLowerCase()))
+        );
+        if (choiceEdge) {
+          targetNodeId = choiceEdge.target;
+        }
+      }
+
+      // 4. Fallback to default edge from currentNodeId
+      if (!targetNodeId) {
+        const defaultEdge = safeEdges.find((e: any) => e.source === currentNodeId && !e.sourceHandle);
+        if (defaultEdge) {
+          targetNodeId = defaultEdge.target;
+        } else {
+          const anyEdge = safeEdges.find((e: any) => e.source === currentNodeId);
+          if (anyEdge) targetNodeId = anyEdge.target;
+        }
+      }
+
+      // 5. Fallback to sequential next node in safeNodes
+      if (!targetNodeId) {
+        const currentIdx = safeNodes.findIndex((n: any) => n.id === currentNodeId);
+        if (currentIdx !== -1 && currentIdx + 1 < safeNodes.length) {
+          targetNodeId = safeNodes[currentIdx + 1].id;
+        }
+      }
+
+      if (targetNodeId) {
+        const nextNode = safeNodes.find((n: any) => n.id === targetNodeId);
+        if (nextNode) {
+          if (nextNode.type === 'saveLead') {
+            // A saveLead node is terminal for lead capture. Do not continue into
+            // another terminal/message node, otherwise multiple completion
+            // messages can be generated from the same submission.
+            setCurrentNodeId(null);
+            showThankYouOnce();
+            void saveLead(newLeadData, updatedDynamicFields);
+            return;
+          }
+
+          setCurrentNodeId(nextNode.id);
+          processBotStep(nextNode);
+          return;
+        }
+      }
+
+      // End of flow reached - save lead and send exactly one completion message.
+      setCurrentNodeId(null);
+      showThankYouOnce();
+      void saveLead(newLeadData, updatedDynamicFields);
+    } else {
+      // Flow ended previously, user is continuing chat
+      showThankYouOnce();
+      void saveLead(newLeadData, updatedDynamicFields);
+    }
+  };
+
+  const handleChoice = (choice: string, url?: string) => {
+    const cleanUrl = String(url || '').trim();
+    if (cleanUrl && isAllowedLink(cleanUrl)) {
+      window.open(cleanUrl, '_blank', 'noopener,noreferrer');
       return;
     }
-    setIsTestingSheet(true);
-    setSheetTestResult(null);
+    handleUserInput(choice);
+  };
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const saveLead = async (data: any, fieldsList: Array<{ fieldId: string; label: string; value: string }> = dynamicFields) => {
+    const submissionKey = `${botId}::${conversationId || chatUserId}`;
+    if (leadSubmittedRef.current || leadSubmitInFlightRef.current || isSubmitting || leadSubmissionKeyRef.current === submissionKey) return;
+    leadSubmissionKeyRef.current = submissionKey;
+    leadSubmitInFlightRef.current = true;
+    setIsSubmitting(true);
+
+    const effectiveClientId = localStorage.getItem('mintage_effective_user_id') || localStorage.getItem('mintage_client_id') || undefined;
+    const payload = {
+      botId,
+      clientId: effectiveClientId,
+      userId: chatUserId,
+      chatUserId,
+      conversationId: conversationId || '',
+      fields: fieldsList,
+      sourceUrl: window.location.href,
+      submittedAt: new Date().toISOString()
+    };
+
+    console.log('[LEAD] submitting', payload);
+
+    const newLeadRecord: LeadRecord = {
+      id: 'lead_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+      botId,
+      flowId: botId,
+      fields: fieldsList,
+      data,
+      sourceUrl: window.location.href,
+      submittedAt: new Date().toISOString(),
+      googleSheetSyncStatus: 'pending'
+    };
+
+    let leadSubmissionSucceeded = false;
     try {
-      const res = await fetch('/api/sheets/test', {
+      const res = await fetch('/api/leads', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tokens: googleTokens, spreadsheetId: cleanId }),
+        body: JSON.stringify(payload),
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        await saveBotSpreadsheetId(cleanId);
-        setSheetTestResult({
-          success: true,
-          message: `Connected successfully to sheet: "${data.title}"`
-        });
-      } else {
-        setSheetTestResult({
-          success: false,
-          message: data.error || 'Could not connect to Google Sheet.'
-        });
+
+      const resData = await res.json();
+      if (res.ok && resData.success) {
+        leadSubmissionSucceeded = true;
+        console.log('[LEAD] submission success:', resData.leadId);
+        newLeadRecord.id = resData.leadId || newLeadRecord.id;
+        newLeadRecord.googleSheetSyncStatus = resData.googleSheetSync?.status || 'pending';
+        newLeadRecord.googleSheetSyncAction = resData.googleSheetSync?.action || null;
+        leadSubmittedRef.current = true;
       }
-    } catch (error: any) {
-      setSheetTestResult({
-        success: false,
-        message: error.message || 'Connection test failed'
-      });
-    } finally {
-      setIsTestingSheet(false);
-    }
-  };
-
-  const onSave = async () => {
-    const targetUserId = effectiveUserId || auth.currentUser?.uid || 'guest_user';
-
-
-    setIsSaving(true);
-    try {
-      let cleanSpreadsheetId = botSpreadsheetId.trim();
-      if (cleanSpreadsheetId.includes('/d/')) {
-        const match = cleanSpreadsheetId.match(/\/d\/([\w-_]+)/);
-        if (match && match[1]) cleanSpreadsheetId = match[1];
-      }
-
-      // Clean data to prevent "Unsupported field value: undefined" errors
-      const cleanNodes = JSON.parse(JSON.stringify(safeNodes));
-      const cleanEdges = JSON.parse(JSON.stringify(safeEdges));
-
-      let savedId = id || ('bot_' + Date.now());
-      let firestoreSuccess = false;
-
-      // 1. Try saving to Firestore with explicit document ID matching savedId
-      try {
-        await setDoc(doc(db, 'bot_configurations', savedId), {
-          id: savedId,
-          name: botName || 'Unnamed Bot',
-          nodes: cleanNodes,
-          edges: cleanEdges,
-          spreadsheetId: cleanSpreadsheetId,
-          createdBy: targetUserId,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        }, { merge: true });
-        firestoreSuccess = true;
-      } catch (fsErr) {
-        console.warn('Firestore save flow warning, falling back to local/server cache:', fsErr);
-      }
-
-      // 2. Always sync to LocalStorage and Express Server API
-      if (!savedId) {
-        savedId = 'bot_' + Date.now();
-      }
-
-      const newBotObj = {
-        id: savedId,
-        name: botName || 'Unnamed Bot',
-        nodes: cleanNodes,
-        edges: cleanEdges,
-        spreadsheetId: cleanSpreadsheetId,
-        createdBy: targetUserId,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-
-      // Sync to Express Server
-      try {
-        await fetch('/api/bots/save', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(newBotObj)
-        });
-      } catch (apiErr) {
-        console.warn('Server bot sync error:', apiErr);
-      }
-
-      const existingBotsRaw = localStorage.getItem('mintage_bots');
-      let existingBots: any[] = [];
-      if (existingBotsRaw) {
-        try { existingBots = JSON.parse(existingBotsRaw); } catch { }
-      }
-
-      const existingIdx = existingBots.findIndex(b => b.id === savedId);
-      if (existingIdx >= 0) {
-        existingBots[existingIdx] = newBotObj;
-      } else {
-        existingBots.unshift(newBotObj);
-      }
-      localStorage.setItem('mintage_bots', JSON.stringify(existingBots));
-
-      if (!id && savedId) {
-        navigate(`/builder/${savedId}`, { replace: true });
-      }
-
-      showToast('Bot configurations saved successfully!');
     } catch (error) {
-      console.error('Error saving flow:', error);
-      showToast('Saved to local session.', 'success');
-    } finally {
-      setIsSaving(false);
+      console.warn('[LEAD] submission network notice, using local persistence fallback:', error);
+    }
+
+    // Always persist to localStorage and dispatch custom event for real-time dashboard listeners
+    try {
+      const existingRaw = localStorage.getItem('mintage_leads');
+      let existingLeads = [];
+      if (existingRaw) existingLeads = JSON.parse(existingRaw);
+      const updatedLeads = [newLeadRecord, ...existingLeads.filter((l: any) => l.id !== newLeadRecord.id)];
+      localStorage.setItem('mintage_leads', JSON.stringify(updatedLeads));
+      window.dispatchEvent(new CustomEvent('mintage_lead_captured', { detail: newLeadRecord }));
+    } catch (e) {
+      console.warn('Local storage lead save notice:', e);
+    }
+
+    // Completion UI is handled centrally by showThankYouOnce().
+    // saveLead itself must never add a bot completion message.
+    if (!leadSubmissionSucceeded) {
+      leadSubmissionKeyRef.current = null;
+    }
+    leadSubmitInFlightRef.current = false;
+    setIsSubmitting(false);
+  };
+
+
+
+
+  const syncToGoogleSheets = async (data: any, tokens: any, spreadsheetId: string) => {
+    try {
+      await fetch('/api/sync-lead', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tokens, spreadsheetId, leadData: data }),
+      });
+    } catch (error) {
+      console.error('Error syncing to sheets:', error);
     }
   };
 
-  const getAppBaseUrl = () => {
-    if (typeof window === 'undefined') return 'https://akanksha-1007.github.io/mintage-bot';
-    const origin = window.location.origin;
-    const baseUrl = import.meta.env.BASE_URL || '/';
-    const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-    return origin + cleanBase;
-  };
-  const activeOrigin = getAppBaseUrl();
+  if (isLoading) {
+    return (
+      <div className="h-full flex items-center justify-center bg-white border border-gray-100 rounded-2xl">
+        <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
+      </div>
+    );
+  }
 
-  const embedScriptTag = `<script src="${activeOrigin}/widget.js" data-bot-id="${id || 'SAVE_FIRST'}" async></script>`;
-  const embedIframeTag = `<iframe src="${activeOrigin}/widget/${id || 'SAVE_FIRST'}" width="380" height="600" style="border:none; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,0.15);"></iframe>`;
+  if (error) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center bg-gray-50 p-8 text-center border border-gray-100 rounded-2xl shadow-xl">
+        <div className="bg-white p-4 rounded-full shadow-sm mb-4">
+          <Bot className="w-10 h-10 text-indigo-300" />
+        </div>
+        <h3 className="text-gray-900 font-bold mb-2">Oops! Something's missing</h3>
+        <p className="text-sm text-gray-500 leading-relaxed max-w-[240px]">
+          {error}
+        </p>
+        <button
+          onClick={() => window.location.reload()}
+          className="mt-6 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-all"
+        >
+          Try Again
+        </button>
+      </div>
+    );
+  }
 
-  const bubbleScript = `<script>
-  (function() {
-    var container = document.createElement('div');
-    container.id = 'botflow-widget-container';
-    container.style.cssText = 'position:fixed; bottom:20px; right:20px; z-index:2147483647; font-family:sans-serif;';
-
-
-    var button = document.createElement('button');
-    button.id = 'botflow-widget-button';
-    button.innerHTML = '💬';
-    button.style.cssText = 'width:60px; height:60px; border-radius:30px; background:#4f46e5; border:none; color:white; font-size:24px; cursor:pointer; box-shadow:0 4px 15px rgba(79,70,229,0.4); transition:transform 0.2s; display:flex; align-items:center; justify-content:center; padding:0; margin:0; outline:none;';
-    button.onmouseover = function() { this.style.transform = 'scale(1.1)'; };
-    button.onmouseout = function() { this.style.transform = 'scale(1)'; };
-
-
-    var iframe = document.createElement('iframe');
-    iframe.id = 'botflow-widget-iframe';
-    iframe.src = '${activeOrigin}/widget/${id || 'SAVE_FIRST'}';
-    iframe.style.cssText = 'display:none; position:absolute; bottom:80px; right:0; width:400px; height:600px; border:none; border-radius:20px; box-shadow:0 10px 40px rgba(0,0,0,0.15); background:white; transition: opacity 0.3s ease; opacity:0; z-index:2147483647;';
-
-
-    if (window.innerWidth < 480) {
-      iframe.style.width = 'calc(100vw - 40px)';
-      iframe.style.height = 'calc(100vh - 120px)';
-    }
-
-
-    var isOpen = false;
-    button.onclick = function() {
-      isOpen = !isOpen;
-      if (isOpen) {
-        iframe.style.display = 'block';
-        setTimeout(function() { iframe.style.opacity = '1'; }, 10);
-        button.innerHTML = '✕';
-      } else {
-        iframe.style.opacity = '0';
-        setTimeout(function() { iframe.style.display = 'none'; }, 300);
-        button.innerHTML = '💬';
-      }
-    };
-
-
-    container.appendChild(iframe);
-    container.appendChild(button);
-    document.body.appendChild(container);
-  })();
-</script>`;
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const addNode = (type: string) => {
-    const newNode: Node = {
-      id: `${Date.now()}`,
-      type,
-      data: {
-        label: type === 'message' ? 'Welcome! Thanks for showing interest! 🚀' :
-          type === 'singleChoice' || type === 'multipleChoice' ? 'Please select an option:' :
-            type === 'textQuestion' ? 'To start, could you share your full name with us? ✨' :
-              'New Node',
-        choices: (type === 'singleChoice' || type === 'multipleChoice') ? ['Option 1', 'Option 2'] : undefined,
-        url: '',
-        urlLabel: 'Open link',
-      },
-      position: { x: 400, y: 200 },
-    };
-    setNodes([...(Array.isArray(nodes) ? nodes : []), newNode]);
-  };
-
-  const deleteNode = (id: string) => {
-    setNodes((Array.isArray(nodes) ? nodes : []).filter(n => n.id !== id));
-    setEdges((Array.isArray(edges) ? edges : []).filter(e => e.source !== id && e.target !== id));
-    setSelectedNode(null);
-  };
-
+  const currentNode = safeNodes.find((n: any) => n.id === currentNodeId);
 
   return (
-    <div className="builder-page relative">
-
-      {toast && (
-        <div className={`toast toast-center ${toast.type === 'success' ? 'is-success' : 'is-error'}`}>
-          {toast.type === 'success' ? <Check /> : <AlertCircle />}
-          <span>{toast.message}</span>
+    <div className="flex flex-col h-full bg-gray-50 font-sans overflow-hidden border border-gray-100 rounded-2xl shadow-2xl">
+      {/* Customer-facing header */}
+      <div
+        className="p-4 flex items-center gap-3 shadow-md transition-all shrink-0"
+        style={{ background: design.headerBgColor || '#4f46e5', color: design.headerTextColor || '#ffffff' }}
+      >
+        <div className="w-10 h-10 rounded-full bg-white/15 backdrop-blur-md flex items-center justify-center overflow-hidden border border-white/20 shrink-0">
+          {clientLogo ? (
+            <img src={clientLogo} alt={design.botTitle || botTitle} className="w-full h-full object-cover" />
+          ) : renderHeaderAvatar()}
         </div>
-      )}
-
-      {/* Share Modal */}
-      {showShareModal && (
-        <div className="modal-backdrop">
-          <div className="app-modal is-md">
-            <div className="modal-head">
-              <h3>Embed chatbot</h3>
-              <button onClick={() => setShowShareModal(false)} className="icon-button" aria-label="Close">
-                <X />
-              </button>
-            </div>
-            <div className="flex flex-col gap-5">
-              <div>
-                <p className="modal-section-title">Option 1 · Script tag (recommended)</p>
-                <div className="code-block relative">
-                  <pre>{embedScriptTag}</pre>
-                  <button onClick={() => copyToClipboard(embedScriptTag)} className="icon-button bordered absolute right-2 top-2" aria-label="Copy script">
-                    {copied ? <Check /> : <Copy />}
-                  </button>
-                </div>
-                <p className="field-hint">Renders a floating chat bubble on any website.</p>
-              </div>
-              <div>
-                <p className="modal-section-title">Option 2 · Inline iframe</p>
-                <div className="code-block relative">
-                  <pre>{embedIframeTag}</pre>
-                  <button onClick={() => copyToClipboard(embedIframeTag)} className="icon-button bordered absolute right-2 top-2" aria-label="Copy iframe">
-                    {copied ? <Check /> : <Copy />}
-                  </button>
-                </div>
-                <p className="field-hint">Best for embedding into an existing page layout.</p>
-              </div>
-              <div className="modal-actions is-end">
-                <button onClick={() => setShowShareModal(false)} className="button-secondary">Done</button>
-              </div>
-            </div>
+        <div className="min-w-0 flex-1">
+          <h3 className="font-bold text-sm truncate" style={{ color: design.headerTextColor || '#ffffff' }}>
+            {design.botTitle || botTitle}
+          </h3>
+          <div className="flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+            <span className="text-[10px] font-medium uppercase tracking-wider opacity-90" style={{ color: design.headerTextColor || '#ffffff' }}>
+              {design.subtitle || 'Online'}
+            </span>
           </div>
         </div>
-      )}
-
-      {/* Delete Bot Confirmation Modal */}
-      {showDeleteModal && (
-        <div className="modal-backdrop">
-          <div className="app-modal is-centered">
-            <div className="modal-danger-icon"><AlertCircle /></div>
-            <h3>Delete this bot?</h3>
-            <p className="mt-1.5"><strong>"{botName}"</strong> and its live widget endpoint will be permanently removed.</p>
-            <p className="modal-note">Captured lead data for this bot stays in your Lead data logs.</p>
-            <div className="modal-actions">
-              <button type="button" onClick={() => setShowDeleteModal(false)} disabled={isDeletingBot} className="button-secondary flex-1">Cancel</button>
-              <button type="button" onClick={handleDeleteBotInBuilder} disabled={isDeletingBot} className="button-danger flex-1">
-                {isDeletingBot ? <Loader2 className="animate-spin" /> : <Trash2 />}
-                <span>{isDeletingBot ? 'Deleting…' : 'Delete bot'}</span>
-              </button>
-            </div>
-          </div>
+        <div className="flex items-center gap-1">
+          <button type="button" aria-label="Minimize chat" onClick={() => { setIsMinimized(true); try { window.parent?.postMessage({ type: 'MINTAGE_BOT_MINIMIZE' }, '*'); } catch { } }} className="p-2 rounded-lg hover:bg-white/10 transition">
+            <Minus className="w-4 h-4" />
+          </button>
+          <button type="button" aria-label="Close chat" onClick={() => { try { window.parent?.postMessage({ type: 'MINTAGE_BOT_CLOSE' }, '*'); } catch { } }} className="p-2 rounded-lg hover:bg-white/10 transition">
+            <X className="w-4 h-4" />
+          </button>
         </div>
-      )}
-      {builderMode === 'classic' ? (
-        <ClassicChatBuilder
-          nodes={safeNodes}
-          edges={safeEdges}
-          botName={botName}
-          setBotName={setBotName}
-          setNodes={setNodes}
-          setEdges={setEdges}
-          onSave={onSave}
-          isSaving={isSaving}
-          onToggleMode={() => setBuilderMode('visual')}
-          botSpreadsheetId={botSpreadsheetId}
-          setShowSheetsModal={setShowSheetsModal}
-          setShowShareModal={setShowShareModal}
-          setShowDeleteModal={setShowDeleteModal}
-          botId={id}
-          showToast={showToast}
-        />
-      ) : (
-        <>
-          {/* Builder Header */}
-          <header className="builder-toolbar">
-            <div className="min-w-0">
-              <input
-                type="text"
-                value={botName}
-                onChange={(e) => setBotName(e.target.value)}
-                className="builder-title-input"
-                placeholder="Untitled bot"
-                aria-label="Bot name"
-              />
-              <p className="builder-subtitle">
-                {id ? 'Published' : 'Draft'} · Last saved {id ? 'just now' : 'never'}
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => setBuilderMode('classic')}
-                className="button-secondary"
-                title="Switch to the linear chat flow builder"
+      </div>
+
+      {isMinimized ? (
+        <div className="flex-1 flex items-center justify-center p-6 text-center">
+          <button type="button" onClick={() => setIsMinimized(false)} className="px-5 py-3 rounded-2xl font-semibold text-sm shadow-sm" style={{ background: design.accentColor || '#4f46e5', color: '#fff' }}>
+            Reopen chat
+          </button>
+        </div>
+      ) : null}
+
+      {/* Messages + welcome experience */}
+      {!isMinimized && <div className="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth">
+        <AnimatePresence initial={false}>
+          {messages.map((msg) => (
+            <motion.div
+              key={msg.id}
+              initial={{ opacity: 0, y: 10, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+            >
+              <div
+                className={`max-w-[82%] p-3 rounded-2xl text-sm shadow-sm transition-all ${msg.sender === 'user' ? 'rounded-tr-none' : 'rounded-tl-none border'}`}
+                style={msg.sender === 'user'
+                  ? { background: design.userBubbleBg || '#4f46e5', color: design.userBubbleText || '#ffffff' }
+                  : { background: design.botBubbleBg || '#ffffff', color: design.botBubbleText || '#1e293b', borderColor: `${design.accentColor || '#4f46e5'}18` }}
               >
-                <Layers />
-                <span>Classic builder</span>
-              </button>
-
-              <button
-                onClick={() => setShowSheetsModal(true)}
-                className="button-secondary"
-              >
-                <FileSpreadsheet />
-                <span>{botSpreadsheetId ? 'Sheet linked' : 'Connect sheet'}</span>
-                {botSpreadsheetId && <span className="status-pill status-live"><span /></span>}
-              </button>
-
-              {id && (
-                <>
-                  <button onClick={() => setShowShareModal(true)} className="button-ghost">
-                    <Share2 />
-                    Share
-                  </button>
-                  <button
-                    onClick={() => setShowDeleteModal(true)}
-                    className="icon-button danger bordered"
-                    title="Delete bot"
+                {msg.url && isAllowedLink(msg.url) && (
+                  <a
+                    href={msg.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-3 w-full inline-flex items-center justify-center gap-2 p-2.5 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 rounded-xl text-xs font-bold text-indigo-600 transition-all"
+                    onClick={(event) => event.stopPropagation()}
                   >
-                    <Trash2 />
-                  </button>
-                </>
-              )}
-              <button onClick={onSave} disabled={isSaving} className="button-primary">
-                <Save />
-                {isSaving ? 'Saving…' : 'Publish'}
-              </button>
-            </div>
-          </header>
-          {showSheetsModal && (
-            <div className="modal-backdrop">
-              <div className="app-modal is-xl">
-                <div className="modal-head">
-                  <div className="modal-head-main">
-                    <span className="icon-tile tile-lg tone-green"><FileSpreadsheet /></span>
-                    <div>
-                      <h3>Google Sheets</h3>
-                      <p>Connect this chatbot to a Google Sheet to log new leads automatically.</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => setShowSheetsModal(false)}
-                    className="icon-button"
-                    aria-label="Close"
-                  >
-                    <X />
-                  </button>
-                </div>
-
-                {/* Step 1: Account Auth Status */}
-                <div className="sync-row">
-                  <div>
-                    <p className="text-ink text-[13px] font-semibold">
-                      {googleTokens ? 'Google account connected' : 'Google account required'}
-                    </p>
-                    <p className="text-muted mt-0.5 text-[12px]">
-                      {googleTokens ? 'Authorized to sync spreadsheet leads.' : 'Connect your account to select or create sheets.'}
-                    </p>
-                  </div>
-                  {!googleTokens ? (
-                    <button onClick={handleConnectGoogle} className="button-primary">
-                      Connect Google account
-                    </button>
-                  ) : (
-                    <span className="status-pill tone-green">
-                      <CheckCircle2 />
-                      Connected
-                    </span>
-                  )}
-                </div>
-
-                {googleTokens && (
-                  <div className="space-y-6">
-                    {/* 1-Click Quick Action: Create New Sheet */}
-                    <div className="sync-row">
-                      <div>
-                        <p className="text-ink inline-flex items-center gap-2 text-[13px] font-semibold">
-                          <Sparkles className="h-4 w-4" />
-                          Create a dedicated sheet
-                        </p>
-                        <p className="text-muted mt-0.5 text-[12px]">
-                          Generates "Leads - {botName}" with prepared column headers.
-                        </p>
-                      </div>
-                      <button
-                        onClick={handleCreateNewSheet}
-                        disabled={isCreatingSheet}
-                        className="button-secondary"
-                      >
-                        {isCreatingSheet ? (
-                          <>
-                            <Loader2 className="animate-spin" />
-                            Creating…
-                          </>
-                        ) : (
-                          <>
-                            <Plus />
-                            Create sheet
-                          </>
-                        )}
-                      </button>
-                    </div>
-
-                    {/* Option 2: Select from existing Drive sheets */}
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="modal-section-title" style={{ marginBottom: 0 }}>Select from Google Drive</span>
-                        <button
-                          onClick={loadUserGoogleSheets}
-                          disabled={isLoadingSheets}
-                          className="link-button inline-flex items-center gap-1"
-                        >
-                          {isLoadingSheets && <Loader2 className="h-3 w-3 animate-spin" />}
-                          Refresh list
-                        </button>
-                      </div>
-
-                      {isLoadingSheets ? (
-                        <div className="loading-state">
-                          <Loader2 className="animate-spin" />
-                          <span>Fetching sheets from Drive…</span>
-                        </div>
-                      ) : userSheets.length > 0 ? (
-                        <div className="table-card" style={{ maxHeight: '190px', overflowY: 'auto' }}>
-                          {userSheets.map((sheet) => {
-                            const isSelected = botSpreadsheetId === sheet.id;
-                            return (
-                              <div key={sheet.id} className="conversation-row" style={{ border: 0, borderRadius: 0 }}>
-                                <div className="mr-3 min-w-0 truncate">
-                                  <strong className="block truncate">{sheet.name}</strong>
-                                  <p className="text-mono truncate">{sheet.id}</p>
-                                </div>
-                                <button
-                                  onClick={() => {
-                                    setBotSpreadsheetId(sheet.id);
-                                    setSheetTestResult({
-                                      success: true,
-                                      message: `Selected sheet: "${sheet.name}"`
-                                    });
-                                  }}
-                                  className={isSelected ? 'button-primary compact' : 'button-secondary compact'}
-                                >
-                                  {isSelected ? 'Selected' : 'Select'}
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <p className="subtle-card text-muted text-[12.5px]">No spreadsheets found in Drive. Create one above to get started.</p>
-                      )}
-                    </div>
-
-                    {/* Option 3: Manual Spreadsheet ID or URL */}
-                    <div className="modal-section">
-                      <p className="modal-section-title">Or enter a sheet ID / URL</p>
-                      <div className="field-row">
-                        <input
-                          type="text"
-                          value={botSpreadsheetId}
-                          onChange={(e) => setBotSpreadsheetId(e.target.value)}
-                          placeholder="Spreadsheet ID or full sheet URL"
-                          className="input input-mono"
-                        />
-                        <button
-                          onClick={handleTestConnection}
-                          disabled={isTestingSheet}
-                          className="button-inverse"
-                        >
-                          {isTestingSheet ? <Loader2 className="animate-spin" /> : null}
-                          Test link
-                        </button>
-                      </div>
-
-                      {/* Feedback Banner */}
-                      {sheetTestResult && (
-                        <div className={`callout ${sheetTestResult.success ? 'tone-green' : 'tone-red'}`} style={{ marginTop: '10px' }}>
-                          {sheetTestResult.success ? <CheckCircle2 /> : <AlertCircle />}
-                          <span>{sheetTestResult.message}</span>
-                        </div>
-                      )}
-
-                      {botSpreadsheetId && (
-                        <div className="sync-row" style={{ marginTop: '10px' }}>
-                          <span className="text-mono text-faint truncate">{botSpreadsheetId}</span>
-                          <a
-                            href={`https://docs.google.com/spreadsheets/d/${botSpreadsheetId}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-accent inline-flex items-center gap-1 text-[12px] font-medium"
-                          >
-                            Open sheet <ExternalLink className="h-3 w-3" />
-                          </a>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>{msg.urlLabel || 'Open link'}</span>
+                  </a>
                 )}
 
-                <div className="modal-actions is-end">
-                  <button
-                    onClick={() => setShowSheetsModal(false)}
-                    className="button-secondary"
-                  >
-                    Close
-                  </button>
-                  <button
-                    onClick={() => {
-                      onSave();
-                      setShowSheetsModal(false);
-                    }}
-                    className="button-primary"
-                  >
-                    Save &amp; link
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-          <div className="flex-1 flex overflow-hidden">
-            {/* Left Sidebar: Node Library */}
-            <aside className="builder-library">
-              <div className="builder-panel-head">Add chat component</div>
-              <div className="builder-scroll flex-1 overflow-y-auto">
-                <div className="builder-group">
-                  <div className="builder-group-toggle" role="presentation">
-                    <span>Frequently used</span>
-                  </div>
-                  <div className="builder-group-body">
-                    <button onClick={() => addNode('message')} className="component-tile">
-                      <span className="icon-tile tone-blue"><MessageSquare /></span>
-                      <span>Message</span>
-                    </button>
-                    <button onClick={() => addNode('name')} className="component-tile">
-                      <span className="icon-tile tone-green"><User /></span>
-                      <span>Name</span>
-                    </button>
-                    <button onClick={() => addNode('phone')} className="component-tile">
-                      <span className="icon-tile tone-green"><Phone /></span>
-                      <span>Phone number</span>
-                    </button>
-                    <button onClick={() => addNode('email')} className="component-tile">
-                      <span className="icon-tile tone-blue"><Mail /></span>
-                      <span>Email</span>
-                    </button>
-                    <button onClick={() => addNode('singleChoice')} className="component-tile">
-                      <span className="icon-tile tone-purple"><CheckSquare /></span>
-                      <span>Single choice</span>
-                    </button>
-                    <button onClick={() => addNode('multipleChoice')} className="component-tile">
-                      <span className="icon-tile tone-purple"><List /></span>
-                      <span>Multiple choice</span>
-                    </button>
-                    <button onClick={() => addNode('textQuestion')} className="component-tile">
-                      <span className="icon-tile tone-orange"><HelpCircle /></span>
-                      <span>Text question</span>
-                    </button>
-                    <button onClick={() => addNode('aiResponse')} className="component-tile">
-                      <span className="icon-tile tone-pink"><Sparkles /></span>
-                      <span>AI response</span>
-                    </button>
-                    <button onClick={() => addNode('saveLead')} className="component-tile">
-                      <span className="icon-tile tone-yellow"><Database /></span>
-                      <span>Save lead</span>
-                    </button>
-                  </div>
-                </div>
+                {msg.imageUrl && (
+                  <img
+                    src={msg.imageUrl}
+                    alt="Bot Attachment"
+                    className="w-full h-auto max-h-48 object-cover rounded-xl mb-2 border border-gray-100"
+                  />
+                )}
+                {msg.text && <p className="whitespace-pre-wrap">{msg.text}</p>}
 
-                <div className="builder-group">
-                  <div className="builder-group-toggle" role="presentation">
-                    <span>Request information</span>
-                    <ChevronRight />
-                  </div>
-                  <div className="builder-group-body">
-                    <button onClick={() => addNode('name')} className="component-tile-plain">Name input</button>
-                    <button onClick={() => addNode('phone')} className="component-tile-plain">Phone input</button>
-                    <button onClick={() => addNode('email')} className="component-tile-plain">Email input</button>
-                  </div>
-                </div>
-
-                <div className="builder-group">
-                  <div className="builder-group-toggle" role="presentation">
-                    <span>Decide and act</span>
-                    <ChevronRight />
-                  </div>
-                  <div className="builder-group-body">
-                    <button onClick={() => addNode('singleChoice')} className="component-tile-plain">Branch by choice</button>
-                    <button onClick={() => addNode('saveLead')} className="component-tile-plain">Save lead checkpoint</button>
-                  </div>
-                </div>
-              </div>
-            </aside>
-
-            {/* Canvas Area */}
-            <div className="builder-canvas">
-              <ReactFlow
-                nodes={safeNodes}
-                edges={safeEdges}
-                onNodesChange={onNodesChange}
-                onEdgesChange={onEdgesChange}
-                onConnect={onConnect}
-                onNodeClick={(_, node) => setSelectedNode(node)}
-                nodeTypes={nodeTypes}
-                fitView
-              >
-                <Background color="var(--line-strong)" gap={20} size={1} />
-                <Controls />
-              </ReactFlow>
-            </div>
-
-            {/* Right Sidebar: Properties Panel */}
-            {selectedNode && (
-              <aside className="builder-properties">
-                <div className="builder-panel-head is-row">
-                  <span>Properties</span>
-                  <button onClick={() => setSelectedNode(null)} className="icon-button" aria-label="Close properties">
-                    <ChevronRight />
-                  </button>
-                </div>
-                <div className="builder-scroll flex flex-1 flex-col gap-5 overflow-y-auto">
-                  <div>
-                    <label className="field-label">{selectedNode.type === 'saveLead' ? 'Action label' : 'Bot message'}</label>
-                    <textarea
-                      className="textarea"
-                      value={selectedNode.data.label as string}
-                      onChange={(e) => {
-                        const newLabel = e.target.value;
-                        setNodes(safeNodes.map(n => n.id === selectedNode.id ? { ...n, data: { ...n.data, label: newLabel } } : n));
-                        setSelectedNode({ ...selectedNode, data: { ...selectedNode.data, label: newLabel } });
-                      }}
-                      placeholder={selectedNode.type === 'saveLead' ? 'e.g. Save after welcome' : 'Type message here...'}
-                    />
-                    {selectedNode.type !== 'saveLead' && (
-                      <div className="emoji-picker-grid" style={{ marginTop: '10px' }}>
-                        {['👋', '😊', '🔥', '🚀', '✨', '💡', '✅', '❌', '📞', '📧', '👤', '🤖'].map(emoji => (
-                          <button
-                            key={emoji}
-                            onClick={() => {
-                              const newLabel = (selectedNode.data.label as string || '') + emoji;
-                              setNodes(safeNodes.map(n => n.id === selectedNode.id ? { ...n, data: { ...n.data, label: newLabel } } : n));
-                              setSelectedNode({ ...selectedNode, data: { ...selectedNode.data, label: newLabel } });
-                            }}
-                          >
-                            {emoji}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {['name', 'email', 'phone', 'textQuestion', 'singleChoice', 'multipleChoice'].includes(selectedNode.type!) && (
-                    <div>
-                      <label className="field-label">Lead data key</label>
-                      <input
-                        type="text"
-                        className="input input-mono"
-                        value={selectedNode.data.leadKey as string || ''}
-                        onChange={(e) => {
-                          const newKey = e.target.value;
-                          setNodes(safeNodes.map(n => n.id === selectedNode.id ? { ...n, data: { ...n.data, leadKey: newKey } } : n));
-                          setSelectedNode({ ...selectedNode, data: { ...selectedNode.data, leadKey: newKey } });
-                        }}
-                        placeholder="Auto-generated if empty"
-                      />
-                      <p className="field-hint">Links this answer to a column in your dashboard and spreadsheet.</p>
-                    </div>
-                  )}
-
-                  {/* URL Configuration for ALL Component Types */}
-                  <div className="modal-section" style={{ marginTop: 0 }}>
-                    <p className="modal-section-title" style={{ justifyContent: 'space-between' }}>
-                      <span>URL / Link</span>
-                      <span className="tag">Optional</span>
-                    </p>
-                    <p className="field-hint" style={{ marginBottom: '10px', marginTop: 0 }}>Add a link to this component. Examples: Google Maps, website, WhatsApp, email or phone link. The chatbot will show an “Open link” button when a URL is provided.</p>
-                    <label className="field-label">URL</label>
-                    <input
-                      type="url"
-                      className="input"
-                      value={(selectedNode.data.url as string) || ''}
-                      onChange={(e) => {
-                        const newUrl = e.target.value;
-                        const updatedNode = {
-                          ...selectedNode,
-                          data: { ...selectedNode.data, url: newUrl }
-                        };
-                        setNodes(safeNodes.map(n => n.id === selectedNode.id ? updatedNode : n));
-                        setSelectedNode(updatedNode);
-                      }}
-                      placeholder="https://maps.google.com/... or https://example.com"
-                      inputMode="url"
-                      autoComplete="url"
-                    />
-                    <label className="field-label" style={{ marginTop: '10px' }}>Button text</label>
-                    <input
-                      type="text"
-                      className="input"
-                      value={(selectedNode.data.urlLabel as string) || 'Open link'}
-                      onChange={(e) => {
-                        const newUrlLabel = e.target.value;
-                        const updatedNode = {
-                          ...selectedNode,
-                          data: { ...selectedNode.data, urlLabel: newUrlLabel }
-                        };
-                        setNodes(safeNodes.map(n => n.id === selectedNode.id ? updatedNode : n));
-                        setSelectedNode(updatedNode);
-                      }}
-                      placeholder="Open Google Maps"
-                      maxLength={40}
-                    />
-                  </div>
-
-                  {/* Next Step Configuration for ALL Component Types */}
-                  <div className="modal-section" style={{ marginTop: 0 }}>
-                    <p className="modal-section-title" style={{ justifyContent: 'space-between' }}>
-                      <span>Next step</span>
-                      <span className="tag">Flow control</span>
-                    </p>
-                    <p className="field-hint" style={{ marginBottom: '8px', marginTop: 0 }}>Choose which step follows this one.</p>
-                    <select
-                      value={(selectedNode.data.nextStepId as string) || ''}
-                      onChange={(e) => {
-                        const targetId = e.target.value;
-                        const updatedNode = {
-                          ...selectedNode,
-                          data: { ...selectedNode.data, nextStepId: targetId }
-                        };
-                        setNodes(safeNodes.map(n => n.id === selectedNode.id ? updatedNode : n));
-                        setSelectedNode(updatedNode);
-
-                        // Sync edges
-                        let otherEdges = safeEdges.filter(ed => ed.source !== selectedNode.id || ed.sourceHandle);
-                        if (targetId && targetId !== 'END') {
-                          otherEdges.push({
-                            id: `e_${selectedNode.id}-${targetId}`,
-                            source: selectedNode.id,
-                            target: targetId,
-                            type: 'smoothstep',
-                            style: { stroke: '#6366f1', strokeWidth: 2 }
-                          });
-                        }
-                        setEdges(otherEdges);
-                      }}
-                      className="select"
-                    >
-                      <option value="">Default next step (sequential)</option>
-                      <option value="END">End chat flow here</option>
-                      {safeNodes.filter(n => n.id !== selectedNode.id).map((n) => {
-                        const idx = safeNodes.findIndex(sn => sn.id === n.id) + 1;
-                        const label = (n.data?.label as string) || n.type;
-                        return (
-                          <option key={n.id} value={n.id}>
-                            Step #{idx}: {label.length > 22 ? label.slice(0, 22) + '...' : label}
-                          </option>
-                        );
-                      })}
-                    </select>
-                  </div>
-
-                  {(selectedNode.type === 'singleChoice' || selectedNode.type === 'multipleChoice') && (
-                    <div>
-                      <p className="modal-section-title">Options &amp; redirection</p>
-                      <p className="field-hint" style={{ marginBottom: '10px', marginTop: 0 }}>Connect each option to a specific next step, or leave it sequential.</p>
-
-                      <div>
-                        {(selectedNode.data.choices as string[] || []).map((choice, i) => {
-                          const currentRoute = (selectedNode.data.optionRoutes as Record<string, string>)?.[choice] || '';
-                          const currentUrl = (selectedNode.data.optionUrls as Record<string, string>)?.[choice] || '';
-                          const currentDestination = currentUrl ? '__URL__' : currentRoute;
-
-                          return (
-                            <div key={i} className="choice-editor">
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="text"
-                                  className="input compact"
-                                  value={choice}
-                                  onChange={(e) => {
-                                    const newChoiceName = e.target.value;
-                                    const oldChoices = [...(selectedNode.data.choices as string[])];
-                                    oldChoices[i] = newChoiceName;
-
-                                    const oldRoutes = { ...((selectedNode.data.optionRoutes as Record<string, string>) || {}) };
-                                    const oldUrls = { ...((selectedNode.data.optionUrls as Record<string, string>) || {}) };
-                                    if (choice !== newChoiceName) {
-                                      if (oldRoutes[choice]) {
-                                        oldRoutes[newChoiceName] = oldRoutes[choice];
-                                        delete oldRoutes[choice];
-                                      }
-                                      if (oldUrls[choice]) {
-                                        oldUrls[newChoiceName] = oldUrls[choice];
-                                        delete oldUrls[choice];
-                                      }
-                                    }
-
-                                    const updatedNode = {
-                                      ...selectedNode,
-                                      data: { ...selectedNode.data, choices: oldChoices, optionRoutes: oldRoutes, optionUrls: oldUrls }
-                                    };
-                                    setNodes(safeNodes.map(n => n.id === selectedNode.id ? updatedNode : n));
-                                    setSelectedNode(updatedNode);
-                                  }}
-                                />
-                                <button
-                                  onClick={() => {
-                                    const newChoices = (selectedNode.data.choices as string[]).filter((_, idx) => idx !== i);
-                                    const oldRoutes = { ...((selectedNode.data.optionRoutes as Record<string, string>) || {}) };
-                                    const oldUrls = { ...((selectedNode.data.optionUrls as Record<string, string>) || {}) };
-                                    delete oldRoutes[choice];
-                                    delete oldUrls[choice];
-
-                                    const updatedNode = {
-                                      ...selectedNode,
-                                      data: { ...selectedNode.data, choices: newChoices, optionRoutes: oldRoutes, optionUrls: oldUrls }
-                                    };
-                                    setNodes(safeNodes.map(n => n.id === selectedNode.id ? updatedNode : n));
-                                    setSelectedNode(updatedNode);
-
-                                    const updatedEdges = safeEdges.filter(ed => !(ed.source === selectedNode.id && (ed.label === choice || ed.sourceHandle === choice)));
-                                    setEdges(updatedEdges);
-                                  }}
-                                  className="icon-button danger"
-                                  title="Remove option"
-                                >
-                                  <X />
-                                </button>
-                              </div>
-
-                              <div className="choice-editor-route">
-                                <span>Go to</span>
-                                <select
-                                  value={currentDestination}
-                                  onChange={(e) => {
-                                    const target = e.target.value;
-                                    const oldRoutes = { ...((selectedNode.data.optionRoutes as Record<string, string>) || {}) };
-                                    const oldUrls = { ...((selectedNode.data.optionUrls as Record<string, string>) || {}) };
-
-                                    let nextRoutes = oldRoutes;
-                                    let nextUrls = oldUrls;
-                                    if (target === '__URL__') {
-                                      delete nextRoutes[choice];
-                                    } else {
-                                      delete nextUrls[choice];
-                                      if (target) nextRoutes[choice] = target;
-                                      else delete nextRoutes[choice];
-                                    }
-
-                                    const updatedNode = {
-                                      ...selectedNode,
-                                      data: { ...selectedNode.data, optionRoutes: nextRoutes, optionUrls: nextUrls }
-                                    };
-                                    setNodes(safeNodes.map(n => n.id === selectedNode.id ? updatedNode : n));
-                                    setSelectedNode(updatedNode);
-
-                                    let updatedEdges = safeEdges.filter(ed => !(ed.source === selectedNode.id && (ed.label === choice || ed.sourceHandle === choice)));
-                                    if (target && target !== '__URL__') {
-                                      updatedEdges.push({
-                                        id: `e_${selectedNode.id}_${choice}_${target}`,
-                                        source: selectedNode.id,
-                                        target,
-                                        label: choice,
-                                        sourceHandle: choice,
-                                        type: 'smoothstep',
-                                        style: { stroke: '#6366f1', strokeWidth: 2 }
-                                      });
-                                    }
-                                    setEdges(updatedEdges);
-                                  }}
-                                >
-                                  <option value="">Default next step</option>
-                                  <option value="END">End chat flow here</option>
-                                  <option value="__URL__">Open URL</option>
-                                  {safeNodes.filter(n => n.id !== selectedNode.id).map((n) => {
-                                    const idx = safeNodes.findIndex(sn => sn.id === n.id) + 1;
-                                    const label = (n.data?.label as string) || n.type;
-                                    return (
-                                      <option key={n.id} value={n.id}>
-                                        Step #{idx}: {label.length > 22 ? label.slice(0, 22) + '...' : label}
-                                      </option>
-                                    );
-                                  })}
-                                </select>
-                              </div>
-
-                              {currentDestination === '__URL__' && (
-                                <div className="choice-editor-route">
-                                  <span>URL</span>
-                                  <input
-                                    type="url"
-                                    className="input compact"
-                                    value={currentUrl}
-                                    onChange={(e) => {
-                                      const url = e.target.value;
-                                      const oldUrls = { ...((selectedNode.data.optionUrls as Record<string, string>) || {}) };
-                                      if (url.trim()) {
-                                        oldUrls[choice] = url.trim();
-                                      } else {
-                                        delete oldUrls[choice];
-                                      }
-
-                                      const updatedNode = {
-                                        ...selectedNode,
-                                        data: { ...selectedNode.data, optionUrls: oldUrls }
-                                      };
-                                      setNodes(safeNodes.map(n => n.id === selectedNode.id ? updatedNode : n));
-                                      setSelectedNode(updatedNode);
-                                    }}
-                                    placeholder="https://example.com"
-                                  />
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
+                {msg.choices && msg.sender === 'bot' && (
+                  <div className="mt-3 space-y-2">
+                    {msg.choices.map((choice, i) => {
+                      const choiceUrl = msg.optionUrls?.[choice] || '';
+                      return (
                         <button
-                          onClick={() => {
-                            const newChoices = [...(selectedNode.data.choices as string[] || []), `Option ${(selectedNode.data.choices as string[] || []).length + 1}`];
-                            const updatedNode = {
-                              ...selectedNode,
-                              data: { ...selectedNode.data, choices: newChoices }
-                            };
-                            setNodes(safeNodes.map(n => n.id === selectedNode.id ? updatedNode : n));
-                            setSelectedNode(updatedNode);
-                          }}
-                          className="add-dashed"
-                          style={{ marginTop: '8px' }}
+                          key={i}
+                          onClick={() => handleChoice(choice, choiceUrl)}
+                          className="w-full text-left p-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-between group border"
+                          style={{ borderColor: `${design.accentColor || '#4f46e5'}35`, color: design.accentColor || '#4f46e5', backgroundColor: `${design.accentColor || '#4f46e5'}0a` }}
                         >
-                          <Plus /> Add option
+                          <span className="flex items-center gap-2">
+                            {choice}
+                            {choiceUrl && <span className="text-[10px] opacity-70">↗</span>}
+                          </span>
+                          <ChevronRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
                         </button>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="modal-section flex flex-col gap-2">
-                    <button
-                      onClick={() => {
-                        showToast('Node properties updated successfully!');
-                        setSelectedNode(null); // Closes properties sidebar and indicates node update is saved and confirmed
-                      }}
-                      className="button-primary button-block"
-                    >
-                      <Check />
-                      Apply changes
-                    </button>
-                    <button
-                      onClick={() => deleteNode(selectedNode.id)}
-                      className="button-danger button-block"
-                    >
-                      <Trash2 />
-                      Delete node
-                    </button>
+                      );
+                    })}
                   </div>
-                </div>
-              </aside>
-            )}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
+                )}
+              </div>
+            </motion.div>
+          ))}
+          {isTyping && (
+            <motion.div
+              initial={{ opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex justify-start"
+            >
+              <div className="bg-white border border-gray-100 p-3 rounded-2xl rounded-tl-none text-gray-400 flex items-center gap-1.5 shadow-sm">
+                <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ background: design.accentColor || '#4f46e5' }}></span>
+                <span className="w-1.5 h-1.5 rounded-full animate-bounce [animation-delay:0.2s]" style={{ background: design.accentColor || '#4f46e5' }}></span>
+                <span className="w-1.5 h-1.5 rounded-full animate-bounce [animation-delay:0.4s]" style={{ background: design.accentColor || '#4f46e5' }}></span>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+        <div ref={messagesEndRef} />
+      </div>}
 
-export default function Builder() {
-  return (
-    <ReactFlowProvider>
-      <BuilderContent />
-    </ReactFlowProvider>
+      {/* User Input Area */}
+      {!isMinimized && !isTyping && (
+        <form
+          onSubmit={(e) => { e.preventDefault(); if (inputValue.trim()) handleUserInput(inputValue); }}
+          className="p-3 border-t flex gap-2 items-center" style={{ background: design.botBubbleBg || '#ffffff', borderColor: `${design.accentColor || '#4f46e5'}12` }}
+        >
+          <input
+            type={currentNode?.type === 'email' ? 'email' : 'text'}
+            inputMode={isPhoneNode(currentNode) ? 'tel' : currentNode?.type === 'email' ? 'email' : 'text'}
+            autoComplete={currentNode?.type === 'name' ? 'name' : isPhoneNode(currentNode) ? 'tel' : currentNode?.type === 'email' ? 'email' : 'off'}
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            placeholder={
+              currentNode?.type === 'name' ? 'Type your full name...' :
+                isPhoneNode(currentNode) ? 'Type your phone number...' :
+                  currentNode?.type === 'email' ? 'Type your email address...' :
+                    'Type your response...'
+            }
+            className="flex-1 border rounded-xl px-4 py-2.5 text-xs font-medium outline-none transition-all" style={{ background: design.widgetBgColor || '#f8fafc', color: design.botBubbleText || '#1e293b', borderColor: `${design.accentColor || '#4f46e5'}25` }}
+          />
+          <button
+            type="submit"
+            disabled={!inputValue.trim()}
+            className="text-white p-2.5 rounded-xl transition-all shadow-md disabled:opacity-40 disabled:cursor-not-allowed" style={{ background: design.accentColor || '#4f46e5' }}
+          >
+            <Send className="w-4 h-4" />
+          </button>
+        </form>
+      )}
+
+    </div>
   );
 }
