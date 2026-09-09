@@ -3,7 +3,7 @@ import { ReactFlow, Controls, Background, MiniMap, Node, Edge, ReactFlowProvider
 import '@xyflow/react/dist/style.css';
 import { useBotStore } from '../store/useBotStore';
 import {
-  AlertCircle, CheckCircle2, CheckSquare, ChevronRight, ExternalLink,
+  AlertCircle, CheckCircle2, CheckSquare, ChevronDown, ChevronRight, ExternalLink,
   FileSpreadsheet, HelpCircle, Layers, List, Loader2, Mail, MessageSquare,
   Phone, Plus, Save, Send, Sparkles, Trash2, User, FileUp, MapPin, CalendarClock, Clock3, Star, SlidersHorizontal, Hash, MessageCircleQuestion, Video, Link2, Upload,
 } from 'lucide-react';
@@ -59,6 +59,16 @@ function BuilderContent() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeletingBot, setIsDeletingBot] = useState(false);
   const [builderMode, setBuilderMode] = useState<'classic' | 'visual'>('visual');
+  const [expandedVisualCategories, setExpandedVisualCategories] = useState<{ [key: string]: boolean }>({
+    frequentlyUsed: true,
+    requestInfo: false,
+    sendInfo: false,
+    decideAct: false,
+  });
+
+  const toggleVisualCategory = (category: string) => {
+    setExpandedVisualCategories(prev => ({ ...prev, [category]: !prev[category] }));
+  };
 
   const handleDeleteBotInBuilder = async () => {
     if (!id) return;
@@ -1047,93 +1057,76 @@ function BuilderContent() {
               <div className="builder-panel-head">Add chat component</div>
               <div className="builder-scroll flex-1 overflow-y-auto">
                 <div className="builder-group">
-                  <div className="builder-group-toggle" role="presentation">
+                  <button type="button" className="builder-group-toggle" onClick={() => toggleVisualCategory('frequentlyUsed')}>
                     <span>Frequently used</span>
-                  </div>
-                  <div className="builder-group-body">
-                    <button onClick={() => addNode('message')} className="component-tile">
-                      <span className="icon-tile tone-blue"><MessageSquare /></span>
-                      <span>Message</span>
-                    </button>
-                    <button onClick={() => addNode('name')} className="component-tile">
-                      <span className="icon-tile tone-green"><User /></span>
-                      <span>Name</span>
-                    </button>
-                    <button onClick={() => addNode('phone')} className="component-tile">
-                      <span className="icon-tile tone-green"><Phone /></span>
-                      <span>Phone number</span>
-                    </button>
-                    <button onClick={() => addNode('email')} className="component-tile">
-                      <span className="icon-tile tone-blue"><Mail /></span>
-                      <span>Email</span>
-                    </button>
-                    <button onClick={() => addNode('singleChoice')} className="component-tile">
-                      <span className="icon-tile tone-purple"><CheckSquare /></span>
-                      <span>Single choice</span>
-                    </button>
-                    <button onClick={() => addNode('multipleChoice')} className="component-tile">
-                      <span className="icon-tile tone-purple"><List /></span>
-                      <span>Multiple choice</span>
-                    </button>
-                    <button onClick={() => addNode('textQuestion')} className="component-tile">
-                      <span className="icon-tile tone-orange"><HelpCircle /></span>
-                      <span>Text question</span>
-                    </button>
-                    <button onClick={() => addNode('aiResponse')} className="component-tile">
-                      <span className="icon-tile tone-pink"><Sparkles /></span>
-                      <span>AI response</span>
-                    </button>
-                    <button onClick={() => addNode('saveLead')} className="component-tile">
-                      <span className="icon-tile tone-yellow"><Database /></span>
-                      <span>Save lead</span>
-                    </button>
-                  </div>
+                    <ChevronDown style={{ transform: expandedVisualCategories.frequentlyUsed ? 'none' : 'rotate(-90deg)' }} />
+                  </button>
+                  {expandedVisualCategories.frequentlyUsed && (
+                    <div className="builder-group-body">
+                      <button onClick={() => addNode('message')} className="component-tile"><span className="icon-tile tone-blue"><MessageSquare /></span><span>Message</span></button>
+                      <button onClick={() => addNode('name')} className="component-tile"><span className="icon-tile tone-green"><User /></span><span>Name</span></button>
+                      <button onClick={() => addNode('phone')} className="component-tile"><span className="icon-tile tone-green"><Phone /></span><span>Phone number</span></button>
+                      <button onClick={() => addNode('email')} className="component-tile"><span className="icon-tile tone-blue"><Mail /></span><span>Email</span></button>
+                      <button onClick={() => addNode('singleChoice')} className="component-tile"><span className="icon-tile tone-purple"><CheckSquare /></span><span>Single choice</span></button>
+                      <button onClick={() => addNode('multipleChoice')} className="component-tile"><span className="icon-tile tone-purple"><List /></span><span>Multiple choice</span></button>
+                      <button onClick={() => addNode('textQuestion')} className="component-tile"><span className="icon-tile tone-orange"><HelpCircle /></span><span>Text question</span></button>
+                      <button onClick={() => addNode('aiResponse')} className="component-tile"><span className="icon-tile tone-pink"><Sparkles /></span><span>AI response</span></button>
+                      <button onClick={() => addNode('saveLead')} className="component-tile"><span className="icon-tile tone-yellow"><Database /></span><span>Save lead</span></button>
+                    </div>
+                  )}
                 </div>
+
                 <div className="builder-group">
-                  <div className="builder-group-toggle" role="presentation">
+                  <button type="button" className="builder-group-toggle" onClick={() => toggleVisualCategory('requestInfo')}>
                     <span>Request Information</span>
-                    <ChevronRight />
-                  </div>
-                  <div className="builder-group-body">
-                    <button onClick={() => addNode('name')} className="component-tile"><span className="icon-tile tone-green"><User /></span><span>Name</span></button>
-                    <button onClick={() => addNode('phone')} className="component-tile"><span className="icon-tile tone-green"><Phone /></span><span>Phone Number</span></button>
-                    <button onClick={() => addNode('email')} className="component-tile"><span className="icon-tile tone-blue"><Mail /></span><span>Email</span></button>
-                    <button onClick={() => addNode('singleChoice')} className="component-tile"><span className="icon-tile tone-purple"><CheckSquare /></span><span>Single Choice</span></button>
-                    <button onClick={() => addNode('multipleChoice')} className="component-tile"><span className="icon-tile tone-purple"><List /></span><span>Multiple Choice</span></button>
-                    <button onClick={() => addNode('textQuestion')} className="component-tile"><span className="icon-tile tone-orange"><HelpCircle /></span><span>Text Question</span></button>
-                    <button onClick={() => addNode('file')} className="component-tile"><span className="icon-tile tone-yellow"><FileUp /></span><span>File</span></button>
-                    <button onClick={() => addNode('location')} className="component-tile"><span className="icon-tile tone-red"><MapPin /></span><span>Location</span></button>
-                    <button onClick={() => addNode('appointment')} className="component-tile"><span className="icon-tile tone-blue"><CalendarClock /></span><span>Appointment</span></button>
-                    <button onClick={() => addNode('dateTime')} className="component-tile"><span className="icon-tile tone-orange"><Clock3 /></span><span>Date/Time</span></button>
-                    <button onClick={() => addNode('rating')} className="component-tile"><span className="icon-tile tone-yellow"><Star /></span><span>Rating</span></button>
-                    <button onClick={() => addNode('range')} className="component-tile"><span className="icon-tile tone-blue"><SlidersHorizontal /></span><span>Range</span></button>
-                    <button onClick={() => addNode('numericInput')} className="component-tile"><span className="icon-tile tone-blue"><Hash /></span><span>Numeric Input</span></button>
-                    <button onClick={() => addNode('smartQuestion')} className="component-tile"><span className="icon-tile tone-orange"><MessageCircleQuestion /></span><span>Smart Question</span></button>
-                  </div>
+                    <ChevronDown style={{ transform: expandedVisualCategories.requestInfo ? 'none' : 'rotate(-90deg)' }} />
+                  </button>
+                  {expandedVisualCategories.requestInfo && (
+                    <div className="builder-group-body">
+                      <button onClick={() => addNode('name')} className="component-tile"><span className="icon-tile tone-green"><User /></span><span>Name</span></button>
+                      <button onClick={() => addNode('phone')} className="component-tile"><span className="icon-tile tone-green"><Phone /></span><span>Phone Number</span></button>
+                      <button onClick={() => addNode('email')} className="component-tile"><span className="icon-tile tone-blue"><Mail /></span><span>Email</span></button>
+                      <button onClick={() => addNode('singleChoice')} className="component-tile"><span className="icon-tile tone-purple"><CheckSquare /></span><span>Single Choice</span></button>
+                      <button onClick={() => addNode('multipleChoice')} className="component-tile"><span className="icon-tile tone-purple"><List /></span><span>Multiple Choice</span></button>
+                      <button onClick={() => addNode('textQuestion')} className="component-tile"><span className="icon-tile tone-orange"><HelpCircle /></span><span>Text Question</span></button>
+                      <button onClick={() => addNode('file')} className="component-tile"><span className="icon-tile tone-yellow"><FileUp /></span><span>File</span></button>
+                      <button onClick={() => addNode('location')} className="component-tile"><span className="icon-tile tone-red"><MapPin /></span><span>Location</span></button>
+                      <button onClick={() => addNode('appointment')} className="component-tile"><span className="icon-tile tone-blue"><CalendarClock /></span><span>Appointment</span></button>
+                      <button onClick={() => addNode('dateTime')} className="component-tile"><span className="icon-tile tone-orange"><Clock3 /></span><span>Date/Time</span></button>
+                      <button onClick={() => addNode('rating')} className="component-tile"><span className="icon-tile tone-yellow"><Star /></span><span>Rating</span></button>
+                      <button onClick={() => addNode('range')} className="component-tile"><span className="icon-tile tone-blue"><SlidersHorizontal /></span><span>Range</span></button>
+                      <button onClick={() => addNode('numericInput')} className="component-tile"><span className="icon-tile tone-blue"><Hash /></span><span>Numeric Input</span></button>
+                      <button onClick={() => addNode('smartQuestion')} className="component-tile"><span className="icon-tile tone-orange"><MessageCircleQuestion /></span><span>Smart Question</span></button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="builder-group">
-                  <div className="builder-group-toggle" role="presentation">
+                  <button type="button" className="builder-group-toggle" onClick={() => toggleVisualCategory('sendInfo')}>
                     <span>Send Information</span>
-                    <ChevronRight />
-                  </div>
-                  <div className="builder-group-body">
-                    <button onClick={() => addNode('message')} className="component-tile"><span className="icon-tile tone-blue"><MessageSquare /></span><span>Message</span></button>
-                    <button onClick={() => addNode('image')} className="component-tile"><span className="icon-tile tone-red"><Upload /></span><span>Image/GIF</span></button>
-                    <button onClick={() => addNode('video')} className="component-tile"><span className="icon-tile tone-red"><Video /></span><span>Video</span></button>
-                    <button onClick={() => addNode('webLink')} className="component-tile"><span className="icon-tile tone-green"><Link2 /></span><span>Web Link</span></button>
-                  </div>
+                    <ChevronDown style={{ transform: expandedVisualCategories.sendInfo ? 'none' : 'rotate(-90deg)' }} />
+                  </button>
+                  {expandedVisualCategories.sendInfo && (
+                    <div className="builder-group-body">
+                      <button onClick={() => addNode('message')} className="component-tile"><span className="icon-tile tone-blue"><MessageSquare /></span><span>Message</span></button>
+                      <button onClick={() => addNode('image')} className="component-tile"><span className="icon-tile tone-red"><Upload /></span><span>Image/GIF</span></button>
+                      <button onClick={() => addNode('video')} className="component-tile"><span className="icon-tile tone-red"><Video /></span><span>Video</span></button>
+                      <button onClick={() => addNode('webLink')} className="component-tile"><span className="icon-tile tone-green"><Link2 /></span><span>Web Link</span></button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="builder-group">
-                  <div className="builder-group-toggle" role="presentation">
+                  <button type="button" className="builder-group-toggle" onClick={() => toggleVisualCategory('decideAct')}>
                     <span>Decide and act</span>
-                    <ChevronRight />
-                  </div>
-                  <div className="builder-group-body">
-                    <button onClick={() => addNode('singleChoice')} className="component-tile-plain">Branch by choice</button>
-                    <button onClick={() => addNode('saveLead')} className="component-tile-plain">Save lead checkpoint</button>
-                  </div>
+                    <ChevronDown style={{ transform: expandedVisualCategories.decideAct ? 'none' : 'rotate(-90deg)' }} />
+                  </button>
+                  {expandedVisualCategories.decideAct && (
+                    <div className="builder-group-body">
+                      <button onClick={() => addNode('singleChoice')} className="component-tile-plain">Branch by choice</button>
+                      <button onClick={() => addNode('saveLead')} className="component-tile-plain">Save lead checkpoint</button>
+                    </div>
+                  )}
                 </div>
               </div>
             </aside>

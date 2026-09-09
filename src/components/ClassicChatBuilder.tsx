@@ -6,6 +6,16 @@ import {
   ArrowRight,
   ArrowUp,
   Bot,
+  CalendarClock,
+  Clock3,
+  FileUp,
+  Hash,
+  Link2,
+  MapPin,
+  MessageCircleQuestion,
+  SlidersHorizontal,
+  Star,
+  Video,
   CalendarDays,
   Check,
   CheckSquare,
@@ -126,6 +136,16 @@ export default function ClassicChatBuilder({
     if (type === 'textQuestion') defaultLabel = 'What specific topic or service are you interested in?';
     if (type === 'aiResponse') defaultLabel = 'AI Assistant will answer customer query here...';
     if (type === 'image') defaultLabel = 'Check out this preview image!';
+    if (type === 'file') defaultLabel = 'Please upload a file';
+    if (type === 'location') defaultLabel = 'Please share your location';
+    if (type === 'appointment') defaultLabel = 'Please select an appointment';
+    if (type === 'dateTime') defaultLabel = 'Please select a date and time';
+    if (type === 'rating') defaultLabel = 'How would you rate your experience?';
+    if (type === 'range') defaultLabel = 'Please select a value';
+    if (type === 'numericInput') defaultLabel = 'Please enter a number';
+    if (type === 'smartQuestion') defaultLabel = 'Please answer this question';
+    if (type === 'video') defaultLabel = 'Watch this video';
+    if (type === 'webLink') defaultLabel = 'Open this link';
 
     const newNode: Node = {
       id,
@@ -373,6 +393,16 @@ export default function ClassicChatBuilder({
       case 'multipleChoice': return <CheckSquare />;
       case 'textQuestion': return <TextCursorInput />;
       case 'aiResponse': return <Sparkles />;
+      case 'file': return <FileUp />;
+      case 'location': return <MapPin />;
+      case 'appointment': return <CalendarClock />;
+      case 'dateTime': return <Clock3 />;
+      case 'rating': return <Star />;
+      case 'range': return <SlidersHorizontal />;
+      case 'numericInput': return <Hash />;
+      case 'smartQuestion': return <MessageCircleQuestion />;
+      case 'video': return <Video />;
+      case 'webLink': return <Link2 />;
       default: return <MessageSquare />;
     }
   };
@@ -387,12 +417,22 @@ export default function ClassicChatBuilder({
       case 'multipleChoice': return 'tone-purple';
       case 'textQuestion': return 'tone-orange';
       case 'aiResponse': return 'tone-pink';
+      case 'file': return 'tone-yellow';
+      case 'location': return 'tone-red';
+      case 'appointment': return 'tone-blue';
+      case 'dateTime': return 'tone-orange';
+      case 'rating': return 'tone-yellow';
+      case 'range': return 'tone-blue';
+      case 'numericInput': return 'tone-blue';
+      case 'smartQuestion': return 'tone-orange';
+      case 'video': return 'tone-red';
+      case 'webLink': return 'tone-green';
       default: return 'tone-blue';
     }
   };
 
   const isInputNode = (type: string) => {
-    return ['name', 'phone', 'email', 'singleChoice', 'multipleChoice', 'textQuestion'].includes(type);
+    return ['name', 'phone', 'email', 'singleChoice', 'multipleChoice', 'textQuestion', 'file', 'location', 'appointment', 'dateTime', 'rating', 'range', 'numericInput', 'smartQuestion'].includes(type);
   };
 
   const getAppBaseUrl = () => {
@@ -590,6 +630,14 @@ export default function ClassicChatBuilder({
                     <button onClick={() => addComponentNode('name')} className="component-tile-plain">Name input</button>
                     <button onClick={() => addComponentNode('phone')} className="component-tile-plain">Phone input</button>
                     <button onClick={() => addComponentNode('email')} className="component-tile-plain">Email input</button>
+                    <button onClick={() => addComponentNode('file')} className="component-tile-plain">File upload</button>
+                    <button onClick={() => addComponentNode('location')} className="component-tile-plain">Location</button>
+                    <button onClick={() => addComponentNode('appointment')} className="component-tile-plain">Appointment</button>
+                    <button onClick={() => addComponentNode('dateTime')} className="component-tile-plain">Date &amp; Time</button>
+                    <button onClick={() => addComponentNode('rating')} className="component-tile-plain">Rating</button>
+                    <button onClick={() => addComponentNode('range')} className="component-tile-plain">Range</button>
+                    <button onClick={() => addComponentNode('numericInput')} className="component-tile-plain">Numeric input</button>
+                    <button onClick={() => addComponentNode('smartQuestion')} className="component-tile-plain">Smart question</button>
                   </div>
                 )}
               </div>
@@ -607,6 +655,8 @@ export default function ClassicChatBuilder({
                   <div className="builder-group-body">
                     <button onClick={() => addComponentNode('message')} className="component-tile-plain">Bot message</button>
                     <button onClick={() => addComponentNode('image')} className="component-tile-plain">Image / GIF</button>
+                    <button onClick={() => addComponentNode('video')} className="component-tile-plain">Video</button>
+                    <button onClick={() => addComponentNode('webLink')} className="component-tile-plain">Web Link</button>
                   </div>
                 )}
               </div>
