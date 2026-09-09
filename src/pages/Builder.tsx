@@ -214,53 +214,94 @@ function BuilderContent() {
     showToast('Google Sheet linked to Chatbot!');
   };
 
+  // Load an existing bot by ID, or start a completely clean flow for /builder.
+  // The store is shared between pages, so it must be cleared when creating a new bot;
+  // otherwise the previously opened bot's nodes remain visible and can be saved again.
   useEffect(() => {
-    if (id) {
-      const loadBot = async () => {
-        try {
-          const docRef = doc(db, 'bot_configurations', id);
-          const docSnap = await getDoc(docRef).catch(() => null);
-          if (docSnap && docSnap.exists()) {
-            const data = docSnap.data();
-            setBotName(data.name || '');
-            const rawNodes = data.nodes;
-            const nodesArr = Array.isArray(rawNodes) ? rawNodes : (rawNodes && typeof rawNodes === 'object' ? Object.values(rawNodes) : []);
-            const rawEdges = data.edges;
-            const edgesArr = Array.isArray(rawEdges) ? rawEdges : (rawEdges && typeof rawEdges === 'object' ? Object.values(rawEdges) : []);
-            setNodes(nodesArr);
-            setEdges(edgesArr);
-            if (data.spreadsheetId) {
-              setBotSpreadsheetId(data.spreadsheetId);
-            }
-            return;
-          }
-        } catch (err) {
+    let cancelled = false;
+
+    setSelectedNode(null);
+
+    if (!id) {
+      // NEW BOT: never reuse the previous bot's in-memory flow.
+      setBotName('My New Bot');
+      setBotSpreadsheetId('');
+      setNodes([]);
+      setEdges([]);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const loadBot = async () => {
+      try {
+        const docRef = doc(db, 'bot_configurations', id);
+        const docSnap = await getDoc(docRef).catch(() => null);
+
+        if (cancelled) return;
+
+        if (docSnap && docSnap.exists()) {
+          const data = docSnap.data();
+          const rawNodes = data.nodes;
+          const nodesArr = Array.isArray(rawNodes)
+            ? rawNodes
+            : (rawNodes && typeof rawNodes === 'object' ? Object.values(rawNodes) : []);
+          const rawEdges = data.edges;
+          const edgesArr = Array.isArray(rawEdges)
+            ? rawEdges
+            : (rawEdges && typeof rawEdges === 'object' ? Object.values(rawEdges) : []);
+
+          setBotName(data.name || 'My New Bot');
+          setBotSpreadsheetId(data.spreadsheetId || '');
+          setNodes(nodesArr);
+          setEdges(edgesArr);
+          return;
+        }
+      } catch (err) {
+        if (!cancelled) {
           console.warn('Firestore loadBot error, checking cache:', err);
         }
+      }
 
-        // Fallback to local storage cache
-        const localBotsRaw = localStorage.getItem('mintage_bots');
-        if (localBotsRaw) {
-          try {
-            const localBots = JSON.parse(localBotsRaw);
-            const found = localBots.find((b: any) => b.id === id);
-            if (found) {
-              setBotName(found.name || '');
-              const rawLocalNodes = found.nodes;
-              const localNodesArr = Array.isArray(rawLocalNodes) ? rawLocalNodes : (rawLocalNodes && typeof rawLocalNodes === 'object' ? Object.values(rawLocalNodes) : []);
-              const rawLocalEdges = found.edges;
-              const localEdgesArr = Array.isArray(rawLocalEdges) ? rawLocalEdges : (rawLocalEdges && typeof rawLocalEdges === 'object' ? Object.values(rawLocalEdges) : []);
-              setNodes(localNodesArr);
-              setEdges(localEdgesArr);
-              if (found.spreadsheetId) setBotSpreadsheetId(found.spreadsheetId);
-            }
-          } catch (e) {
+      if (cancelled) return;
+
+      // Fallback to local storage cache.
+      const localBotsRaw = localStorage.getItem('mintage_bots');
+      if (localBotsRaw) {
+        try {
+          const localBots = JSON.parse(localBotsRaw);
+          const found = Array.isArray(localBots)
+            ? localBots.find((b: any) => b && b.id === id)
+            : null;
+
+          if (found && !cancelled) {
+            const rawLocalNodes = found.nodes;
+            const localNodesArr = Array.isArray(rawLocalNodes)
+              ? rawLocalNodes
+              : (rawLocalNodes && typeof rawLocalNodes === 'object' ? Object.values(rawLocalNodes) : []);
+            const rawLocalEdges = found.edges;
+            const localEdgesArr = Array.isArray(rawLocalEdges)
+              ? rawLocalEdges
+              : (rawLocalEdges && typeof rawLocalEdges === 'object' ? Object.values(rawLocalEdges) : []);
+
+            setBotName(found.name || 'My New Bot');
+            setBotSpreadsheetId(found.spreadsheetId || '');
+            setNodes(localNodesArr);
+            setEdges(localEdgesArr);
+          }
+        } catch (e) {
+          if (!cancelled) {
             console.error('Local cache parse error:', e);
           }
         }
-      };
-      loadBot();
-    }
+      }
+    };
+
+    loadBot();
+
+    return () => {
+      cancelled = true;
+    };
   }, [id, setNodes, setEdges]);
 
   const loadUserGoogleSheets = async () => {
