@@ -1050,7 +1050,7 @@ function BuilderContent() {
                       <span>URL / Link</span>
                       <span className="tag">Optional</span>
                     </p>
-                    <p className="field-hint" style={{ marginBottom: '10px', marginTop: 0 }}>Add a link to this component. The chatbot will show an “Open link” button when a URL is provided.</p>
+                    <p className="field-hint" style={{ marginBottom: '10px', marginTop: 0 }}>Add a link to this component. Examples: Google Maps, website, WhatsApp, email or phone link. The chatbot will show an “Open link” button when a URL is provided.</p>
                     <label className="field-label">URL</label>
                     <input
                       type="url"
@@ -1065,7 +1065,7 @@ function BuilderContent() {
                         setNodes(safeNodes.map(n => n.id === selectedNode.id ? updatedNode : n));
                         setSelectedNode(updatedNode);
                       }}
-                      placeholder="https://example.com/page"
+                      placeholder="https://maps.google.com/... or https://example.com"
                       inputMode="url"
                       autoComplete="url"
                     />
@@ -1083,7 +1083,7 @@ function BuilderContent() {
                         setNodes(safeNodes.map(n => n.id === selectedNode.id ? updatedNode : n));
                         setSelectedNode(updatedNode);
                       }}
-                      placeholder="Open link"
+                      placeholder="Open Google Maps"
                       maxLength={40}
                     />
                   </div>
