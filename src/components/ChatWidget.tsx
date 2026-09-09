@@ -780,6 +780,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     const cleanUrl = String(url || '').trim();
     if (cleanUrl && isAllowedLink(cleanUrl)) {
       window.open(cleanUrl, '_blank', 'noopener,noreferrer');
+      return;
     }
     handleUserInput(choice);
   };
