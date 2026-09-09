@@ -5,7 +5,7 @@ import { useBotStore } from '../store/useBotStore';
 import {
   AlertCircle, CheckCircle2, CheckSquare, ChevronRight, ExternalLink,
   FileSpreadsheet, HelpCircle, Layers, List, Loader2, Mail, MessageSquare,
-  Phone, Plus, Save, Send, Sparkles, Trash2, User,
+  Phone, Plus, Save, Send, Sparkles, Trash2, User, FileUp, MapPin, CalendarClock, Clock3, Star, SlidersHorizontal, Hash, MessageCircleQuestion, Video, Link2, Upload,
 } from 'lucide-react';
 import { db, auth } from '../lib/firebase';
 import { serverTimestamp, doc, updateDoc, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
@@ -14,6 +14,7 @@ import {
   ImageNode, MessageNode, NameNode, PhoneNode, EmailNode, SingleChoiceNode,
   MultipleChoiceNode, TextQuestionNode, AiResponseNode, ApiNode, SaveNode,
 } from '../components/CustomNodes';
+import { FileNode, LocationNode, AppointmentNode, DateTimeNode, RatingNode, RangeNode, NumericInputNode, SmartQuestionNode, VideoNode, WebLinkNode } from '../components/ExtendedNodes';
 import { Check, Copy, Database, Share2, X } from 'lucide-react';
 import ClassicChatBuilder from '../components/ClassicChatBuilder';
 import { useAuth } from '../context/AuthContext';
@@ -30,6 +31,16 @@ const nodeTypes = {
   aiResponse: AiResponseNode,
   api: ApiNode,
   saveLead: SaveNode,
+  file: FileNode,
+  location: LocationNode,
+  appointment: AppointmentNode,
+  dateTime: DateTimeNode,
+  rating: RatingNode,
+  range: RangeNode,
+  numericInput: NumericInputNode,
+  smartQuestion: SmartQuestionNode,
+  video: VideoNode,
+  webLink: WebLinkNode,
 };
 
 function BuilderContent() {
@@ -588,10 +599,21 @@ function BuilderContent() {
         label: type === 'message' ? 'Welcome! Thanks for showing interest! 🚀' :
           type === 'singleChoice' || type === 'multipleChoice' ? 'Please select an option:' :
             type === 'textQuestion' ? 'To start, could you share your full name with us? ✨' :
-              'New Node',
+              type === 'file' ? 'Please upload a file' :
+                type === 'location' ? 'Please share your location' :
+                  type === 'appointment' ? 'Please select an appointment' :
+                    type === 'dateTime' ? 'Please select a date and time' :
+                      type === 'rating' ? 'How would you rate your experience?' :
+                        type === 'range' ? 'Please select a value' :
+                          type === 'numericInput' ? 'Please enter a number' :
+                            type === 'smartQuestion' ? 'Please answer this question' :
+                              type === 'video' ? 'Watch this video' :
+                                type === 'webLink' ? 'Open this link' :
+                                  'New Node',
         choices: (type === 'singleChoice' || type === 'multipleChoice') ? ['Option 1', 'Option 2'] : undefined,
         url: '',
         urlLabel: 'Open link',
+        componentType: type,
       },
       position: { x: 400, y: 200 },
     };
@@ -1067,16 +1089,39 @@ function BuilderContent() {
                     </button>
                   </div>
                 </div>
-
                 <div className="builder-group">
                   <div className="builder-group-toggle" role="presentation">
-                    <span>Request information</span>
+                    <span>Request Information</span>
                     <ChevronRight />
                   </div>
                   <div className="builder-group-body">
-                    <button onClick={() => addNode('name')} className="component-tile-plain">Name input</button>
-                    <button onClick={() => addNode('phone')} className="component-tile-plain">Phone input</button>
-                    <button onClick={() => addNode('email')} className="component-tile-plain">Email input</button>
+                    <button onClick={() => addNode('name')} className="component-tile"><span className="icon-tile tone-green"><User /></span><span>Name</span></button>
+                    <button onClick={() => addNode('phone')} className="component-tile"><span className="icon-tile tone-green"><Phone /></span><span>Phone Number</span></button>
+                    <button onClick={() => addNode('email')} className="component-tile"><span className="icon-tile tone-blue"><Mail /></span><span>Email</span></button>
+                    <button onClick={() => addNode('singleChoice')} className="component-tile"><span className="icon-tile tone-purple"><CheckSquare /></span><span>Single Choice</span></button>
+                    <button onClick={() => addNode('multipleChoice')} className="component-tile"><span className="icon-tile tone-purple"><List /></span><span>Multiple Choice</span></button>
+                    <button onClick={() => addNode('textQuestion')} className="component-tile"><span className="icon-tile tone-orange"><HelpCircle /></span><span>Text Question</span></button>
+                    <button onClick={() => addNode('file')} className="component-tile"><span className="icon-tile tone-yellow"><FileUp /></span><span>File</span></button>
+                    <button onClick={() => addNode('location')} className="component-tile"><span className="icon-tile tone-red"><MapPin /></span><span>Location</span></button>
+                    <button onClick={() => addNode('appointment')} className="component-tile"><span className="icon-tile tone-blue"><CalendarClock /></span><span>Appointment</span></button>
+                    <button onClick={() => addNode('dateTime')} className="component-tile"><span className="icon-tile tone-orange"><Clock3 /></span><span>Date/Time</span></button>
+                    <button onClick={() => addNode('rating')} className="component-tile"><span className="icon-tile tone-yellow"><Star /></span><span>Rating</span></button>
+                    <button onClick={() => addNode('range')} className="component-tile"><span className="icon-tile tone-blue"><SlidersHorizontal /></span><span>Range</span></button>
+                    <button onClick={() => addNode('numericInput')} className="component-tile"><span className="icon-tile tone-blue"><Hash /></span><span>Numeric Input</span></button>
+                    <button onClick={() => addNode('smartQuestion')} className="component-tile"><span className="icon-tile tone-orange"><MessageCircleQuestion /></span><span>Smart Question</span></button>
+                  </div>
+                </div>
+
+                <div className="builder-group">
+                  <div className="builder-group-toggle" role="presentation">
+                    <span>Send Information</span>
+                    <ChevronRight />
+                  </div>
+                  <div className="builder-group-body">
+                    <button onClick={() => addNode('message')} className="component-tile"><span className="icon-tile tone-blue"><MessageSquare /></span><span>Message</span></button>
+                    <button onClick={() => addNode('image')} className="component-tile"><span className="icon-tile tone-red"><Upload /></span><span>Image/GIF</span></button>
+                    <button onClick={() => addNode('video')} className="component-tile"><span className="icon-tile tone-red"><Video /></span><span>Video</span></button>
+                    <button onClick={() => addNode('webLink')} className="component-tile"><span className="icon-tile tone-green"><Link2 /></span><span>Web Link</span></button>
                   </div>
                 </div>
 
