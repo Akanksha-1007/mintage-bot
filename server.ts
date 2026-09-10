@@ -639,11 +639,9 @@ async function startServer() {
   }
 
   // Google Sheets synchronization.
-  // Sheet layout:
-  //   Row 1 = Date + the questions/field labels actually answered by users
-  //   Row 2+ = one row per NEW lead
-  // Internal metadata such as lead ID, bot ID, source URL, status, etc. is never
-  // written to the user-facing lead data tab.
+  // Lead Data contains ONLY the contact/visit details required by the client:
+  //   Name | Phone Number | Email | Book a Visit
+  // All other chatbot questions are intentionally excluded.
   async function syncLeadToGoogleSheets(tokens: any, rawSpreadsheetId: string, worksheetName = 'Sheet1', lead: any) {
     const spreadsheetId = extractSpreadsheetId(rawSpreadsheetId);
     if (!tokens || !spreadsheetId) throw new Error('Missing tokens or valid spreadsheetId');
@@ -653,65 +651,31 @@ async function startServer() {
     return withGoogleSheetLeadLock(spreadsheetId, leadKey, async () => {
       const auth = createOAuth2Client(tokens);
       const sheets = google.sheets({ version: 'v4', auth });
-      let targetWorksheet = worksheetName || 'Sheet1';
+      const requiredHeaders = ['Name', 'Phone Number', 'Email', 'Book a Visit'];
+      let targetWorksheet = 'Lead Data';
       let targetSheetId: number | null = null;
 
-      try {
-        const meta = await sheets.spreadsheets.get({
-          spreadsheetId,
-          fields: 'sheets.properties(sheetId,title)'
-        });
-        const sheetProperties = (meta.data.sheets || [])
-          .map((s: any) => s.properties)
-          .filter((p: any) => p?.title) as Array<{ sheetId?: number; title: string }>;
-        const titles = sheetProperties.map(p => p.title);
+      // Always use a dedicated Lead Data tab. Sheet1/other legacy tabs remain untouched.
+      const meta = await sheets.spreadsheets.get({
+        spreadsheetId,
+        fields: 'sheets.properties(sheetId,title)'
+      });
+      let sheetProperties = (meta.data.sheets || [])
+        .map((s: any) => s.properties)
+        .filter((p: any) => p?.title) as Array<{ sheetId?: number; title: string }>;
+      let titles = sheetProperties.map(p => p.title);
 
-        if (titles.length > 0 && !titles.includes(targetWorksheet)) {
-          targetWorksheet = titles[0];
-        }
+      if (!titles.includes(targetWorksheet)) {
+        const addSheetResponse = await sheets.spreadsheets.batchUpdate({
+          spreadsheetId,
+          requestBody: {
+            requests: [{ addSheet: { properties: { title: targetWorksheet } } }]
+          }
+        });
+        targetWorksheet = addSheetResponse.data.replies?.[0]?.addSheet?.properties?.title || targetWorksheet;
+        targetSheetId = addSheetResponse.data.replies?.[0]?.addSheet?.properties?.sheetId ?? null;
+      } else {
         targetSheetId = sheetProperties.find(p => p.title === targetWorksheet)?.sheetId ?? null;
-
-        // Preserve the old metadata-heavy tab. Future lead data goes to a clean tab.
-        const headerCheck = await sheets.spreadsheets.values.get({
-          spreadsheetId,
-          range: `'${targetWorksheet}'!A1:ZZ2`
-        });
-        const firstRow = headerCheck.data.values?.[0] || [];
-        const legacyHeaders = new Set([
-          'timestamp', 'all captured fields', 'lead id', 'bot id', 'bot name',
-          'status', 'source url', 'conversation id', 'user id', 'client / account'
-        ]);
-        const hasLegacyLayout = firstRow.some((value: any) => legacyHeaders.has(String(value || '').trim().toLowerCase()));
-
-        if (hasLegacyLayout) {
-          const cleanTabName = 'Lead Data';
-          if (!titles.includes(cleanTabName)) {
-            const addSheetResponse = await sheets.spreadsheets.batchUpdate({
-              spreadsheetId,
-              requestBody: {
-                requests: [{ addSheet: { properties: { title: cleanTabName } } }]
-              }
-            });
-            targetWorksheet = addSheetResponse.data.replies?.[0]?.addSheet?.properties?.title || cleanTabName;
-            targetSheetId = addSheetResponse.data.replies?.[0]?.addSheet?.properties?.sheetId ?? null;
-            console.log('[SHEETS_CLEAN_TAB_CREATED]', { spreadsheetId, targetWorksheet, targetSheetId });
-          } else {
-            targetWorksheet = cleanTabName;
-            targetSheetId = sheetProperties.find(p => p.title === cleanTabName)?.sheetId ?? null;
-          }
-        }
-      } catch (err: any) {
-        const code = String(err?.code || '').toLowerCase();
-        const msg = String(err?.message || err).toLowerCase();
-        if (code === '401' || code === '403' || msg.includes('invalid_grant') || msg.includes('unauthorized_client') || msg.includes('invalid_client')) {
-          if (msg.includes('invalid_grant') || msg.includes('unauthorized_client') || msg.includes('invalid_client')) {
-            const oauthErr: any = new Error('Google Account authorization expired. Please re-authorize your Google account.');
-            oauthErr.code = 'invalid_grant';
-            oauthErr.reconnectRequired = true;
-            throw oauthErr;
-          }
-        }
-        throw err;
       }
 
       let existingRows: any[][] = [];
@@ -732,32 +696,50 @@ async function startServer() {
         throw err;
       }
 
-      // IMPORTANT: only the actual chatbot-captured fields are sent to Sheets.
-      // We intentionally do not inspect lead.data because it may contain internal data.
-      const fieldValues = new Map<string, string>();
+      // Extract ONLY the four fields we want. Do not inspect lead.data.
+      const selectedFields = {
+        name: '',
+        phone: '',
+        email: '',
+        bookVisit: ''
+      };
+
       if (Array.isArray(lead.fields)) {
         for (const field of lead.fields) {
           const label = String(field?.label ?? '').replace(/\s+/g, ' ').trim();
+          const key = String(field?.fieldKey ?? field?.key ?? field?.leadKey ?? '').replace(/\s+/g, ' ').trim();
+          const type = String(field?.type ?? '').trim().toLowerCase();
           const value = field?.value == null ? '' : String(field.value).trim();
-          if (!label || !value) continue;
-          if (!fieldValues.has(label)) fieldValues.set(label, value);
+          if (!value) continue;
+
+          const haystack = `${label} ${key}`.toLowerCase();
+          const isName = type === 'name' || /\b(full\s*name|name)\b/.test(haystack);
+          const isPhone = type === 'phone' || /\b(phone|mobile|contact\s*(number|no\.?))\b/.test(haystack);
+          const isEmail = type === 'email' || /\bemail\b/.test(haystack);
+          const isBookVisit =
+            type === 'appointment' || type === 'datetime' || type === 'datetime-local' || type === 'dateTime'.toLowerCase() ||
+            /\b(book\s*(a\s*)?visit|visit|appointment|date\s*(and|&)\s*time|date\s*[/&-]?\s*time)\b/.test(haystack);
+
+          if (isName && !selectedFields.name) selectedFields.name = value;
+          else if (isPhone && !selectedFields.phone) selectedFields.phone = value;
+          else if (isEmail && !selectedFields.email) selectedFields.email = value;
+          else if (isBookVisit && !selectedFields.bookVisit) selectedFields.bookVisit = value;
         }
       }
 
-      // A Date/Time component stores the visitor's exact datetime-local value.
-      // Reject past dates/times at the server as well as in the browser.
-      const dateTimeEntry = Array.from(fieldValues.entries()).find(([, value]) => parseDateTimeLocal(value));
-      if (dateTimeEntry) {
+      // The Date/Time picker stores the visitor's exact local wall-clock value.
+      if (selectedFields.bookVisit && parseDateTimeLocal(selectedFields.bookVisit)) {
         const clientOffset = lead.clientTimezoneOffsetMinutes ?? lead.data?.clientTimezoneOffsetMinutes;
-        if (!isDateTimeLocalInPresentOrFuture(dateTimeEntry[1], clientOffset)) {
+        if (!isDateTimeLocalInPresentOrFuture(selectedFields.bookVisit, clientOffset)) {
           throw new Error('Please select the current date/time or a future date/time. Previous dates are not allowed.');
         }
       }
 
-      if (fieldValues.size === 0) {
+      // Do not create a row unless at least one of the four requested details exists.
+      if (!selectedFields.name && !selectedFields.phone && !selectedFields.email && !selectedFields.bookVisit) {
         return {
           success: true,
-          action: 'skipped_no_user_fields',
+          action: 'skipped_no_required_contact_fields',
           updatedRange: null,
           rowNumber: null,
           spreadsheetId,
@@ -769,86 +751,71 @@ async function startServer() {
         .map((h: any) => String(h ?? '').replace(/\s+/g, ' ').trim())
         .filter(Boolean);
 
-      // Clean schema: Date + one column per question/field label.
-      let headers = existingHeaders.length > 0 ? [...existingHeaders] : ['Date'];
+      // If Lead Data already contains the old dynamic-question layout, preserve it
+      // by moving it to a backup tab, then create a clean Lead Data tab.
+      const headersMatch = JSON.stringify(existingHeaders) === JSON.stringify(requiredHeaders);
+      if (existingRows.length > 0 && !headersMatch) {
+        const backupBase = 'Lead Data - Old';
+        let backupName = backupBase;
+        let suffix = 2;
+        while (titles.includes(backupName)) backupName = `${backupBase} ${suffix++}`;
 
-      // If the newly-created clean tab is empty, start it with Date.
-      if (headers.length === 1 && headers[0].toLowerCase() !== 'date' && existingRows.length === 0) {
-        headers = ['Date'];
-      }
-
-      // If the tab is empty but has no header, create Date first.
-      if (headers.length === 0) headers = ['Date'];
-
-      // Remove any old metadata if this is somehow still present after tab selection.
-      // These are internal/legacy metadata columns. Do NOT treat normal
-      // captured fields such as Name, Email, or Phone as legacy columns.
-      const forbidden = new Set([
-        'timestamp',
-        'all captured fields',
-        'lead id',
-        'bot id',
-        'bot name',
-        'status',
-        'source url',
-        'conversation id',
-        'user id',
-        'client / account'
-      ]);
-      const isLegacyHeaderStillPresent = headers.some(h => forbidden.has(h.toLowerCase()));
-      if (isLegacyHeaderStillPresent) {
-        throw new Error('Configured Google Sheet tab uses the old lead metadata layout. The clean Lead Data tab should be used.');
-      }
-
-      for (const label of fieldValues.keys()) {
-        if (!headers.some(h => h.toLowerCase() === label.toLowerCase())) {
-          headers.push(label);
+        if (targetSheetId !== null) {
+          await sheets.spreadsheets.batchUpdate({
+            spreadsheetId,
+            requestBody: {
+              requests: [{
+                updateSheetProperties: {
+                  properties: { sheetId: targetSheetId, title: backupName },
+                  fields: 'title'
+                }
+              }]
+            }
+          });
         }
-      }
 
-      const previousHeaderRow = existingRows[0] || [];
-      if (JSON.stringify(previousHeaderRow) !== JSON.stringify(headers)) {
-        await sheets.spreadsheets.values.update({
+        const addSheetResponse = await sheets.spreadsheets.batchUpdate({
           spreadsheetId,
-          range: `'${targetWorksheet}'!1:1`,
-          valueInputOption: 'USER_ENTERED',
-          requestBody: { values: [headers] }
+          requestBody: {
+            requests: [{ addSheet: { properties: { title: 'Lead Data' } } }]
+          }
         });
+        targetWorksheet = addSheetResponse.data.replies?.[0]?.addSheet?.properties?.title || 'Lead Data';
+        targetSheetId = addSheetResponse.data.replies?.[0]?.addSheet?.properties?.sheetId ?? null;
+        existingRows = [];
       }
 
-      const submittedDate = new Date(lead.submittedAt || lead.timestamp || Date.now());
-      const selectedDateTimeValue = dateTimeEntry?.[1] || '';
-      const selectedDateTimeSerial = selectedDateTimeValue
-        ? dateTimeLocalToSheetsSerial(selectedDateTimeValue)
-        : null;
-      const submittedDateSerial = Number.isNaN(submittedDate.getTime())
-        ? null
-        : (submittedDate.getTime() / 86400000) + 25569;
-      // If the flow contains a Date/Time component, the Date column is the exact
-      // date/time chosen by the visitor. Otherwise it falls back to lead submission time.
-      const dateValue = selectedDateTimeSerial ?? submittedDateSerial ?? '';
-
-      const rowValues = headers.map(header => {
-        if (header.toLowerCase() === 'date') return dateValue;
-        for (const [label, value] of fieldValues.entries()) {
-          if (label.toLowerCase() === header.toLowerCase()) return value;
-        }
-        return '';
+      // Fixed schema: ONLY these four columns.
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `'${targetWorksheet}'!A1:D1`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [requiredHeaders] }
       });
 
-      // ALWAYS APPEND for a genuine new lead. Existing rows are never overwritten.
+      // Keep the exact selected date/time in Book a Visit. Google Sheets receives a
+      // serial value only for this one cell and the number format makes it readable.
+      const bookVisitSerial = selectedFields.bookVisit && parseDateTimeLocal(selectedFields.bookVisit)
+        ? dateTimeLocalToSheetsSerial(selectedFields.bookVisit)
+        : null;
+
+      const rowValues = [
+        selectedFields.name,
+        selectedFields.phone,
+        selectedFields.email,
+        bookVisitSerial ?? selectedFields.bookVisit
+      ];
+
       const appendRes = await sheets.spreadsheets.values.append({
         spreadsheetId,
-        range: `'${targetWorksheet}'`,
+        range: `'${targetWorksheet}'!A:D`,
         valueInputOption: 'RAW',
         insertDataOption: 'INSERT_ROWS',
         requestBody: { values: [rowValues] }
       });
 
-      // Force the Date column to display the exact selected date and time instead
-      // of exposing the underlying Google Sheets serial (for example 46273).
-      const dateColumnIndex = headers.findIndex((h: string) => h.toLowerCase() === 'date');
-      if (targetSheetId !== null && dateColumnIndex >= 0) {
+      const bookVisitColumnIndex = 3;
+      if (targetSheetId !== null && bookVisitSerial !== null) {
         await sheets.spreadsheets.batchUpdate({
           spreadsheetId,
           requestBody: {
@@ -857,8 +824,8 @@ async function startServer() {
                 range: {
                   sheetId: targetSheetId,
                   startRowIndex: 1,
-                  startColumnIndex: dateColumnIndex,
-                  endColumnIndex: dateColumnIndex + 1
+                  startColumnIndex: bookVisitColumnIndex,
+                  endColumnIndex: bookVisitColumnIndex + 1
                 },
                 cell: {
                   userEnteredFormat: {
@@ -876,13 +843,12 @@ async function startServer() {
       }
 
       const updatedRange = appendRes.data.updates?.updatedRange || null;
-      console.log('[GOOGLE_SHEET_LEAD_APPENDED]', {
+      console.log('[GOOGLE_SHEET_CONTACT_LEAD_APPENDED]', {
         leadId: lead.id,
         spreadsheetId,
         worksheet: targetWorksheet,
         updatedRange,
-        fieldCount: fieldValues.size,
-        fields: Array.from(fieldValues.keys())
+        fields: requiredHeaders.filter((_, i) => rowValues[i] !== '')
       });
 
       return {
@@ -892,7 +858,7 @@ async function startServer() {
         rowNumber: updatedRange ? Number(String(updatedRange).match(/![A-Z]+(\d+)/)?.[1] || 0) || null : null,
         spreadsheetId,
         worksheetName: targetWorksheet,
-        fields: Array.from(fieldValues.keys())
+        fields: requiredHeaders.filter((_, i) => rowValues[i] !== '')
       };
     });
   }

@@ -688,6 +688,10 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         fieldLabel = 'Phone Number';
         fieldKey = 'phone';
         profileUpdate = { phone: cleanText };
+      } else if (currentNode.type === 'dateTime' || currentNode.type === 'datetime' || currentNode.type === 'appointment') {
+        // Date/Time is stored in Sheets as the dedicated Book a Visit detail.
+        fieldLabel = 'Book a Visit';
+        fieldKey = 'book_a_visit';
       } else {
         fieldLabel = currentNode.data?.label || currentNode.data?.key || currentNode.data?.leadKey || 'Field';
         fieldKey = currentNode.data?.key || currentNode.data?.leadKey || currentNode.data?.label || ('field_' + Date.now());
