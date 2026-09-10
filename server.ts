@@ -578,6 +578,34 @@ async function startServer() {
     return promise;
   }
 
+  // Serialize all writes to the same Lead Data worksheet. This closes the
+  // read->append race even when two different lead IDs are submitted at once.
+  const googleSheetWorksheetInFlight = new Map<string, Promise<any>>();
+
+  async function withGoogleSheetWorksheetLock<T>(
+    spreadsheetId: string,
+    worksheetName: string,
+    operation: () => Promise<T>
+  ): Promise<T> {
+    const key = `${spreadsheetId}::${worksheetName}`;
+    const previous = googleSheetWorksheetInFlight.get(key) || Promise.resolve();
+
+    // Chain onto the existing promise instead of merely waiting for it. This
+    // guarantees that multiple simultaneous sync requests are processed one at
+    // a time, preventing read->append races between different lead IDs.
+    const promise = previous
+      .catch(() => null)
+      .then(() => operation())
+      .finally(() => {
+        if (googleSheetWorksheetInFlight.get(key) === promise) {
+          googleSheetWorksheetInFlight.delete(key);
+        }
+      });
+
+    googleSheetWorksheetInFlight.set(key, promise);
+    return promise;
+  }
+
   function columnNumberToLetter(columnNumber: number): string {
     let result = '';
     while (columnNumber > 0) {
@@ -648,7 +676,10 @@ async function startServer() {
 
     const leadKey = String(lead.id || `anonymous_${Date.now()}`);
 
-    return withGoogleSheetLeadLock(spreadsheetId, leadKey, async () => {
+    // Lead Data is the only managed worksheet, so serialize its sync operations.
+    // The lead lock remains available for other sync paths, but the worksheet
+    // lock is what prevents two different lead IDs from racing into append().
+    return withGoogleSheetWorksheetLock(spreadsheetId, 'Lead Data', async () => {
       const auth = createOAuth2Client(tokens);
       const sheets = google.sheets({ version: 'v4', auth });
       const requiredHeaders = ['Name', 'Phone Number', 'Email', 'Book a Visit'];
@@ -805,6 +836,57 @@ async function startServer() {
         selectedFields.email,
         bookVisitSerial ?? selectedFields.bookVisit
       ];
+
+      // Idempotency check: if the exact same four contact/visit values already
+      // exist in Lead Data, do NOT append another row. This catches duplicate
+      // requests caused by retries, double submits, or concurrent sync paths.
+      const normalizeSheetValue = (value: any) => String(value ?? '').trim().toLowerCase();
+      const sameContactLeadExists = existingRows.slice(1).some((row: any[]) => {
+        const rowName = normalizeSheetValue(row?.[0]);
+        const rowPhone = normalizeSheetValue(row?.[1]);
+        const rowEmail = normalizeSheetValue(row?.[2]);
+        let rowVisit = normalizeSheetValue(row?.[3]);
+        const wantedVisit = normalizeSheetValue(selectedFields.bookVisit);
+
+        // Sheets may return a numeric serial when the Book a Visit cell is
+        // already formatted as date/time. Compare against the selected local
+        // datetime string when possible.
+        if (bookVisitSerial !== null && row?.[3] !== undefined && row?.[3] !== '') {
+          const numeric = Number(row[3]);
+          if (Number.isFinite(numeric)) {
+            const milliseconds = (numeric - 25569) * 86400000;
+            const d = new Date(milliseconds);
+            const pad = (n: number) => String(n).padStart(2, '0');
+            rowVisit = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}t${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+          }
+        }
+
+        const wantedSerial = bookVisitSerial !== null ? normalizeSheetValue(bookVisitSerial) : '';
+        const visitMatches = wantedVisit
+          ? rowVisit === wantedVisit || (bookVisitSerial !== null && Number(row?.[3]) === bookVisitSerial)
+          : rowVisit === '';
+
+        return rowName === normalizeSheetValue(selectedFields.name) &&
+          rowPhone === normalizeSheetValue(selectedFields.phone) &&
+          rowEmail === normalizeSheetValue(selectedFields.email) &&
+          visitMatches;
+      });
+
+      if (sameContactLeadExists) {
+        console.log('[GOOGLE_SHEET_DUPLICATE_SKIPPED]', {
+          leadId: lead.id,
+          spreadsheetId,
+          worksheet: targetWorksheet
+        });
+        return {
+          success: true,
+          action: 'duplicate_skipped',
+          updatedRange: null,
+          rowNumber: null,
+          spreadsheetId,
+          worksheetName: targetWorksheet
+        };
+      }
 
       const appendRes = await sheets.spreadsheets.values.append({
         spreadsheetId,
@@ -1614,7 +1696,7 @@ async function startServer() {
 
     const sheetConfig = await resolveClientGoogleSheetsConfig(clientId, resolvedBot?.spreadsheetId, resolvedBot?.worksheetName, resolvedBot?.googleOwnerId);
 
-    if (sheetConfig.googleTokens && sheetConfig.spreadsheetId) {
+    if (sheetConfig.googleTokens && sheetConfig.spreadsheetId && !(isUpdate && existingLead?.googleSheetSyncStatus === 'synced')) {
       try {
         const syncRes = await syncLeadToGoogleSheets(sheetConfig.googleTokens, sheetConfig.spreadsheetId, sheetConfig.worksheetName, leadRecord);
         leadRecord.googleSheetSyncStatus = 'synced';
@@ -1651,6 +1733,13 @@ async function startServer() {
         }
         saveLeadsToFile();
       }
+    } else if (isUpdate && existingLead?.googleSheetSyncStatus === 'synced') {
+      // Existing synced lead: do not append it again.
+      leadRecord.googleSheetSyncStatus = 'synced';
+      leadRecord.googleSheetSyncAction = 'already_synced';
+      leadRecord.spreadsheetId = existingLead?.spreadsheetId || sheetConfig.spreadsheetId || '';
+      leadRecord.worksheetName = existingLead?.worksheetName || sheetConfig.worksheetName || 'Lead Data';
+      saveLeadsToFile();
     } else {
       console.log('[GOOGLE_SHEET_SYNC_FAILED]', { leadId, botId, error: 'Google Account or Spreadsheet not connected for this bot' });
       leadRecord.googleSheetSyncStatus = 'not_configured';
