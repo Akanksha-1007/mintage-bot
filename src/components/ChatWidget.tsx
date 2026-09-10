@@ -557,6 +557,12 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     return /\b(phone|mobile)\b/.test(label) && !/email/.test(label);
   };
 
+  const getLocalDateTimeMin = () => {
+    const now = new Date();
+    const pad = (value: number) => String(value).padStart(2, '0');
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  };
+
   const validateLeadField = (node: any, value: string): string | null => {
     const cleanValue = String(value || '').trim();
     if (!node || !cleanValue) return null;
@@ -615,6 +621,20 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         return 'Please enter a valid email address, for example name@example.com.';
       }
       return null;
+    }
+
+    if (type === 'datetime' || type === 'dateTime'.toLowerCase() || /\b(date\s*[/&-]?\s*time|date and time)\b/i.test(label)) {
+      // datetime-local values are intentionally kept as the exact local date/time
+      // selected by the visitor. Do not silently convert them to UTC.
+      if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/.test(cleanValue)) {
+        return 'Please select a valid date and time.';
+      }
+
+      const selected = new Date(cleanValue.length === 16 ? `${cleanValue}:00` : cleanValue);
+      const now = new Date();
+      if (Number.isNaN(selected.getTime()) || selected.getTime() < now.getTime()) {
+        return 'Please select the current date/time or a future date/time. Previous dates are not allowed.';
+      }
     }
 
     return null;
@@ -802,6 +822,9 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       chatUserId,
       conversationId: conversationId || '',
       fields: fieldsList,
+      // Used only by the server to validate datetime-local values against the
+      // visitor's local clock. The selected field value itself remains unchanged.
+      clientTimezoneOffsetMinutes: new Date().getTimezoneOffset(),
       sourceUrl: window.location.href,
       submittedAt: new Date().toISOString()
     };
@@ -1049,6 +1072,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
             }
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
+            min={currentNode?.type === 'dateTime' ? getLocalDateTimeMin() : undefined}
             placeholder={
               currentNode?.type === 'name' ? 'Type your full name...' :
                 isPhoneNode(currentNode) ? 'Type your phone number...' :

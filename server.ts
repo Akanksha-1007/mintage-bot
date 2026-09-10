@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { google } from 'googleapis';
+import { createHash } from 'crypto';
 import dotenv from 'dotenv';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, getDoc, setDoc, getDocs, collection, query, where, orderBy, limit, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
@@ -33,6 +34,39 @@ try {
 
 // In-memory store for tokens (In production, use Firestore)
 const userTokens = new Map<string, any>();
+
+// ============================================================
+// FAST2SMS OTP VERIFICATION
+// ============================================================
+// Keep the Fast2SMS API key server-side only. Configure these in .env:
+// FAST2SMS_API_KEY=...
+// FAST2SMS_SENDER_ID=MNTAGE
+// FAST2SMS_MESSAGE_ID=159538
+const otpStore = new Map<string, { hash: string; expiresAt: number; attempts: number; sentAt: number; verified: boolean }>();
+const otpSendLog = new Map<string, number>();
+
+function normalizeOtpPhone(value: any): string {
+  let digits = String(value || '').replace(/\D/g, '');
+  if (digits.length === 12 && digits.startsWith('91')) digits = digits.slice(2);
+  return digits;
+}
+
+function hashOtp(otp: string): string {
+  // Lightweight one-way hash using Web Crypto-compatible Node crypto.
+  // Imported lazily so the rest of the server remains unchanged.
+  return createHash('sha256').update(otp).digest('hex');
+}
+
+function generateOtp(): string {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+function cleanupOtpStore() {
+  const now = Date.now();
+  for (const [phone, record] of otpStore.entries()) {
+    if (record.expiresAt < now || record.verified) otpStore.delete(phone);
+  }
+}
 
 // ============================================================
 // GOOGLE OAUTH CONFIGURATION
@@ -95,6 +129,106 @@ async function startServer() {
   const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json());
+
+  // FAST2SMS OTP routes
+  app.post('/api/otp/send', async (req, res) => {
+    cleanupOtpStore();
+    const phone = normalizeOtpPhone(req.body?.phone);
+    if (!/^\d{10}$/.test(phone)) {
+      return res.status(400).json({ success: false, error: 'Please provide a valid 10-digit mobile number.' });
+    }
+
+    const previousSentAt = otpSendLog.get(phone) || 0;
+    const secondsSinceLastSend = Math.floor((Date.now() - previousSentAt) / 1000);
+    if (secondsSinceLastSend < 30) {
+      return res.status(429).json({ success: false, error: `Please wait ${30 - secondsSinceLastSend} seconds before requesting another OTP.` });
+    }
+
+    const apiKey = process.env.FAST2SMS_API_KEY?.trim();
+    const senderId = process.env.FAST2SMS_SENDER_ID?.trim() || 'MNTAGE';
+    const messageId = process.env.FAST2SMS_MESSAGE_ID?.trim() || '159538';
+    if (!apiKey) {
+      return res.status(500).json({ success: false, error: 'SMS service is not configured on the server.' });
+    }
+
+    const otp = generateOtp();
+    let response: Response;
+    try {
+      response = await fetch('https://www.fast2sms.com/dev/bulkV2', {
+        method: 'POST',
+        headers: {
+          Authorization: apiKey,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          route: 'dlt',
+          sender_id: senderId,
+          message: messageId,
+          variables_values: otp,
+          flash: 0,
+          numbers: phone
+        })
+      });
+    } catch (error: any) {
+      console.error('[FAST2SMS_OTP_NETWORK_ERROR]', { phone, error: error?.message || error });
+      return res.status(502).json({ success: false, error: 'Could not connect to the SMS provider. Please try again.' });
+    }
+
+    const responseText = await response.text();
+    let providerData: any = {};
+    try { providerData = JSON.parse(responseText); } catch { providerData = { raw: responseText }; }
+
+    if (!response.ok || providerData?.return === false) {
+      console.error('[FAST2SMS_OTP_SEND_FAILED]', { phone, status: response.status, providerData });
+      const providerMessage = Array.isArray(providerData?.message)
+        ? providerData.message.join(' ')
+        : providerData?.message;
+      return res.status(502).json({ success: false, error: providerMessage || 'SMS provider could not send the OTP.' });
+    }
+
+    otpStore.set(phone, {
+      hash: hashOtp(otp),
+      expiresAt: Date.now() + 5 * 60 * 1000,
+      attempts: 0,
+      sentAt: Date.now(),
+      verified: false
+    });
+    otpSendLog.set(phone, Date.now());
+
+    return res.json({ success: true, message: 'OTP sent successfully.' });
+  });
+
+  app.post('/api/otp/verify', async (req, res) => {
+    cleanupOtpStore();
+    const phone = normalizeOtpPhone(req.body?.phone);
+    const otp = String(req.body?.otp || '').trim();
+    if (!/^\d{10}$/.test(phone) || !/^\d{6}$/.test(otp)) {
+      return res.status(400).json({ success: false, error: 'Invalid phone number or OTP.' });
+    }
+
+    const record = otpStore.get(phone);
+    if (!record) {
+      return res.status(400).json({ success: false, error: 'OTP expired or not found. Please request a new OTP.' });
+    }
+    if (record.attempts >= 5) {
+      otpStore.delete(phone);
+      return res.status(429).json({ success: false, error: 'Too many incorrect attempts. Please request a new OTP.' });
+    }
+    if (record.expiresAt < Date.now()) {
+      otpStore.delete(phone);
+      return res.status(400).json({ success: false, error: 'OTP expired. Please request a new OTP.' });
+    }
+
+    if (hashOtp(otp) !== record.hash) {
+      record.attempts += 1;
+      return res.status(400).json({ success: false, error: 'Incorrect OTP. Please try again.' });
+    }
+
+    record.verified = true;
+    otpStore.delete(phone);
+    return res.json({ success: true, verified: true, phone });
+  });
+
 
   // Safe Google OAuth Startup Diagnostics
   const gClientId = process.env.GOOGLE_CLIENT_ID || '';
@@ -454,6 +588,56 @@ async function startServer() {
     return result;
   }
 
+  // Parse a datetime-local value without converting the visitor's selected
+  // wall-clock time to the server's timezone.
+  function parseDateTimeLocal(value: any): {
+    year: number;
+    month: number;
+    day: number;
+    hour: number;
+    minute: number;
+    second: number;
+  } | null {
+    const match = String(value || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
+    if (!match) return null;
+    const parts = {
+      year: Number(match[1]),
+      month: Number(match[2]),
+      day: Number(match[3]),
+      hour: Number(match[4]),
+      minute: Number(match[5]),
+      second: Number(match[6] || '0')
+    };
+    const check = new Date(Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second));
+    if (check.getUTCFullYear() !== parts.year || check.getUTCMonth() !== parts.month - 1 || check.getUTCDate() !== parts.day || check.getUTCHours() !== parts.hour || check.getUTCMinutes() !== parts.minute || check.getUTCSeconds() !== parts.second) {
+      return null;
+    }
+    return parts;
+  }
+
+  function dateTimeLocalToSheetsSerial(value: string): number | null {
+    const parts = parseDateTimeLocal(value);
+    if (!parts) return null;
+    // Google Sheets serials represent a date/time as a day fraction. Using UTC
+    // here preserves the exact wall-clock date/time selected in datetime-local.
+    return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second) / 86400000 + 25569;
+  }
+
+  function isDateTimeLocalInPresentOrFuture(value: string, clientTimezoneOffsetMinutes?: number): boolean {
+    const parts = parseDateTimeLocal(value);
+    if (!parts) return false;
+
+    const offset = Number.isFinite(Number(clientTimezoneOffsetMinutes))
+      ? Number(clientTimezoneOffsetMinutes)
+      : new Date().getTimezoneOffset();
+
+    // Compare at minute precision because datetime-local lets the visitor select
+    // minutes and the UI's minimum is the current minute.
+    const selectedWallClockMinute = Math.floor(Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute) / 60000);
+    const currentWallClockMinute = Math.floor((Date.now() - offset * 60000) / 60000);
+    return selectedWallClockMinute >= currentWallClockMinute;
+  }
+
   // Google Sheets synchronization.
   // Sheet layout:
   //   Row 1 = Date + the questions/field labels actually answered by users
@@ -467,45 +651,25 @@ async function startServer() {
     const leadKey = String(lead.id || `anonymous_${Date.now()}`);
 
     return withGoogleSheetLeadLock(spreadsheetId, leadKey, async () => {
-      // If another request already synced this lead, never append the same lead again.
-      // This is especially important when the dashboard auto-sync and the lead endpoint
-      // run at nearly the same time.
-      const currentLead = serverLeadsList.find((item: any) => String(item?.id || '') === leadKey);
-      if (currentLead?.googleSheetSyncStatus === 'synced') {
-        console.log('[GOOGLE_SHEET_SYNC_ALREADY_DONE]', { leadId: leadKey, spreadsheetId });
-        return {
-          success: true,
-          action: 'skipped_already_synced',
-          updatedRange: null,
-          rowNumber: null,
-          spreadsheetId,
-          worksheetName: worksheetName || 'Sheet1'
-        };
-      }
-
       const auth = createOAuth2Client(tokens);
       const sheets = google.sheets({ version: 'v4', auth });
       let targetWorksheet = worksheetName || 'Sheet1';
       let targetSheetId: number | null = null;
-      let sheetProperties: Array<{ sheetId?: number; title: string }> = [];
 
       try {
         const meta = await sheets.spreadsheets.get({
           spreadsheetId,
           fields: 'sheets.properties(sheetId,title)'
         });
-        sheetProperties = (meta.data.sheets || [])
+        const sheetProperties = (meta.data.sheets || [])
           .map((s: any) => s.properties)
           .filter((p: any) => p?.title) as Array<{ sheetId?: number; title: string }>;
-        const titles = sheetProperties.map((p: any) => p.title) as string[];
-        targetSheetId = sheetProperties.find((p: any) => p.title === targetWorksheet)?.sheetId ?? null;
+        const titles = sheetProperties.map(p => p.title);
 
         if (titles.length > 0 && !titles.includes(targetWorksheet)) {
           targetWorksheet = titles[0];
-          targetSheetId = sheetProperties.find((p: any) => p.title === targetWorksheet)?.sheetId ?? null;
-        } else {
-          targetSheetId = sheetProperties.find((p: any) => p.title === targetWorksheet)?.sheetId ?? null;
         }
+        targetSheetId = sheetProperties.find(p => p.title === targetWorksheet)?.sheetId ?? null;
 
         // Preserve the old metadata-heavy tab. Future lead data goes to a clean tab.
         const headerCheck = await sheets.spreadsheets.values.get({
@@ -533,7 +697,7 @@ async function startServer() {
             console.log('[SHEETS_CLEAN_TAB_CREATED]', { spreadsheetId, targetWorksheet, targetSheetId });
           } else {
             targetWorksheet = cleanTabName;
-            targetSheetId = sheetProperties.find((p: any) => p.title === targetWorksheet)?.sheetId ?? null;
+            targetSheetId = sheetProperties.find(p => p.title === cleanTabName)?.sheetId ?? null;
           }
         }
       } catch (err: any) {
@@ -577,6 +741,16 @@ async function startServer() {
           const value = field?.value == null ? '' : String(field.value).trim();
           if (!label || !value) continue;
           if (!fieldValues.has(label)) fieldValues.set(label, value);
+        }
+      }
+
+      // A Date/Time component stores the visitor's exact datetime-local value.
+      // Reject past dates/times at the server as well as in the browser.
+      const dateTimeEntry = Array.from(fieldValues.entries()).find(([, value]) => parseDateTimeLocal(value));
+      if (dateTimeEntry) {
+        const clientOffset = lead.clientTimezoneOffsetMinutes ?? lead.data?.clientTimezoneOffsetMinutes;
+        if (!isDateTimeLocalInPresentOrFuture(dateTimeEntry[1], clientOffset)) {
+          throw new Error('Please select the current date/time or a future date/time. Previous dates are not allowed.');
         }
       }
 
@@ -643,11 +817,16 @@ async function startServer() {
       }
 
       const submittedDate = new Date(lead.submittedAt || lead.timestamp || Date.now());
-      const safeSubmittedDate = Number.isNaN(submittedDate.getTime()) ? new Date() : submittedDate;
-      // Google Sheets stores dates/times as serial numbers. Writing the serial plus
-      // an explicit number format makes the Date column show both date and time,
-      // instead of exposing a value such as 46273.
-      const dateValue = (safeSubmittedDate.getTime() / 86400000) + 25569;
+      const selectedDateTimeValue = dateTimeEntry?.[1] || '';
+      const selectedDateTimeSerial = selectedDateTimeValue
+        ? dateTimeLocalToSheetsSerial(selectedDateTimeValue)
+        : null;
+      const submittedDateSerial = Number.isNaN(submittedDate.getTime())
+        ? null
+        : (submittedDate.getTime() / 86400000) + 25569;
+      // If the flow contains a Date/Time component, the Date column is the exact
+      // date/time chosen by the visitor. Otherwise it falls back to lead submission time.
+      const dateValue = selectedDateTimeSerial ?? submittedDateSerial ?? '';
 
       const rowValues = headers.map(header => {
         if (header.toLowerCase() === 'date') return dateValue;
@@ -666,9 +845,8 @@ async function startServer() {
         requestBody: { values: [rowValues] }
       });
 
-      // Force the Date column to display as date + time (24-hour format).
-      // This also fixes existing sheets that were displaying the raw serial
-      // number such as 46273.
+      // Force the Date column to display the exact selected date and time instead
+      // of exposing the underlying Google Sheets serial (for example 46273).
       const dateColumnIndex = headers.findIndex((h: string) => h.toLowerCase() === 'date');
       if (targetSheetId !== null && dateColumnIndex >= 0) {
         await sheets.spreadsheets.batchUpdate({
@@ -764,7 +942,7 @@ async function startServer() {
       const sheets = google.sheets({ version: 'v4', auth });
       const response = await sheets.spreadsheets.get({
         spreadsheetId,
-        fields: 'sheets.properties(sheetId,title)',
+        fields: 'sheets.properties.title',
       });
 
       const worksheets = (response.data.sheets || []).map(s => s.properties?.title).filter(Boolean);
@@ -1331,49 +1509,6 @@ async function startServer() {
 
 
 
-  // Server-side lead validation. Client-side validation improves UX, but the API
-  // must validate again because requests can be sent directly without the widget.
-  const validateLeadFieldValue = (label: string, value: any): string | null => {
-    const cleanValue = String(value ?? '').trim();
-    const normalizedLabel = String(label || '').replace(/\s+/g, ' ').trim().toLowerCase();
-    if (!cleanValue || !normalizedLabel) return null;
-
-    const isNameField = /\b(full\s*name|name)\b/.test(normalizedLabel);
-    const isEmailField = /\bemail\b/.test(normalizedLabel);
-    const isPhoneField = /\b(phone|mobile|contact\s*(number|no\.?))\b/.test(normalizedLabel);
-
-    if (isNameField) {
-      const normalizedName = cleanValue.replace(/\s+/g, ' ');
-      if (normalizedName.length < 2 || normalizedName.length > 80) {
-        return 'Please enter your full name (2–80 characters).';
-      }
-      if (!/^[\p{L}\p{M}]+(?:[ .\u0027\u2019-][\p{L}\p{M}]+)*$/u.test(normalizedName)) {
-        return 'Please enter a valid name using letters, spaces, hyphens or apostrophes only.';
-      }
-      return null;
-    }
-
-    if (isEmailField) {
-      if (cleanValue.length > 254 || /\s/.test(cleanValue) || !/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/i.test(cleanValue)) {
-        return 'Please enter a valid email address.';
-      }
-      return null;
-    }
-
-    if (isPhoneField) {
-      const phoneDigits = cleanValue.replace(/\D/g, '');
-      if (!/^[+\d][\d\s().-]*$/.test(cleanValue)) {
-        return 'Please enter a valid phone number using digits only (formatting such as +, spaces or hyphens is allowed).';
-      }
-      if (phoneDigits.length < 10 || phoneDigits.length > 15) {
-        return 'Please enter a valid phone number with 10–15 digits.';
-      }
-      return null;
-    }
-
-    return null;
-  };
-
   // Backend Lead Storage & Retrieval
   app.post('/api/leads', async (req, res) => {
     const leadPayload = req.body || {};
@@ -1409,17 +1544,6 @@ async function startServer() {
     let extractedEmail = '';
     let extractedPhone = '';
 
-    for (const field of fields) {
-      const validationError = validateLeadFieldValue(String(field?.label || ''), field?.value);
-      if (validationError) {
-        return res.status(400).json({
-          success: false,
-          error: validationError,
-          field: field?.label || ''
-        });
-      }
-    }
-
     fields.forEach(f => {
       if (f.label) {
         flattenedData[f.label] = f.value;
@@ -1442,10 +1566,8 @@ async function startServer() {
     if (!existingLead && conversationId) {
       existingLead = serverLeadsList.find(l => l.conversationId === conversationId);
     }
-    if (!existingLead && userId && botId && conversationId) {
-      existingLead = serverLeadsList.find(
-        l => l.userId === userId && l.botId === botId && l.conversationId === conversationId
-      );
+    if (!existingLead && userId && botId) {
+      existingLead = serverLeadsList.find(l => l.userId === userId && l.botId === botId);
     }
     if (!existingLead && db && conversationId) {
       try {
@@ -1487,6 +1609,9 @@ async function startServer() {
       source: leadPayload.source || existingLead?.source || 'Website Widget',
       referrer: leadPayload.referrer || existingLead?.referrer || '',
       submittedAt: leadPayload.submittedAt || existingLead?.submittedAt || nowIso,
+      clientTimezoneOffsetMinutes: Number.isFinite(Number(leadPayload.clientTimezoneOffsetMinutes))
+        ? Number(leadPayload.clientTimezoneOffsetMinutes)
+        : (existingLead?.clientTimezoneOffsetMinutes ?? null),
       createdAt: existingLead?.createdAt || nowIso,
       updatedAt: nowIso,
       updatedBy: 'system',
@@ -1521,89 +1646,70 @@ async function startServer() {
       fieldsCount: Array.isArray(leadPayload.fields) ? leadPayload.fields.length : 0
     });
 
-    // Respond to the widget as soon as the lead is safely persisted. Google Sheets
-    // synchronization runs completely in the background so Google/API latency never
-    // delays the customer-facing thank-you response.
-    //
-    // IMPORTANT: an update to an existing lead must NOT append another Google Sheet row.
-    // Only the first genuine lead submission is allowed to create the row.
-    const runGoogleSheetSyncInBackground = async () => {
-      if (isUpdate) {
-        console.log('[GOOGLE_SHEET_SYNC_SKIP_UPDATE]', { leadId, botId, conversationId });
-        return;
-      }
-      const sheetConfig = await resolveClientGoogleSheetsConfig(
-        clientId,
-        resolvedBot?.spreadsheetId,
-        resolvedBot?.worksheetName,
-        resolvedBot?.googleOwnerId
-      );
+    const sheetConfig = await resolveClientGoogleSheetsConfig(clientId, resolvedBot?.spreadsheetId, resolvedBot?.worksheetName, resolvedBot?.googleOwnerId);
 
-      if (sheetConfig.googleTokens && sheetConfig.spreadsheetId) {
-        try {
-          const syncRes = await syncLeadToGoogleSheets(sheetConfig.googleTokens, sheetConfig.spreadsheetId, sheetConfig.worksheetName, leadRecord);
-          leadRecord.googleSheetSyncStatus = 'synced';
-          leadRecord.googleSheetSyncAction = syncRes?.action || 'synced';
-          leadRecord.googleSheetSyncedAt = new Date().toISOString();
-          leadRecord.spreadsheetId = sheetConfig.spreadsheetId;
-          leadRecord.worksheetName = sheetConfig.worksheetName;
-          delete leadRecord.googleSheetSyncError;
+    if (sheetConfig.googleTokens && sheetConfig.spreadsheetId) {
+      try {
+        const syncRes = await syncLeadToGoogleSheets(sheetConfig.googleTokens, sheetConfig.spreadsheetId, sheetConfig.worksheetName, leadRecord);
+        leadRecord.googleSheetSyncStatus = 'synced';
+        leadRecord.googleSheetSyncAction = syncRes?.action || 'synced';
+        leadRecord.googleSheetSyncedAt = new Date().toISOString();
+        leadRecord.spreadsheetId = sheetConfig.spreadsheetId;
+        leadRecord.worksheetName = sheetConfig.worksheetName;
+        delete leadRecord.googleSheetSyncError;
 
-          if (db) {
-            await setDoc(doc(db, 'leads', leadId), {
-              googleSheetSyncStatus: 'synced',
-              googleSheetSyncedAt: leadRecord.googleSheetSyncedAt,
-              spreadsheetId: sheetConfig.spreadsheetId,
-              worksheetName: sheetConfig.worksheetName,
-              googleSheetSyncError: null
-            }, { merge: true }).catch(() => null);
-          }
-          saveLeadsToFile();
-        } catch (syncErr: any) {
-          console.error('[GOOGLE_SHEET_SYNC_FAILED]', { leadId, botId, spreadsheetId: sheetConfig.spreadsheetId, error: syncErr?.message || syncErr });
-          leadRecord.googleSheetSyncStatus = 'failed';
-          leadRecord.googleSheetSyncError = syncErr?.message || 'Sync failed';
-          leadRecord.spreadsheetId = sheetConfig.spreadsheetId;
-          leadRecord.worksheetName = sheetConfig.worksheetName;
-
-          if (db) {
-            await setDoc(doc(db, 'leads', leadId), {
-              googleSheetSyncStatus: 'failed',
-              googleSheetSyncError: leadRecord.googleSheetSyncError,
-              spreadsheetId: sheetConfig.spreadsheetId,
-              worksheetName: sheetConfig.worksheetName
-            }, { merge: true }).catch(() => null);
-          }
-          saveLeadsToFile();
-        }
-      } else {
-        console.log('[GOOGLE_SHEET_SYNC_FAILED]', { leadId, botId, error: 'Google Account or Spreadsheet not connected for this bot' });
-        leadRecord.googleSheetSyncStatus = 'not_configured';
         if (db) {
-          await setDoc(doc(db, 'leads', leadId), { googleSheetSyncStatus: 'not_configured' }, { merge: true }).catch(() => null);
+          await setDoc(doc(db, 'leads', leadId), {
+            googleSheetSyncStatus: 'synced',
+            googleSheetSyncedAt: leadRecord.googleSheetSyncedAt,
+            spreadsheetId: sheetConfig.spreadsheetId,
+            worksheetName: sheetConfig.worksheetName,
+            googleSheetSyncError: null
+          }, { merge: true }).catch(() => null);
+        }
+        saveLeadsToFile();
+      } catch (syncErr: any) {
+        console.error('[GOOGLE_SHEET_SYNC_FAILED]', { leadId, botId, spreadsheetId: sheetConfig.spreadsheetId, error: syncErr?.message || syncErr });
+        leadRecord.googleSheetSyncStatus = 'failed';
+        leadRecord.googleSheetSyncError = syncErr?.message || 'Sync failed';
+        leadRecord.spreadsheetId = sheetConfig.spreadsheetId;
+        leadRecord.worksheetName = sheetConfig.worksheetName;
+
+        if (db) {
+          await setDoc(doc(db, 'leads', leadId), {
+            googleSheetSyncStatus: 'failed',
+            googleSheetSyncError: leadRecord.googleSheetSyncError,
+            spreadsheetId: sheetConfig.spreadsheetId,
+            worksheetName: sheetConfig.worksheetName
+          }, { merge: true }).catch(() => null);
         }
         saveLeadsToFile();
       }
-    };
+    } else {
+      console.log('[GOOGLE_SHEET_SYNC_FAILED]', { leadId, botId, error: 'Google Account or Spreadsheet not connected for this bot' });
+      leadRecord.googleSheetSyncStatus = 'not_configured';
+      if (db) {
+        await setDoc(doc(db, 'leads', leadId), { googleSheetSyncStatus: 'not_configured' }, { merge: true }).catch(() => null);
+      }
+      saveLeadsToFile();
+    }
 
     broadcastEvent(isUpdate ? 'LEAD_UPDATED' : 'LEAD_CAPTURED', leadRecord);
 
-    // Start Google Sheets synchronization after the response path has been
-    // prepared. This is intentionally fire-and-forget.
-    void runGoogleSheetSyncInBackground().catch(err => {
-      console.error('[GOOGLE_SHEET_BACKGROUND_SYNC_FAILED]', { leadId, botId, error: err?.message || err });
-    });
+    if (leadRecord.googleSheetSyncStatus !== 'synced') {
+      autoSyncPendingLeads(botId, clientId).catch(() => null);
+    }
 
     return res.json({
       success: true,
       leadId,
       isUpdate,
       googleSheetSync: {
-        status: 'pending',
-        spreadsheetId: null,
-        worksheetName: null,
-        action: null,
-        error: null
+        status: leadRecord.googleSheetSyncStatus,
+        spreadsheetId: sheetConfig.spreadsheetId || null,
+        worksheetName: sheetConfig.worksheetName || null,
+        action: leadRecord.googleSheetSyncAction || null,
+        error: leadRecord.googleSheetSyncError || null
       }
     });
   });
@@ -1807,41 +1913,28 @@ async function startServer() {
     const cleanId = (leadId || '').trim();
     if (!cleanId) return false;
 
+    // 1. Remove from server in-memory list
     loadLeadsFromFile();
-
-    let removedFromLocal = false;
+    let removed = false;
     for (let i = serverLeadsList.length - 1; i >= 0; i--) {
-      const lead = serverLeadsList[i];
-      if (lead && (String(lead.id || '') === cleanId || String(lead.docId || '') === cleanId)) {
+      if (serverLeadsList[i] && (serverLeadsList[i].id === cleanId || serverLeadsList[i].docId === cleanId)) {
         serverLeadsList.splice(i, 1);
-        removedFromLocal = true;
+        removed = true;
       }
     }
 
-    if (removedFromLocal) {
-      saveLeadsToFile();
-    }
+    // 2. Persist updated leads to leads.json file
+    saveLeadsToFile();
 
-    let removedFromFirestore = false;
-
+    // 3. Delete from Cloud Firestore
     if (db) {
       try {
-        // Direct document ID delete. This is the normal storage path.
-        const directRef = doc(db, 'leads', cleanId);
-        const directSnap = await getDoc(directRef).catch(() => null);
-        if (directSnap?.exists()) {
-          await deleteDoc(directRef);
-          removedFromFirestore = true;
-        }
-
-        // Also remove legacy documents whose document ID differs but whose stored
-        // lead.id matches the requested ID.
+        await deleteDoc(doc(db, 'leads', cleanId)).catch(() => null);
         const q = query(collection(db, 'leads'), where('id', '==', cleanId));
         const qSnap = await getDocs(q).catch(() => null);
         if (qSnap && !qSnap.empty) {
           for (const d of qSnap.docs) {
-            await deleteDoc(doc(db, 'leads', d.id));
-            removedFromFirestore = true;
+            await deleteDoc(doc(db, 'leads', d.id)).catch(() => null);
           }
         }
       } catch (err) {
@@ -1849,97 +1942,25 @@ async function startServer() {
       }
     }
 
-    const deleted = removedFromLocal || removedFromFirestore;
-    if (deleted) {
-      broadcastEvent('LEAD_DELETED', { leadId: cleanId });
-    }
-
-    return deleted;
+    // 4. Broadcast SSE Event so connected dashboards update instantly
+    broadcastEvent('LEAD_DELETED', { leadId: cleanId });
+    return true;
   }
 
   app.delete('/api/leads/:id', async (req, res) => {
     const { id } = req.params;
-    const deleted = await deleteLeadPermanently(id);
-    if (!deleted) {
-      return res.status(404).json({ success: false, error: 'Lead not found.', deletedId: id });
-    }
-    return res.json({ success: true, deletedId: id });
+    await deleteLeadPermanently(id);
+    res.json({ success: true, deletedId: id });
   });
 
   app.post('/api/leads/delete', async (req, res) => {
     const { id, leadId } = req.body || {};
     const targetId = id || leadId;
     if (!targetId) {
-      return res.status(400).json({ success: false, error: 'Lead ID is required' });
+      return res.status(400).json({ error: 'Lead ID is required' });
     }
-    const deleted = await deleteLeadPermanently(String(targetId));
-    if (!deleted) {
-      return res.status(404).json({ success: false, error: 'Lead not found.', deletedId: targetId });
-    }
-    return res.json({ success: true, deletedId: targetId });
-  });
-
-  // Permanently delete multiple lead records in one request.
-  app.post('/api/leads/bulk-delete', async (req, res) => {
-    // Express request bodies are intentionally normalized here so TypeScript
-    // does not infer the IDs as `unknown[]` under strict settings.
-    const body = req.body as { ids?: unknown } | undefined;
-    const rawIds: unknown[] = Array.isArray(body?.ids) ? body.ids : [];
-
-    const ids: string[] = rawIds
-      .map((value: unknown): string => String(value ?? '').trim())
-      .filter((value: string): value is string => value.length > 0)
-      .filter((value: string, index: number, values: string[]): boolean =>
-        values.indexOf(value) === index
-      );
-
-    if (ids.length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'At least one lead ID is required.',
-      });
-    }
-
-    if (ids.length > 500) {
-      return res.status(400).json({
-        success: false,
-        error: 'You can delete a maximum of 500 leads at once.',
-      });
-    }
-
-    const deletedIds: string[] = [];
-    const failed: Array<{ id: string; error: string }> = [];
-
-    for (const id of ids) {
-      try {
-        const deleted: boolean = await deleteLeadPermanently(id);
-
-        if (deleted) {
-          deletedIds.push(id);
-        } else {
-          failed.push({
-            id,
-            error: 'Lead could not be deleted.',
-          });
-        }
-      } catch (error: unknown) {
-        const errorMessage =
-          error instanceof Error ? error.message : String(error ?? 'Delete failed.');
-
-        failed.push({
-          id,
-          error: errorMessage || 'Delete failed.',
-        });
-      }
-    }
-
-    return res.json({
-      success: true,
-      deletedIds,
-      failed,
-      deletedCount: deletedIds.length,
-      failedCount: failed.length,
-    });
+    await deleteLeadPermanently(targetId);
+    res.json({ success: true, deletedId: targetId });
   });
 
 
