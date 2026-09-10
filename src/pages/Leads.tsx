@@ -405,7 +405,8 @@ export default function Leads() {
         isGlobalAdminView,
       );
 
-      if (cancelled || serverLeads.length === 0) return;
+      if (cancelled) return;
+      if (serverLeads.length === 0) return;
 
       const deletedIds = new Set(getDeletedLeadIds());
 
@@ -427,6 +428,10 @@ export default function Leads() {
         return Array.from(map.values());
       });
     };
+
+    // Load from the backend immediately. Firestore remains the live source when
+    // available, but a Firestore snapshot/auth issue must not leave the Leads page empty.
+    void refreshServerLeads();
 
     const unsubscribe = onSnapshot(
       collection(db, 'leads'),
@@ -669,7 +674,10 @@ export default function Leads() {
       const response = await fetch('/api/leads/retry-sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ leadId: lead.id }),
+        // Send the complete dashboard lead as a fallback. This lets the server
+        // retry Google Sheets even when server-side Firestore reads are blocked
+        // by Firestore security rules.
+        body: JSON.stringify({ leadId: lead.id, lead }),
       });
 
       const data = await response.json().catch(() => ({}));
