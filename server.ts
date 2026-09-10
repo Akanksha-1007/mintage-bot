@@ -1948,6 +1948,37 @@ async function startServer() {
       );
     }
 
+    // Existing chatbot users may predate the automatic lead promotion. Backfill
+    // identified users so the Lead data page matches the Admin Console immediately.
+    try {
+      await backfillChatbotUsersAsLeads();
+      loadLeadsFromFile();
+      const refreshedMap = new Map<string, any>();
+      serverLeadsList.forEach(l => { if (l && l.id) refreshedMap.set(l.id, l); });
+      firestoreLeads.forEach(l => { if (l && l.id) refreshedMap.set(l.id, l); });
+      allLeads = Array.from(refreshedMap.values());
+
+      if (targetOwner && targetOwner !== 'ALL' && targetOwner !== 'admin') {
+        allLeads = allLeads.filter(l =>
+          l.clientId === targetOwner ||
+          l.ownerId === targetOwner ||
+          l.userId === targetOwner ||
+          l.createdBy === targetOwner ||
+          targetOwner === 'demo_user' ||
+          l.clientId === 'demo_user' ||
+          l.clientId === 'guest_user' ||
+          !l.clientId ||
+          !l.ownerId
+        );
+      }
+
+      if (targetBot && targetBot !== 'ALL') {
+        allLeads = allLeads.filter(l => l.botId === targetBot || l.flowId === targetBot);
+      }
+    } catch (backfillErr) {
+      console.warn('[CHATBOT_LEAD_BACKFILL_GET_WARNING]', backfillErr);
+    }
+
     // Auto-sync any unsynced leads in background when dashboard loads/fetches leads
     if (allLeads.some(l => l && l.googleSheetSyncStatus !== 'synced')) {
       autoSyncPendingLeads(targetBot as string, targetOwner as string).catch(() => null);
@@ -2646,6 +2677,168 @@ async function startServer() {
     });
   });
 
+  // Create/update a lead whenever the chatbot identifies a visitor with contact details.
+  // This keeps the Admin Console People data and Lead data in sync even when the flow
+  // does not contain an explicit saveLead node.
+  async function upsertLeadFromChatbotProfile(params: {
+    userId: string;
+    conversationId: string;
+    botId: string;
+    user: any;
+    sourceUrl?: string;
+  }) {
+    const { userId, conversationId, botId, user, sourceUrl } = params;
+    const email = String(user?.email || '').trim();
+    const phone = String(user?.phone || '').trim();
+    const name = String(user?.name || '').trim();
+
+    // A chatbot user becomes a lead once we have a usable contact value.
+    if (!email && !phone) return null;
+
+    const resolvedBot = await resolveBotAndOwner(botId);
+    const clientId = resolvedBot?.clientId || 'demo_user';
+    const botName = resolvedBot?.botName || 'Chatbot';
+    const nowIso = new Date().toISOString();
+
+    loadLeadsFromFile();
+
+    let existingLead: any = serverLeadsList.find(
+      (lead) =>
+        (conversationId && lead.conversationId === conversationId) ||
+        (userId && lead.userId === userId && lead.botId === botId)
+    );
+
+    if (!existingLead && db && conversationId) {
+      try {
+        const q = query(collection(db, 'leads'), where('conversationId', '==', conversationId));
+        const snap = await getDocs(q).catch(() => null);
+        if (snap && !snap.empty) {
+          existingLead = { id: snap.docs[0].id, ...snap.docs[0].data() };
+        }
+      } catch (e) {
+        console.warn('[CHATBOT_LEAD_LOOKUP_WARNING]', e);
+      }
+    }
+
+    const leadId = existingLead?.id || `lead_${botId}_${conversationId || userId}`;
+    const existingFields = Array.isArray(existingLead?.fields) ? existingLead.fields : [];
+    const fieldMap = new Map<string, any>();
+
+    existingFields.forEach((field: any) => {
+      if (field?.label) fieldMap.set(String(field.label).trim().toLowerCase(), field);
+    });
+
+    const contactFields = [
+      { fieldId: 'name', label: 'Name', value: name },
+      { fieldId: 'phone', label: 'Phone Number', value: phone },
+      { fieldId: 'email', label: 'Email', value: email }
+    ];
+
+    contactFields.forEach((field) => {
+      if (field.value) fieldMap.set(field.label.toLowerCase(), field);
+    });
+
+    const fields = Array.from(fieldMap.values());
+    const data = {
+      ...(existingLead?.data && typeof existingLead.data === 'object' ? existingLead.data : {}),
+      ...(name ? { Name: name } : {}),
+      ...(phone ? { 'Phone Number': phone } : {}),
+      ...(email ? { Email: email } : {})
+    };
+
+    const leadRecord: any = {
+      ...(existingLead || {}),
+      id: leadId,
+      botId,
+      flowId: botId,
+      clientId,
+      ownerId: clientId,
+      googleOwnerId: resolvedBot?.googleOwnerId || existingLead?.googleOwnerId || '',
+      userId,
+      conversationId: conversationId || existingLead?.conversationId || '',
+      botName,
+      clientName: botName,
+      name: name || existingLead?.name || '',
+      email: email || existingLead?.email || '',
+      phone: phone || existingLead?.phone || '',
+      status: existingLead?.status || 'New',
+      fields,
+      data,
+      sourceUrl: sourceUrl || existingLead?.sourceUrl || '',
+      source: existingLead?.source || 'Chatbot Visitor',
+      submittedAt: existingLead?.submittedAt || nowIso,
+      createdAt: existingLead?.createdAt || nowIso,
+      updatedAt: nowIso,
+      updatedBy: 'chatbot-profile',
+      googleSheetSyncStatus: existingLead?.googleSheetSyncStatus || 'pending'
+    };
+
+    const idx = serverLeadsList.findIndex(
+      (lead) => lead.id === leadId ||
+        (lead.userId === userId && lead.botId === botId) ||
+        (conversationId && lead.conversationId === conversationId)
+    );
+
+    if (idx !== -1) serverLeadsList[idx] = leadRecord;
+    else serverLeadsList.unshift(leadRecord);
+
+    saveLeadsToFile();
+
+    if (db) {
+      await setDoc(doc(db, 'leads', leadId), leadRecord, { merge: true }).catch((err) => {
+        console.warn('[CHATBOT_LEAD_FIRESTORE_WARNING]', err?.message || err);
+      });
+    }
+
+    broadcastEvent('LEAD_CAPTURED', leadRecord);
+    void autoSyncPendingLeads(botId, clientId).catch((err) => {
+      console.warn('[CHATBOT_LEAD_SHEET_SYNC_WARNING]', err?.message || err);
+    });
+
+    console.log('[CHATBOT_LEAD_UPSERTED]', {
+      leadId,
+      userId,
+      conversationId,
+      botId,
+      hasName: Boolean(name),
+      hasEmail: Boolean(email),
+      hasPhone: Boolean(phone)
+    });
+
+    return leadRecord;
+  }
+
+  // Backfill existing identified chatbot users into the lead database. This is
+  // intentionally contact-only so anonymous visitors are not shown as leads.
+  async function backfillChatbotUsersAsLeads() {
+    loadChatbotStoreFromFile();
+    const users = Array.from(serverChatbotUsersMap.values());
+
+    for (const user of users) {
+      if (!user || (!user.email && !user.phone)) continue;
+
+      const conversations = Array.from(serverConversationsMap.values())
+        .filter((conversation) => conversation.userId === user.id)
+        .sort((a, b) =>
+          new Date(b.lastMessageAt || b.startedAt || 0).getTime() -
+          new Date(a.lastMessageAt || a.startedAt || 0).getTime()
+        );
+
+      const conversation = conversations[0];
+      if (!conversation?.botId) continue;
+
+      await upsertLeadFromChatbotProfile({
+        userId: user.id,
+        conversationId: conversation.id,
+        botId: conversation.botId,
+        user,
+        sourceUrl: user.source || ''
+      }).catch((err) => {
+        console.warn('[CHATBOT_LEAD_BACKFILL_WARNING]', err?.message || err);
+      });
+    }
+  }
+
   // 2. Post Chatbot Message Endpoint (Stores both user & bot messages)
   app.post('/api/chatbot/message', async (req, res) => {
     const { userId, conversationId, botId, sender, message, messageType, metadata, userProfileUpdate } = req.body || {};
@@ -2719,6 +2912,20 @@ async function startServer() {
     }
 
     serverChatbotUsersMap.set(userId, userRecord);
+
+    // Automatically promote identified visitors with contact details to leads.
+    if (userRecord.email || userRecord.phone) {
+      await upsertLeadFromChatbotProfile({
+        userId,
+        conversationId,
+        botId: cleanString(botId || 'default_bot', 100),
+        user: userRecord,
+        sourceUrl: userRecord.source || ''
+      }).catch((err) => {
+        console.warn('[CHATBOT_LEAD_CAPTURE_WARNING]', err?.message || err);
+      });
+    }
+
     saveChatbotStoreToFile();
 
     // 4. Firestore Persistence
