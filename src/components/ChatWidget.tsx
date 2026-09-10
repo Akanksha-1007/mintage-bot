@@ -4,6 +4,21 @@ import { doc, getDoc, getDocs, collection, addDoc, serverTimestamp } from 'fireb
 import { motion, AnimatePresence } from 'motion/react';
 import { Send, Bot, Loader2, ChevronRight, Minus, X, Phone, CalendarDays, MessageCircle, Headphones, ExternalLink } from 'lucide-react';
 
+// Always send widget API requests to the Mintage backend. A relative /api URL
+// would point to the client's website when the widget is embedded externally.
+const MINTAGE_API_BASE = (() => {
+  const configured = String(import.meta.env.VITE_API_BASE_URL || '').trim();
+  if (configured) return configured.replace(/\/+$/, '');
+  const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+  if (hostname === 'localhost' || hostname === '127.0.0.1') return '';
+  return 'https://chatbot.mintagemarkcomm.com';
+})();
+
+const mintageApi = (endpoint: string) => {
+  const clean = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  return `${MINTAGE_API_BASE}${clean}`;
+};
+
 interface ChatWidgetProps {
   botId: string;
 }
@@ -154,7 +169,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   useEffect(() => {
     const initSession = async () => {
       try {
-        const res = await fetch('/api/chatbot/session', {
+        const res = await fetch(mintageApi('/api/chatbot/session'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -195,7 +210,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     try {
       let activeConvId = conversationId;
       if (!activeConvId) {
-        const sessRes = await fetch('/api/chatbot/session', {
+        const sessRes = await fetch(mintageApi('/api/chatbot/session'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ userId: chatUserId, botId: botId || 'default_bot', source: window.location.href })
@@ -211,7 +226,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
       if (!activeConvId) return;
 
-      await fetch('/api/chatbot/message', {
+      await fetch(mintageApi('/api/chatbot/message'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -345,7 +360,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       // 2. Try loading from Server API (/api/bots/:id)
       if (!botData && cleanBotId && cleanBotId !== 'SAVE_FIRST') {
         try {
-          const res = await fetch(`/api/bots/${encodeURIComponent(cleanBotId)}`);
+          const res = await fetch(mintageApi(`/api/bots/${encodeURIComponent(cleanBotId)}`));
           const contentType = res.headers.get('content-type') || '';
           if (res.ok && contentType.includes('application/json')) {
             const apiRes = await res.json();
@@ -819,7 +834,10 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     setIsSubmitting(true);
 
     const effectiveClientId = localStorage.getItem('mintage_effective_user_id') || localStorage.getItem('mintage_client_id') || undefined;
+    const submissionId = `lead_${botId}_${conversationId || chatUserId || Date.now()}`;
+
     const payload = {
+      id: submissionId,
       botId,
       clientId: effectiveClientId,
       userId: chatUserId,
@@ -848,7 +866,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
     let leadSubmissionSucceeded = false;
     try {
-      const res = await fetch('/api/leads', {
+      const res = await fetch(mintageApi('/api/leads'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -862,9 +880,15 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         newLeadRecord.googleSheetSyncStatus = resData.googleSheetSync?.status || 'pending';
         newLeadRecord.googleSheetSyncAction = resData.googleSheetSync?.action || null;
         leadSubmittedRef.current = true;
+      } else {
+        console.error('[LEAD] submission rejected:', {
+          status: res.status,
+          statusText: res.statusText,
+          response: resData
+        });
       }
     } catch (error) {
-      console.warn('[LEAD] submission network notice, using local persistence fallback:', error);
+      console.error('[LEAD] submission failed:', error);
     }
 
     // Always persist to localStorage and dispatch custom event for real-time dashboard listeners
@@ -893,7 +917,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
   const syncToGoogleSheets = async (data: any, tokens: any, spreadsheetId: string) => {
     try {
-      await fetch('/api/sync-lead', {
+      await fetch(mintageApi('/api/sync-lead'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tokens, spreadsheetId, leadData: data }),
