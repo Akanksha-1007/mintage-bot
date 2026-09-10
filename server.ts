@@ -1669,7 +1669,7 @@ async function startServer() {
     console.log('[LEAD_PERSISTENCE_START]', { leadId, clientId, botId, isUpdate });
 
     // Always persist to local memory & disk JSON file first
-    const idx = serverLeadsList.findIndex(l => l.id === leadId);
+    const idx = serverLeadsList.findIndex(l => l.id === leadRecord.id || l.docId === leadRecord.docId || l.id === leadId);
     if (idx !== -1) {
       serverLeadsList[idx] = leadRecord;
     } else {
@@ -2028,19 +2028,43 @@ async function startServer() {
 
     let lead: any = null;
 
+    // Resolve the lead using both possible identifiers.
+    // Dashboard rows can use either the Firestore document ID or the
+    // application's stored lead.id. Older leads may use one while newer
+    // leads use the other, so retry must support both.
     if (db) {
       try {
+        // 1. First try leadId as the Firestore document ID.
         const leadRef = doc(db, 'leads', leadId);
         const leadSnap = await getDoc(leadRef);
         if (leadSnap.exists()) {
-          lead = { id: leadSnap.id, ...leadSnap.data() };
+          lead = { id: leadSnap.id, docId: leadSnap.id, ...leadSnap.data() };
         }
-      } catch (e) { }
+
+        // 2. If not found, try the application's stored `id` field.
+        if (!lead) {
+          const leadQuery = query(
+            collection(db, 'leads'),
+            where('id', '==', leadId),
+            limit(1)
+          );
+          const leadQuerySnap = await getDocs(leadQuery);
+          if (!leadQuerySnap.empty) {
+            const matched = leadQuerySnap.docs[0];
+            lead = { id: String(matched.data()?.id || matched.id), docId: matched.id, ...matched.data() };
+          }
+        }
+      } catch (e) {
+        console.warn('[LEAD_RETRY_FIRESTORE_LOOKUP_WARNING]', e);
+      }
     }
 
+    // 3. Finally check the local lead store using both id and docId.
     if (!lead) {
       loadLeadsFromFile();
-      lead = serverLeadsList.find(l => l.id === leadId);
+      lead = serverLeadsList.find(
+        l => l && (String(l.id || '') === leadId || String(l.docId || '') === leadId)
+      );
     }
 
     if (!lead) {
@@ -2074,7 +2098,7 @@ async function startServer() {
       delete lead.googleSheetSyncError;
 
       if (db) {
-        await setDoc(doc(db, 'leads', leadId), {
+        await setDoc(doc(db, 'leads', lead.docId || leadId), {
           googleSheetSyncStatus: 'synced',
           googleSheetSyncedAt: lead.googleSheetSyncedAt,
           googleSheetSyncError: null,
@@ -2085,7 +2109,7 @@ async function startServer() {
       }
 
       loadLeadsFromFile();
-      const idx = serverLeadsList.findIndex(l => l.id === leadId);
+      const idx = serverLeadsList.findIndex(l => l.id === lead.id || l.docId === lead.docId || l.id === leadId);
       if (idx !== -1) serverLeadsList[idx] = lead;
       saveLeadsToFile();
 
@@ -2098,7 +2122,7 @@ async function startServer() {
       lead.googleSheetSyncError = err?.message || 'Sync failed';
 
       if (db) {
-        await setDoc(doc(db, 'leads', leadId), { googleSheetSyncStatus: 'failed', googleSheetSyncError: lead.googleSheetSyncError }, { merge: true }).catch(() => null);
+        await setDoc(doc(db, 'leads', lead.docId || leadId), { googleSheetSyncStatus: 'failed', googleSheetSyncError: lead.googleSheetSyncError }, { merge: true }).catch(() => null);
       }
 
       res.status(500).json({ success: false, error: err?.message || 'Failed to sync lead to Google Sheets.' });
