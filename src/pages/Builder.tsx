@@ -630,6 +630,34 @@ function BuilderContent() {
     setNodes([...(Array.isArray(nodes) ? nodes : []), newNode]);
   };
 
+  const duplicateNode = (node: Node) => {
+    const currentNodes = Array.isArray(nodes) ? nodes : [];
+    const currentEdges = Array.isArray(edges) ? edges : [];
+    const newId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `node_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+    // Clone the component and all of its configured properties, but do not
+    // clone edges. The duplicate starts as an independent component so the
+    // user can decide where it belongs in the flow.
+    const duplicatedNode: Node = {
+      ...node,
+      id: newId,
+      data: { ...node.data },
+      position: {
+        x: (node.position?.x || 0) + 60,
+        y: (node.position?.y || 0) + 60,
+      },
+      selected: false,
+    };
+
+    setNodes([...currentNodes, duplicatedNode]);
+    // Keep the existing connections untouched.
+    setEdges(currentEdges);
+    setSelectedNode(duplicatedNode);
+    showToast('Component duplicated successfully!');
+  };
+
   const deleteNode = (id: string) => {
     setNodes((Array.isArray(nodes) ? nodes : []).filter(n => n.id !== id));
     setEdges((Array.isArray(edges) ? edges : []).filter(e => e.source !== id && e.target !== id));
@@ -1494,6 +1522,13 @@ function BuilderContent() {
                     >
                       <Check />
                       Apply changes
+                    </button>
+                    <button
+                      onClick={() => duplicateNode(selectedNode)}
+                      className="button-secondary button-block"
+                    >
+                      <Copy />
+                      Duplicate component
                     </button>
                     <button
                       onClick={() => deleteNode(selectedNode.id)}
