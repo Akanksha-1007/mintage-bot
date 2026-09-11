@@ -124,6 +124,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   const leadSubmitInFlightRef = useRef(false);
   const leadSubmittedRef = useRef(false);
   const leadSubmissionKeyRef = useRef<string | null>(null);
+  const leadSubmissionFingerprintRef = useRef<string | null>(null);
   const thankYouShownRef = useRef(false);
 
   const showThankYouOnce = () => {
@@ -188,6 +189,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
             }
             if (data.conversationId) {
               setConversationId(data.conversationId);
+              localStorage.setItem(`mintage_conversation_${botId}_${data.userId || chatUserId}`, data.conversationId);
             }
           }
         }
@@ -220,6 +222,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
           if (sessData.conversationId) {
             activeConvId = sessData.conversationId;
             setConversationId(activeConvId);
+            localStorage.setItem(`mintage_conversation_${botId}_${chatUserId}`, activeConvId);
           }
         }
       }
@@ -510,8 +513,12 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       setNodes(nodesData);
       setEdges(edgesData);
       setMessages([]);
+      setLeadData({});
+      setDynamicFields([]);
       leadSubmitInFlightRef.current = false;
       leadSubmittedRef.current = false;
+      leadSubmissionKeyRef.current = null;
+      leadSubmissionFingerprintRef.current = null;
       thankYouShownRef.current = false;
 
       const startNode =
@@ -830,14 +837,33 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const saveLead = async (data: any, fieldsList: Array<{ fieldId: string; label: string; value: string; fieldKey?: string; type?: string }> = dynamicFields) => {
+    // One stable lead ID per bot + visitor conversation. Re-submitting the same
+    // data is ignored, but a later submission containing new data (for example
+    // Book a Visit after contact details) is allowed to update the same lead.
     const submissionKey = `${botId}::${conversationId || chatUserId}`;
-    if (leadSubmittedRef.current || leadSubmitInFlightRef.current || isSubmitting || leadSubmissionKeyRef.current === submissionKey) return;
+    const stableConversationId = conversationId || localStorage.getItem(`mintage_conversation_${botId}_${chatUserId}`) || '';
+    const submissionId = `lead_${botId}_${stableConversationId || chatUserId}`;
+    const fingerprint = JSON.stringify(
+      fieldsList
+        .map((f: any) => ({
+          fieldId: String(f?.fieldId || ''),
+          fieldKey: String(f?.fieldKey || ''),
+          label: String(f?.label || ''),
+          type: String(f?.type || ''),
+          value: String(f?.value ?? '').trim()
+        }))
+        .sort((a: any, b: any) => `${a.fieldKey}|${a.fieldId}`.localeCompare(`${b.fieldKey}|${b.fieldId}`))
+    );
+
+    if (leadSubmitInFlightRef.current || isSubmitting) return;
+    if (leadSubmissionKeyRef.current === submissionKey && leadSubmissionFingerprintRef.current === fingerprint) return;
+
     leadSubmissionKeyRef.current = submissionKey;
+    leadSubmissionFingerprintRef.current = fingerprint;
     leadSubmitInFlightRef.current = true;
     setIsSubmitting(true);
 
     const effectiveClientId = localStorage.getItem('mintage_effective_user_id') || localStorage.getItem('mintage_client_id') || undefined;
-    const submissionId = `lead_${botId}_${conversationId || chatUserId || Date.now()}`;
 
     const payload = {
       id: submissionId,
@@ -845,10 +871,9 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       clientId: effectiveClientId,
       userId: chatUserId,
       chatUserId,
-      conversationId: conversationId || '',
+      conversationId: stableConversationId,
       fields: fieldsList,
-      // Used only by the server to validate datetime-local values against the
-      // visitor's local clock. The selected field value itself remains unchanged.
+      // Preserve the exact local date/time selected by the visitor.
       clientTimezoneOffsetMinutes: new Date().getTimezoneOffset(),
       sourceUrl: window.location.href,
       submittedAt: new Date().toISOString()
@@ -857,7 +882,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     console.log('[LEAD] submitting', payload);
 
     const newLeadRecord: LeadRecord = {
-      id: 'lead_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+      id: submissionId,
       botId,
       flowId: botId,
       fields: fieldsList,
@@ -923,7 +948,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       await fetch(mintageApi('/api/sync-lead'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tokens, spreadsheetId, leadData: data }),
+        body: JSON.stringify({ tokens, spreadsheetId, leadData: data, leadId: data?.id || undefined, conversationId: conversationId || '' }),
       });
     } catch (error) {
       console.error('Error syncing to sheets:', error);

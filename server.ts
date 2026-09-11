@@ -585,6 +585,32 @@ async function startServer() {
     return result;
   }
 
+  const normalizeLeadEmail = (value: any) => String(value ?? '').trim().toLowerCase();
+  const normalizeLeadPhone = (value: any) => String(value ?? '').replace(/\D/g, '');
+  const normalizeLeadName = (value: any) => String(value ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+  const isBookVisitField = (field: any) => {
+    const label = String(field?.label ?? '').replace(/\s+/g, ' ').trim();
+    const key = String(field?.fieldKey ?? field?.key ?? field?.leadKey ?? '').replace(/\s+/g, ' ').trim();
+    const type = String(field?.type ?? '').trim().toLowerCase();
+    const haystack = `${label} ${key}`.toLowerCase();
+    return type === 'appointment' || type === 'datetime' || type === 'datetime-local' ||
+      /\b(book\s*(a\s*)?visit|visit|appointment|date\s*(and|&)\s*time|date\s*[/&-]?\s*time)\b/.test(haystack);
+  };
+
+  const normalizeBookVisitValue = (value: any): string => {
+    const raw = String(value ?? '').trim();
+    if (!raw) return '';
+    if (parseDateTimeLocal(raw)) return raw.length === 16 ? `${raw}:00` : raw;
+
+    // Accept an ISO timestamp if an older widget version sent one. Convert it
+    // back to the visitor's wall-clock representation without changing the
+    // actual selected date/time when it already has an explicit local part.
+    const iso = raw.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?(?:Z|[+-]\d{2}:?\d{2})$/);
+    if (iso) return `${iso[1]}T${iso[2]}:${iso[3]}:${iso[4] || '00'}`;
+    return raw;
+  };
+
   // Google Sheets synchronization.
   // Sheet layout:
   //   Row 1 = Date + the questions/field labels actually answered by users
@@ -652,12 +678,13 @@ async function startServer() {
         throw err;
       }
 
-      // Extract ONLY the four fields we want. Do not inspect lead.data.
+      // Extract the four managed fields from both the canonical fields array and
+      // legacy data keys. This makes Book a Visit resilient to older widget payloads.
       const selectedFields = {
-        name: '',
-        phone: '',
-        email: '',
-        bookVisit: ''
+        name: String(lead?.name ?? '').trim(),
+        phone: String(lead?.phone ?? '').trim(),
+        email: String(lead?.email ?? '').trim(),
+        bookVisit: normalizeBookVisitValue(lead?.bookVisit ?? lead?.book_a_visit ?? lead?.data?.book_a_visit ?? lead?.data?.['Book a Visit'] ?? '')
       };
 
       if (Array.isArray(lead.fields)) {
@@ -672,17 +699,26 @@ async function startServer() {
           const isName = type === 'name' || /\b(full\s*name|name)\b/.test(haystack);
           const isPhone = type === 'phone' || /\b(phone|mobile|contact\s*(number|no\.?))\b/.test(haystack);
           const isEmail = type === 'email' || /\bemail\b/.test(haystack);
-          const isBookVisit =
-            type === 'appointment' || type === 'datetime' || type === 'datetime-local' || type === 'dateTime'.toLowerCase() ||
-            /\b(book\s*(a\s*)?visit|visit|appointment|date\s*(and|&)\s*time|date\s*[/&-]?\s*time)\b/.test(haystack);
 
           if (isName && !selectedFields.name) selectedFields.name = value;
           else if (isPhone && !selectedFields.phone) selectedFields.phone = value;
           else if (isEmail && !selectedFields.email) selectedFields.email = value;
-          else if (isBookVisit && !selectedFields.bookVisit) selectedFields.bookVisit = value;
+          else if (isBookVisitField(field)) selectedFields.bookVisit = normalizeBookVisitValue(value);
         }
       }
 
+      // Legacy payload fallbacks.
+      const legacyData = lead?.data && typeof lead.data === 'object' ? lead.data : {};
+      if (!selectedFields.name) selectedFields.name = String(legacyData.name ?? legacyData.Name ?? '').trim();
+      if (!selectedFields.phone) selectedFields.phone = String(legacyData.phone ?? legacyData.Phone ?? legacyData['Phone Number'] ?? '').trim();
+      if (!selectedFields.email) selectedFields.email = String(legacyData.email ?? legacyData.Email ?? '').trim();
+      if (!selectedFields.bookVisit) {
+        const legacyVisit = legacyData.book_a_visit ?? legacyData.bookVisit ?? legacyData['Book a Visit'] ?? legacyData.appointment ?? legacyData.dateTime ?? legacyData.datetime;
+        selectedFields.bookVisit = normalizeBookVisitValue(legacyVisit);
+      }
+
+      selectedFields.email = normalizeLeadEmail(selectedFields.email);
+      selectedFields.phone = String(selectedFields.phone ?? '').trim();
       // The Date/Time picker stores the visitor's exact local wall-clock value.
       if (selectedFields.bookVisit && parseDateTimeLocal(selectedFields.bookVisit)) {
         const clientOffset = lead.clientTimezoneOffsetMinutes ?? lead.data?.clientTimezoneOffsetMinutes;
@@ -762,30 +798,32 @@ async function startServer() {
         bookVisitSerial ?? selectedFields.bookVisit
       ];
 
-      // Deduplicate by lead identity, not by all four cell values.
-      // A visitor may first submit Name/Email, then later provide Phone or Book a Visit.
-      // Those updates must modify the existing row instead of creating another row.
+      // Deduplicate by phone/email/name fallback. Lead identity is handled first
+      // by the backend, while the sheet has no hidden ID column, so contact keys
+      // are used here to find the existing visible row.
       const normalizeSheetValue = (value: any) => String(value ?? '').trim().toLowerCase();
-      const wantedName = normalizeSheetValue(selectedFields.name);
-      const wantedPhone = normalizeSheetValue(selectedFields.phone).replace(/\D/g, '');
-      const wantedEmail = normalizeSheetValue(selectedFields.email);
+      const wantedName = normalizeLeadName(selectedFields.name);
+      const wantedPhone = normalizeLeadPhone(selectedFields.phone);
+      const wantedEmail = normalizeLeadEmail(selectedFields.email);
 
       const matchingRows: Array<{ rowNumber: number; row: any[]; score: number }> = [];
       existingRows.slice(1).forEach((row: any[], index: number) => {
         const rowNumber = index + 2;
-        const rowName = normalizeSheetValue(row?.[0]);
-        const rowPhone = normalizeSheetValue(row?.[1]).replace(/\D/g, '');
-        const rowEmail = normalizeSheetValue(row?.[2]);
+        const rowName = normalizeLeadName(row?.[0]);
+        const rowPhone = normalizeLeadPhone(row?.[1]);
+        const rowEmail = normalizeLeadEmail(row?.[2]);
 
         const emailMatch = Boolean(wantedEmail && rowEmail && wantedEmail === rowEmail);
         const phoneMatch = Boolean(wantedPhone && rowPhone && wantedPhone === rowPhone);
         const nameMatch = Boolean(wantedName && rowName && wantedName === rowName);
 
-        if (emailMatch || phoneMatch || (!wantedEmail && !wantedPhone && nameMatch)) {
+        // Name alone is only a fallback when no stronger contact identifier is
+        // present. Never merge two people with the same name when phone/email exists.
+        if (emailMatch || phoneMatch || ((!wantedEmail && !wantedPhone) && nameMatch)) {
           matchingRows.push({
             rowNumber,
             row,
-            score: (emailMatch ? 4 : 0) + (phoneMatch ? 3 : 0) + (nameMatch ? 1 : 0) +
+            score: (emailMatch ? 100 : 0) + (phoneMatch ? 80 : 0) + (nameMatch ? 10 : 0) +
               row.slice(0, 4).filter((v: any) => String(v ?? '').trim() !== '').length
           });
         }
@@ -915,7 +953,7 @@ async function startServer() {
 
   // Sync Lead to Google Sheets Endpoint
   app.post('/api/sync-lead', async (req, res) => {
-    const { tokens, spreadsheetId, worksheetName, leadData, leadId } = req.body;
+    const { tokens, spreadsheetId, worksheetName, leadData, leadId, conversationId } = req.body;
 
     if (!tokens || !spreadsheetId) {
       return res.status(400).json({ error: 'Missing tokens or spreadsheetId' });
@@ -923,7 +961,8 @@ async function startServer() {
 
     try {
       const leadObj = {
-        id: leadId || ('lead_' + Date.now()),
+        id: leadId || leadData?.id || (conversationId ? `lead_${leadData?.botId || 'bot'}_${conversationId}` : ('lead_' + Date.now())),
+        conversationId: conversationId || leadData?.conversationId || '',
         botName: leadData?.sourceBot || leadData?.clientName || 'Chatbot',
         fields: leadData?.fields || [],
         data: leadData,
@@ -1626,7 +1665,14 @@ async function startServer() {
 
     loadLeadsFromFile();
 
-    // Deduplication check: check by explicit ID, or (userId + conversationId), or (userId + botId)
+    const normalizeEmail = (value: any) => String(value ?? '').trim().toLowerCase();
+    const normalizePhone = (value: any) => String(value ?? '').replace(/\D/g, '');
+    const incomingEmail = normalizeEmail(extractedEmail || leadPayload.email);
+    const incomingPhone = normalizePhone(extractedPhone || leadPayload.phone);
+
+    // Deduplication priority:
+    // 1) stable lead ID, 2) conversation ID, 3) same visitor+bot, 4) phone, 5) email.
+    // This also lets a later Book a Visit update an earlier contact submission.
     let existingLead: any = null;
     let leadId = leadPayload.id;
 
@@ -1651,6 +1697,46 @@ async function startServer() {
       } catch (e) { }
     }
 
+    if (!existingLead && (incomingPhone || incomingEmail)) {
+      // Check the local/server store first. Phone/email are normalized so
+      // +91 98765-43210 and 9876543210 resolve to the same lead.
+      existingLead = serverLeadsList.find((l: any) => {
+        const sameBot = String(l?.botId || l?.flowId || '') === String(botId || '');
+        const sameClient = !clientId || !l?.clientId || String(l.clientId) === String(clientId);
+        const lp = normalizePhone(l?.phone);
+        const le = normalizeEmail(l?.email);
+        return sameBot && sameClient && Boolean(
+          (incomingPhone && lp && incomingPhone === lp) ||
+          (incomingEmail && le && incomingEmail === le)
+        );
+      }) || null;
+
+      if (!existingLead && db) {
+        try {
+          if (incomingPhone) {
+            const qPhone = query(collection(db, 'leads'), where('phone', '==', extractedPhone || leadPayload.phone));
+            const phoneSnap = await getDocs(qPhone).catch(() => null);
+            const phoneDoc = phoneSnap?.docs?.find((d: any) => {
+              const data = d.data() || {};
+              return String(data.botId || data.flowId || '') === String(botId || '') &&
+                (!clientId || !data.clientId || String(data.clientId) === String(clientId));
+            });
+            if (phoneDoc) existingLead = { id: phoneDoc.id, ...phoneDoc.data() };
+          }
+          if (!existingLead && incomingEmail) {
+            const qEmail = query(collection(db, 'leads'), where('email', '==', incomingEmail));
+            const emailSnap = await getDocs(qEmail).catch(() => null);
+            const emailDoc = emailSnap?.docs?.find((d: any) => {
+              const data = d.data() || {};
+              return String(data.botId || data.flowId || '') === String(botId || '') &&
+                (!clientId || !data.clientId || String(data.clientId) === String(clientId));
+            });
+            if (emailDoc) existingLead = { id: emailDoc.id, ...emailDoc.data() };
+          }
+        } catch (e) { }
+      }
+    }
+
     const nowIso = new Date().toISOString();
     const isUpdate = !!existingLead;
 
@@ -1659,6 +1745,22 @@ async function startServer() {
     } else if (!leadId) {
       leadId = (conversationId ? `lead_${botId}_${conversationId}` : `lead_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`);
     }
+
+    // Merge old and new fields instead of replacing the array. This is critical
+    // when a visitor submits contact details first and Book a Visit later.
+    const mergedFieldMap = new Map<string, any>();
+    const addFieldToMerge = (field: any) => {
+      const fieldKey = String(field?.fieldKey || field?.key || field?.leadKey || '').trim().toLowerCase();
+      const labelKey = String(field?.label || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      const identity = fieldKey || labelKey || String(field?.fieldId || '').trim().toLowerCase();
+      if (!identity) return;
+      const current = mergedFieldMap.get(identity);
+      const incomingValue = String(field?.value ?? '').trim();
+      mergedFieldMap.set(identity, { ...(current || {}), ...field, value: incomingValue || current?.value || '' });
+    };
+    if (Array.isArray(existingLead?.fields)) existingLead.fields.forEach(addFieldToMerge);
+    fields.forEach(addFieldToMerge);
+    const mergedFields = Array.from(mergedFieldMap.values()).filter((f: any) => String(f?.value ?? '').trim() !== '');
 
     const leadRecord: any = {
       id: leadId,
@@ -1675,8 +1777,8 @@ async function startServer() {
       email: extractedEmail || leadPayload.email || existingLead?.email || '',
       phone: extractedPhone || leadPayload.phone || existingLead?.phone || '',
       status: existingLead?.status || leadPayload.status || 'New',
-      fields,
-      data: flattenedData,
+      fields: mergedFields,
+      data: { ...(existingLead?.data || {}), ...flattenedData },
       sourceUrl: leadPayload.sourceUrl || existingLead?.sourceUrl || '',
       source: leadPayload.source || existingLead?.source || 'Website Widget',
       referrer: leadPayload.referrer || existingLead?.referrer || '',
