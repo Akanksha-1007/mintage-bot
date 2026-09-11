@@ -159,7 +159,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     const inputTypes = new Set([
       'name', 'phone', 'email',
       'singlechoice', 'multiplechoice', 'textquestion',
-      'file', 'location', 'appointment', 'datetime', 'datetime-local',
+      'file', 'location', 'appointment', 'datetime', 'datetime-local', 'bookvisit', 'book_a_visit', 'book-a-visit', 'date', 'time',
       'rating', 'range', 'numericinput', 'smartquestion',
       'question', 'input', 'userinput', 'textinput'
     ]);
@@ -167,6 +167,10 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     if (inputTypes.has(type)) return true;
 
     const data = node.data || {};
+    const nodeLabel = String(data.label || data.text || data.question || '').trim();
+    if (/\b(book\s*(a\s*)?visit|visit|appointment|date\s*(and|&)\s*time)\b/i.test(nodeLabel)) {
+      return true;
+    }
     if (data.requiresInput === true || data.waitForUser === true || data.waitForReply === true || data.isInteractive === true) {
       return true;
     }
@@ -780,13 +784,21 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         fieldLabel = 'Phone Number';
         fieldKey = 'phone';
         profileUpdate = { phone: cleanText };
-      } else if (['dateTime', 'datetime', 'datetime-local', 'appointment'].includes(String(currentNode.type || '').toLowerCase())) {
-        // Date/Time is stored in Sheets as the dedicated Book a Visit detail.
-        fieldLabel = 'Book a Visit';
-        fieldKey = 'book_a_visit';
       } else {
-        fieldLabel = currentNode.data?.label || currentNode.data?.key || currentNode.data?.leadKey || 'Field';
-        fieldKey = currentNode.data?.key || currentNode.data?.leadKey || currentNode.data?.label || ('field_' + Date.now());
+        const currentType = String(currentNode.type || currentNode.data?.componentType || '').trim().toLowerCase();
+        const currentLabel = String(currentNode.data?.label || currentNode.data?.text || currentNode.data?.question || '').trim();
+        const currentKey = String(currentNode.data?.key || currentNode.data?.leadKey || currentNode.data?.fieldKey || '').trim();
+        const isBookVisitNode = ['datetime', 'datetime-local', 'appointment', 'bookvisit', 'book_a_visit', 'book-a-visit', 'date', 'time'].includes(currentType) ||
+          /\b(book\s*(a\s*)?visit|visit|appointment|date\s*(and|&)\s*time)\b/i.test(`${currentLabel} ${currentKey}`);
+
+        if (isBookVisitNode) {
+          // Always normalize every appointment/date-time node to one canonical field.
+          fieldLabel = 'Book a Visit';
+          fieldKey = 'book_a_visit';
+        } else {
+          fieldLabel = currentLabel || currentKey || 'Field';
+          fieldKey = currentKey || currentLabel || ('field_' + Date.now());
+        }
       }
     }
 
@@ -950,8 +962,9 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     const topLevelPhone = findFieldValue(f => /^(phone|phone_number|mobile|mobile_number)$/i.test(f.fieldKey) || /\b(phone|mobile)\b/i.test(f.label) || f.type.toLowerCase() === 'phone');
     const topLevelEmail = findFieldValue(f => /^(email|email_address)$/i.test(f.fieldKey) || /\bemail\b/i.test(f.label) || f.type.toLowerCase() === 'email');
     const topLevelBookVisit = findFieldValue(f =>
-      ['datetime', 'datetime-local', 'appointment'].includes(f.type.toLowerCase()) ||
-      /\b(book\s*(a\s*)?visit|visit|appointment|date\s*(and|&)\s*time|date[_ -]?time)\b/i.test(`${f.label} ${f.fieldKey}`)
+      ['datetime', 'datetime-local', 'appointment', 'bookvisit', 'book_a_visit', 'book-a-visit', 'date', 'time'].includes(f.type.toLowerCase()) ||
+      /\b(book\s*(a\s*)?visit|visit|appointment|date\s*(and|&)\s*time|date[_ -]?time)\b/i.test(`${f.label} ${f.fieldKey}`) ||
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/.test(f.value)
     );
 
     const payload = {

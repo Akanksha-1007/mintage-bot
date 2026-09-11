@@ -1674,9 +1674,30 @@ async function startServer() {
     }
 
     const flattenedData: Record<string, any> = {};
-    let extractedName = '';
-    let extractedEmail = '';
-    let extractedPhone = '';
+    let extractedName = String(leadPayload.name || leadPayload.full_name || '').trim();
+    let extractedEmail = String(leadPayload.email || leadPayload.email_address || '').trim();
+    let extractedPhone = String(leadPayload.phone || leadPayload.phone_number || leadPayload.mobile || '').trim();
+    let extractedBookVisit = normalizeBookVisitValue(
+      leadPayload.bookVisit ??
+      leadPayload.book_a_visit ??
+      leadPayload.appointment ??
+      leadPayload.dateTime ??
+      leadPayload.datetime ??
+      leadPayload.selectedDateTime ??
+      ''
+    );
+
+    // The Book a Visit picker is a special input. Always capture it independently
+    // of its label/type because different flow-builder versions can serialize the
+    // same picker under different names. ISO/datetime-local values are recognized
+    // even when the field metadata is incomplete.
+    const looksLikeDateTimeValue = (value: any): boolean => {
+      const raw = String(value ?? '').trim();
+      return Boolean(raw) && (
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:?\d{2})?$/.test(raw) ||
+        /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2})?$/.test(raw)
+      );
+    };
 
     for (const field of fields) {
       const validationError = validateLeadFieldValue(String(field?.label || ''), field?.value);
@@ -1693,9 +1714,23 @@ async function startServer() {
       if (f.label) {
         flattenedData[f.label] = f.value;
         const lblLower = f.label.toLowerCase();
-        if (lblLower.includes('name')) extractedName = f.value;
-        if (lblLower.includes('email')) extractedEmail = f.value;
-        if (lblLower.includes('phone') || lblLower.includes('mobile') || lblLower.includes('contact')) extractedPhone = f.value;
+        const fieldType = String((f as any)?.type || (f as any)?.componentType || '').toLowerCase();
+        const fieldKey = String((f as any)?.fieldKey || (f as any)?.key || (f as any)?.leadKey || '').toLowerCase();
+        const value = String(f.value ?? '').trim();
+
+        if (lblLower.includes('name') || fieldKey === 'name' || fieldKey === 'full_name' || fieldType === 'name') extractedName = value;
+        if (lblLower.includes('email') || fieldKey === 'email' || fieldKey === 'email_address' || fieldType === 'email') extractedEmail = value;
+        if (lblLower.includes('phone') || lblLower.includes('mobile') || lblLower.includes('contact') || ['phone', 'phone_number', 'mobile', 'mobile_number', 'contact_number'].includes(fieldKey) || fieldType === 'phone') extractedPhone = value;
+
+        const visitMetadata = `${lblLower} ${fieldKey}`;
+        const isVisitField = isBookVisitField(f) ||
+          ['appointment', 'datetime', 'datetime-local', 'dateTime'.toLowerCase()].includes(fieldType) ||
+          /\b(book\s*(a\s*)?visit|visit(\s*(date|time|slot))?|appointment|date\s*(and|&)\s*time|date[_ -]?time)\b/i.test(visitMetadata);
+
+        if (isVisitField || looksLikeDateTimeValue(value)) {
+          const normalizedVisit = normalizeBookVisitValue(value);
+          if (normalizedVisit) extractedBookVisit = normalizedVisit;
+        }
       }
     });
 
@@ -1798,6 +1833,32 @@ async function startServer() {
     fields.forEach(addFieldToMerge);
     const mergedFields = Array.from(mergedFieldMap.values()).filter((f: any) => String(f?.value ?? '').trim() !== '');
 
+    // Guarantee a canonical Book a Visit field exists whenever a date/time was
+    // supplied, even if the flow builder omitted its field metadata.
+    if (extractedBookVisit) {
+      const existingVisitIndex = mergedFields.findIndex((f: any) => isBookVisitField(f) ||
+        /\b(book\s*(a\s*)?visit|visit|appointment|date[_ -]?time)\b/i.test(`${f?.label || ''} ${f?.fieldKey || ''}`));
+      if (existingVisitIndex >= 0) {
+        mergedFields[existingVisitIndex] = {
+          ...mergedFields[existingVisitIndex],
+          label: 'Book a Visit',
+          fieldKey: 'book_a_visit',
+          type: mergedFields[existingVisitIndex]?.type || 'datetime-local',
+          value: extractedBookVisit
+        };
+      } else {
+        mergedFields.push({
+          fieldId: 'book_a_visit',
+          label: 'Book a Visit',
+          fieldKey: 'book_a_visit',
+          type: 'datetime-local',
+          value: extractedBookVisit
+        });
+      }
+      flattenedData['Book a Visit'] = extractedBookVisit;
+      flattenedData.book_a_visit = extractedBookVisit;
+    }
+
     const leadRecord: any = {
       id: leadId,
       botId,
@@ -1812,6 +1873,8 @@ async function startServer() {
       name: extractedName || leadPayload.name || existingLead?.name || '',
       email: extractedEmail || leadPayload.email || existingLead?.email || '',
       phone: extractedPhone || leadPayload.phone || existingLead?.phone || '',
+      bookVisit: extractedBookVisit || existingLead?.bookVisit || existingLead?.book_a_visit || existingLead?.data?.book_a_visit || existingLead?.data?.['Book a Visit'] || '',
+      book_a_visit: extractedBookVisit || existingLead?.book_a_visit || existingLead?.bookVisit || existingLead?.data?.book_a_visit || existingLead?.data?.['Book a Visit'] || '',
       status: existingLead?.status || leadPayload.status || 'New',
       fields: mergedFields,
       data: { ...(existingLead?.data || {}), ...flattenedData },
