@@ -39,7 +39,7 @@ interface LeadRecord {
   id: string;
   botId: string;
   flowId: string;
-  fields: Array<{ fieldId: string; label: string; value: string }>;
+  fields: Array<{ fieldId: string; label: string; value: string; fieldKey?: string; type?: string }>;
   data: any;
   sourceUrl: string;
   submittedAt: string;
@@ -56,7 +56,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [leadData, setLeadData] = useState<Record<string, any>>({});
-  const [dynamicFields, setDynamicFields] = useState<Array<{ fieldId: string; label: string; value: string }>>([]);
+  const [dynamicFields, setDynamicFields] = useState<Array<{ fieldId: string; label: string; value: string; fieldKey?: string; type?: string }>>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const [isTyping, setIsTyping] = useState(false);
@@ -273,7 +273,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       }
 
       // Check if this node is non-interactive (does not require user input)
-      const isInteractive = ['name', 'email', 'phone', 'textQuestion', 'singleChoice', 'multipleChoice', 'dateTime'].includes(node.type);
+      const isInteractive = ['name', 'email', 'phone', 'textQuestion', 'singleChoice', 'multipleChoice', 'dateTime', 'datetime', 'datetime-local', 'appointment'].includes(String(node.type || '').toLowerCase());
 
       if (!isInteractive) {
         // Automatically find next node
@@ -638,7 +638,10 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       return null;
     }
 
-    if (type === 'datetime' || type === 'dateTime'.toLowerCase() || /\b(date\s*[/&-]?\s*time|date and time)\b/i.test(label)) {
+    const isDateTimeField = ['datetime', 'datetime-local', 'appointment', 'dateTime'.toLowerCase()].includes(type) ||
+      /\b(book\s*(a\s*)?visit|visit|appointment|date\s*(and|&|\/)\s*time|date\s*[/&-]?\s*time)\b/i.test(label);
+
+    if (isDateTimeField) {
       // datetime-local values are intentionally kept as the exact local date/time
       // selected by the visitor. Do not silently convert them to UTC.
       if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/.test(cleanValue)) {
@@ -703,7 +706,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         fieldLabel = 'Phone Number';
         fieldKey = 'phone';
         profileUpdate = { phone: cleanText };
-      } else if (currentNode.type === 'dateTime' || currentNode.type === 'datetime' || currentNode.type === 'appointment') {
+      } else if (['dateTime', 'datetime', 'datetime-local', 'appointment'].includes(String(currentNode.type || '').toLowerCase())) {
         // Date/Time is stored in Sheets as the dedicated Book a Visit detail.
         fieldLabel = 'Book a Visit';
         fieldKey = 'book_a_visit';
@@ -721,7 +724,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     // Update dynamic fields array
     const updatedDynamicFields = [
       ...dynamicFields.filter(f => f.fieldId !== fieldId),
-      { fieldId, label: fieldLabel, value: cleanText }
+      { fieldId, label: fieldLabel, value: cleanText, fieldKey, type: currentNode?.type || '' }
     ];
     setDynamicFields(updatedDynamicFields);
 
@@ -826,7 +829,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const saveLead = async (data: any, fieldsList: Array<{ fieldId: string; label: string; value: string }> = dynamicFields) => {
+  const saveLead = async (data: any, fieldsList: Array<{ fieldId: string; label: string; value: string; fieldKey?: string; type?: string }> = dynamicFields) => {
     const submissionKey = `${botId}::${conversationId || chatUserId}`;
     if (leadSubmittedRef.current || leadSubmitInFlightRef.current || isSubmitting || leadSubmissionKeyRef.current === submissionKey) return;
     leadSubmissionKeyRef.current = submissionKey;
@@ -1086,12 +1089,12 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
           <input
             type={
               currentNode?.type === 'email' ? 'email' :
-                currentNode?.type === 'dateTime' ? 'datetime-local' : 'text'
+                ['dateTime', 'datetime', 'datetime-local', 'appointment'].includes(String(currentNode?.type || '').toLowerCase()) ? 'datetime-local' : 'text'
             }
             inputMode={
               isPhoneNode(currentNode) ? 'tel' :
                 currentNode?.type === 'email' ? 'email' :
-                  currentNode?.type === 'dateTime' ? 'datetime' : 'text'
+                  ['dateTime', 'datetime', 'datetime-local', 'appointment'].includes(String(currentNode?.type || '').toLowerCase()) ? 'datetime' : 'text'
             }
             autoComplete={
               currentNode?.type === 'name' ? 'name' :
@@ -1100,12 +1103,12 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
             }
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            min={currentNode?.type === 'dateTime' ? getLocalDateTimeMin() : undefined}
+            min={['dateTime', 'datetime', 'datetime-local', 'appointment'].includes(String(currentNode?.type || '').toLowerCase()) ? getLocalDateTimeMin() : undefined}
             placeholder={
               currentNode?.type === 'name' ? 'Type your full name...' :
                 isPhoneNode(currentNode) ? 'Type your phone number...' :
                   currentNode?.type === 'email' ? 'Type your email address...' :
-                    currentNode?.type === 'dateTime' ? 'Select date and time...' :
+                    ['dateTime', 'datetime', 'datetime-local', 'appointment'].includes(String(currentNode?.type || '').toLowerCase()) ? 'Select date and time...' :
                       'Type your response...'
             }
             className="flex-1 border rounded-xl px-4 py-2.5 text-xs font-medium outline-none transition-all" style={{ background: design.widgetBgColor || '#f8fafc', color: design.botBubbleText || '#1e293b', borderColor: `${design.accentColor || '#4f46e5'}25` }}

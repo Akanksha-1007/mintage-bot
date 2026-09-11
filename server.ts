@@ -762,67 +762,107 @@ async function startServer() {
         bookVisitSerial ?? selectedFields.bookVisit
       ];
 
-      // Idempotency check: if the exact same four contact/visit values already
-      // exist in Lead Data, do NOT append another row. This catches duplicate
-      // requests caused by retries, double submits, or concurrent sync paths.
+      // Deduplicate by lead identity, not by all four cell values.
+      // A visitor may first submit Name/Email, then later provide Phone or Book a Visit.
+      // Those updates must modify the existing row instead of creating another row.
       const normalizeSheetValue = (value: any) => String(value ?? '').trim().toLowerCase();
-      const sameContactLeadExists = existingRows.slice(1).some((row: any[]) => {
+      const wantedName = normalizeSheetValue(selectedFields.name);
+      const wantedPhone = normalizeSheetValue(selectedFields.phone).replace(/\D/g, '');
+      const wantedEmail = normalizeSheetValue(selectedFields.email);
+
+      const matchingRows: Array<{ rowNumber: number; row: any[]; score: number }> = [];
+      existingRows.slice(1).forEach((row: any[], index: number) => {
+        const rowNumber = index + 2;
         const rowName = normalizeSheetValue(row?.[0]);
-        const rowPhone = normalizeSheetValue(row?.[1]);
+        const rowPhone = normalizeSheetValue(row?.[1]).replace(/\D/g, '');
         const rowEmail = normalizeSheetValue(row?.[2]);
-        let rowVisit = normalizeSheetValue(row?.[3]);
-        const wantedVisit = normalizeSheetValue(selectedFields.bookVisit);
 
-        // Sheets may return a numeric serial when the Book a Visit cell is
-        // already formatted as date/time. Compare against the selected local
-        // datetime string when possible.
-        if (bookVisitSerial !== null && row?.[3] !== undefined && row?.[3] !== '') {
-          const numeric = Number(row[3]);
-          if (Number.isFinite(numeric)) {
-            const milliseconds = (numeric - 25569) * 86400000;
-            const d = new Date(milliseconds);
-            const pad = (n: number) => String(n).padStart(2, '0');
-            rowVisit = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}t${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
-          }
+        const emailMatch = Boolean(wantedEmail && rowEmail && wantedEmail === rowEmail);
+        const phoneMatch = Boolean(wantedPhone && rowPhone && wantedPhone === rowPhone);
+        const nameMatch = Boolean(wantedName && rowName && wantedName === rowName);
+
+        if (emailMatch || phoneMatch || (!wantedEmail && !wantedPhone && nameMatch)) {
+          matchingRows.push({
+            rowNumber,
+            row,
+            score: (emailMatch ? 4 : 0) + (phoneMatch ? 3 : 0) + (nameMatch ? 1 : 0) +
+              row.slice(0, 4).filter((v: any) => String(v ?? '').trim() !== '').length
+          });
         }
-
-        const wantedSerial = bookVisitSerial !== null ? normalizeSheetValue(bookVisitSerial) : '';
-        const visitMatches = wantedVisit
-          ? rowVisit === wantedVisit || (bookVisitSerial !== null && Number(row?.[3]) === bookVisitSerial)
-          : rowVisit === '';
-
-        return rowName === normalizeSheetValue(selectedFields.name) &&
-          rowPhone === normalizeSheetValue(selectedFields.phone) &&
-          rowEmail === normalizeSheetValue(selectedFields.email) &&
-          visitMatches;
       });
 
-      if (sameContactLeadExists) {
-        console.log('[GOOGLE_SHEET_DUPLICATE_SKIPPED]', {
-          leadId: lead.id,
+      matchingRows.sort((a, b) => b.score - a.score || a.rowNumber - b.rowNumber);
+
+      const primaryMatch = matchingRows[0] || null;
+      const mergedRowValues = primaryMatch
+        ? rowValues.map((value, columnIndex) => {
+          const incoming = value === null || value === undefined ? '' : value;
+          const existing = primaryMatch.row?.[columnIndex] ?? '';
+          return String(incoming).trim() !== '' ? incoming : existing;
+        })
+        : rowValues;
+
+      let updatedRange: string | null = null;
+      let rowNumber: number | null = null;
+      let action: 'appended' | 'updated' | 'duplicate_updated' = 'appended';
+
+      if (primaryMatch) {
+        rowNumber = primaryMatch.rowNumber;
+        updatedRange = `'${targetWorksheet}'!A${rowNumber}:D${rowNumber}`;
+
+        // Update the existing lead row. This fills Book a Visit when it arrives
+        // after Name/Phone/Email instead of creating another row.
+        await sheets.spreadsheets.values.update({
           spreadsheetId,
-          worksheet: targetWorksheet
+          range: updatedRange,
+          valueInputOption: 'RAW',
+          requestBody: { values: [mergedRowValues] }
         });
-        return {
-          success: true,
-          action: 'duplicate_skipped',
-          updatedRange: null,
-          rowNumber: null,
+
+        // Remove older duplicate rows for this same lead.
+        const duplicateMatches = matchingRows.slice(1).sort((a, b) => b.rowNumber - a.rowNumber);
+        if (targetSheetId !== null && duplicateMatches.length > 0) {
+          await sheets.spreadsheets.batchUpdate({
+            spreadsheetId,
+            requestBody: {
+              requests: duplicateMatches.map(match => ({
+                deleteDimension: {
+                  range: {
+                    sheetId: targetSheetId,
+                    dimension: 'ROWS',
+                    startIndex: match.rowNumber - 1,
+                    endIndex: match.rowNumber
+                  }
+                }
+              }))
+            }
+          });
+          action = 'duplicate_updated';
+        } else {
+          action = 'updated';
+        }
+      } else {
+        const appendRes = await sheets.spreadsheets.values.append({
           spreadsheetId,
-          worksheetName: targetWorksheet
-        };
+          range: `'${targetWorksheet}'!A:D`,
+          valueInputOption: 'RAW',
+          insertDataOption: 'INSERT_ROWS',
+          requestBody: { values: [rowValues] }
+        });
+        updatedRange = appendRes.data.updates?.updatedRange || null;
+        rowNumber = updatedRange ? Number(String(updatedRange).match(/![A-Z]+(\d+)/)?.[1] || 0) || null : null;
       }
 
-      const appendRes = await sheets.spreadsheets.values.append({
-        spreadsheetId,
-        range: `'${targetWorksheet}'!A:D`,
-        valueInputOption: 'RAW',
-        insertDataOption: 'INSERT_ROWS',
-        requestBody: { values: [rowValues] }
-      });
+      // Format only the Book a Visit cell for this lead.
+      const finalBookVisit = mergedRowValues[3];
+      const finalBookVisitSerial = typeof finalBookVisit === 'number'
+        ? finalBookVisit
+        : (parseDateTimeLocal(String(finalBookVisit || ''))
+          ? dateTimeLocalToSheetsSerial(String(finalBookVisit))
+          : null);
 
       const bookVisitColumnIndex = 3;
-      if (targetSheetId !== null && bookVisitSerial !== null) {
+      if (targetSheetId !== null && finalBookVisitSerial !== null && rowNumber !== null) {
         await sheets.spreadsheets.batchUpdate({
           spreadsheetId,
           requestBody: {
@@ -830,7 +870,8 @@ async function startServer() {
               repeatCell: {
                 range: {
                   sheetId: targetSheetId,
-                  startRowIndex: 1,
+                  startRowIndex: rowNumber - 1,
+                  endRowIndex: rowNumber,
                   startColumnIndex: bookVisitColumnIndex,
                   endColumnIndex: bookVisitColumnIndex + 1
                 },
@@ -849,23 +890,25 @@ async function startServer() {
         });
       }
 
-      const updatedRange = appendRes.data.updates?.updatedRange || null;
-      console.log('[GOOGLE_SHEET_CONTACT_LEAD_APPENDED]', {
+      console.log('[GOOGLE_SHEET_CONTACT_LEAD_SYNC]', {
         leadId: lead.id,
         spreadsheetId,
         worksheet: targetWorksheet,
+        action,
+        rowNumber,
         updatedRange,
-        fields: requiredHeaders.filter((_, i) => rowValues[i] !== '')
+        duplicateRowsRemoved: Math.max(0, matchingRows.length - 1),
+        hasBookVisit: Boolean(finalBookVisit)
       });
 
       return {
         success: true,
-        action: 'appended',
+        action,
         updatedRange,
-        rowNumber: updatedRange ? Number(String(updatedRange).match(/![A-Z]+(\d+)/)?.[1] || 0) || null : null,
+        rowNumber,
         spreadsheetId,
         worksheetName: targetWorksheet,
-        fields: requiredHeaders.filter((_, i) => rowValues[i] !== '')
+        fields: requiredHeaders.filter((_, i) => mergedRowValues[i] !== '')
       };
     });
   }
@@ -1679,13 +1722,9 @@ async function startServer() {
     // synchronization runs completely in the background so Google/API latency never
     // delays the customer-facing thank-you response.
     //
-    // IMPORTANT: an update to an existing lead must NOT append another Google Sheet row.
-    // Only the first genuine lead submission is allowed to create the row.
+    // Existing leads must also synchronize. If Book a Visit is provided later,
+    // the existing Google Sheet row is updated instead of appending another row.
     const runGoogleSheetSyncInBackground = async () => {
-      if (isUpdate) {
-        console.log('[GOOGLE_SHEET_SYNC_SKIP_UPDATE]', { leadId, botId, conversationId });
-        return;
-      }
       const sheetConfig = await resolveClientGoogleSheetsConfig(
         clientId,
         resolvedBot?.spreadsheetId,
