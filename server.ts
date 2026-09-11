@@ -681,17 +681,30 @@ async function startServer() {
       // Extract the four managed fields from both the canonical fields array and
       // legacy data keys. This makes Book a Visit resilient to older widget payloads.
       const selectedFields = {
-        name: String(lead?.name ?? '').trim(),
-        phone: String(lead?.phone ?? '').trim(),
-        email: String(lead?.email ?? '').trim(),
-        bookVisit: normalizeBookVisitValue(lead?.bookVisit ?? lead?.book_a_visit ?? lead?.data?.book_a_visit ?? lead?.data?.['Book a Visit'] ?? '')
+        name: String(lead?.name ?? lead?.data?.name ?? lead?.data?.Name ?? '').trim(),
+        phone: String(lead?.phone ?? lead?.data?.phone ?? lead?.data?.Phone ?? lead?.data?.['Phone Number'] ?? '').trim(),
+        email: String(lead?.email ?? lead?.data?.email ?? lead?.data?.Email ?? '').trim(),
+        bookVisit: normalizeBookVisitValue(
+          lead?.bookVisit ??
+          lead?.book_a_visit ??
+          lead?.data?.book_a_visit ??
+          lead?.data?.bookVisit ??
+          lead?.data?.['Book a Visit'] ??
+          lead?.data?.appointment ??
+          lead?.data?.dateTime ??
+          lead?.data?.datetime ??
+          ''
+        )
       };
 
+      // Read every field independently. Do not use an else-if chain here: a
+      // date/time node can have a label such as "Visit Date" and must always
+      // be captured as Book a Visit even when another matcher also matches.
       if (Array.isArray(lead.fields)) {
         for (const field of lead.fields) {
           const label = String(field?.label ?? '').replace(/\s+/g, ' ').trim();
           const key = String(field?.fieldKey ?? field?.key ?? field?.leadKey ?? '').replace(/\s+/g, ' ').trim();
-          const type = String(field?.type ?? '').trim().toLowerCase();
+          const type = String(field?.type ?? field?.componentType ?? '').trim().toLowerCase();
           const value = field?.value == null ? '' : String(field.value).trim();
           if (!value) continue;
 
@@ -699,11 +712,34 @@ async function startServer() {
           const isName = type === 'name' || /\b(full\s*name|name)\b/.test(haystack);
           const isPhone = type === 'phone' || /\b(phone|mobile|contact\s*(number|no\.?))\b/.test(haystack);
           const isEmail = type === 'email' || /\bemail\b/.test(haystack);
+          const isVisit = isBookVisitField(field) ||
+            /\b(book\s*(a\s*)?visit|visit\s*(date|time|slot)?|appointment|date\s*(and|&)\s*time|date[_ -]?time)\b/i.test(haystack) ||
+            ['datetime', 'datetime-local', 'appointment', 'dateTime'.toLowerCase()].includes(type);
 
+          if (isVisit) {
+            selectedFields.bookVisit = normalizeBookVisitValue(value);
+          }
           if (isName && !selectedFields.name) selectedFields.name = value;
-          else if (isPhone && !selectedFields.phone) selectedFields.phone = value;
-          else if (isEmail && !selectedFields.email) selectedFields.email = value;
-          else if (isBookVisitField(field)) selectedFields.bookVisit = normalizeBookVisitValue(value);
+          if (isPhone && !selectedFields.phone) selectedFields.phone = value;
+          if (isEmail && !selectedFields.email) selectedFields.email = value;
+        }
+      }
+
+      // Also inspect common direct properties on the field object. Some older
+      // flow builders serialize the selected datetime as `dateTime`, `datetime`,
+      // `appointment`, or `selectedDateTime` instead of `value`.
+      if (!selectedFields.bookVisit && Array.isArray(lead.fields)) {
+        for (const field of lead.fields) {
+          const candidates = [
+            field?.bookVisit, field?.book_a_visit, field?.appointment,
+            field?.dateTime, field?.datetime, field?.selectedDateTime,
+            field?.selectedDatetime, field?.date_time
+          ];
+          const candidate = candidates.find(v => String(v ?? '').trim() !== '');
+          if (candidate) {
+            selectedFields.bookVisit = normalizeBookVisitValue(candidate);
+            if (selectedFields.bookVisit) break;
+          }
         }
       }
 
@@ -1820,9 +1856,10 @@ async function startServer() {
       fieldsCount: Array.isArray(leadPayload.fields) ? leadPayload.fields.length : 0
     });
 
-    // Respond to the widget as soon as the lead is safely persisted. Google Sheets
-    // synchronization runs completely in the background so Google/API latency never
-    // delays the customer-facing thank-you response.
+    // Google Sheets synchronization is intentionally awaited below. The widget may
+    // show its completion UI immediately after the API response, but the API response
+    // itself must contain the real Sheet result so the dashboard never reports a
+    // false "Synced" state.
     //
     // Existing leads must also synchronize. If Book a Visit is provided later,
     // the existing Google Sheet row is updated instead of appending another row.
@@ -1883,22 +1920,22 @@ async function startServer() {
 
     broadcastEvent(isUpdate ? 'LEAD_UPDATED' : 'LEAD_CAPTURED', leadRecord);
 
-    // Start Google Sheets synchronization after the response path has been
-    // prepared. This is intentionally fire-and-forget.
-    void runGoogleSheetSyncInBackground().catch(err => {
-      console.error('[GOOGLE_SHEET_BACKGROUND_SYNC_FAILED]', { leadId, botId, error: err?.message || err });
-    });
+    // IMPORTANT: wait for the Google Sheets operation before reporting the
+    // sync status to the dashboard. The old fire-and-forget implementation could
+    // return a successful lead response while the Sheet write failed afterwards,
+    // leaving the dashboard looking synced even though no row was written.
+    await runGoogleSheetSyncInBackground();
 
     return res.json({
       success: true,
       leadId,
       isUpdate,
       googleSheetSync: {
-        status: 'pending',
-        spreadsheetId: null,
-        worksheetName: null,
-        action: null,
-        error: null
+        status: leadRecord.googleSheetSyncStatus || 'pending',
+        spreadsheetId: leadRecord.spreadsheetId || null,
+        worksheetName: leadRecord.worksheetName || null,
+        action: leadRecord.googleSheetSyncAction || null,
+        error: leadRecord.googleSheetSyncError || null
       }
     });
   });

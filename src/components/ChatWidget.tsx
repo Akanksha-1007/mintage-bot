@@ -45,6 +45,7 @@ interface LeadRecord {
   submittedAt: string;
   googleSheetSyncStatus: string;
   googleSheetSyncAction?: string | null;
+  googleSheetSyncError?: string;
 }
 
 export default function ChatWidget({ botId }: ChatWidgetProps) {
@@ -931,6 +932,28 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
     const effectiveClientId = localStorage.getItem('mintage_effective_user_id') || localStorage.getItem('mintage_client_id') || undefined;
 
+    // Also send the four important lead values at top level. This makes the
+    // backend independent of how a particular flow-builder version serialized
+    // its dynamic fields.
+    const normalizedFieldEntries = fieldsList.map((field: any) => ({
+      ...field,
+      label: String(field?.label || '').trim(),
+      fieldKey: String(field?.fieldKey || '').trim(),
+      type: String(field?.type || '').trim(),
+      value: String(field?.value ?? '').trim()
+    }));
+    const findFieldValue = (matcher: (field: any) => boolean) => {
+      const match = normalizedFieldEntries.find(f => matcher(f) && f.value);
+      return match?.value || '';
+    };
+    const topLevelName = findFieldValue(f => f.fieldKey.toLowerCase() === 'name' || /\bname\b/i.test(f.label) || f.type.toLowerCase() === 'name');
+    const topLevelPhone = findFieldValue(f => /^(phone|phone_number|mobile|mobile_number)$/i.test(f.fieldKey) || /\b(phone|mobile)\b/i.test(f.label) || f.type.toLowerCase() === 'phone');
+    const topLevelEmail = findFieldValue(f => /^(email|email_address)$/i.test(f.fieldKey) || /\bemail\b/i.test(f.label) || f.type.toLowerCase() === 'email');
+    const topLevelBookVisit = findFieldValue(f =>
+      ['datetime', 'datetime-local', 'appointment'].includes(f.type.toLowerCase()) ||
+      /\b(book\s*(a\s*)?visit|visit|appointment|date\s*(and|&)\s*time|date[_ -]?time)\b/i.test(`${f.label} ${f.fieldKey}`)
+    );
+
     const payload = {
       id: submissionId,
       botId,
@@ -938,7 +961,12 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       userId: chatUserId,
       chatUserId,
       conversationId: stableConversationId,
-      fields: fieldsList,
+      fields: normalizedFieldEntries,
+      name: topLevelName || data?.name || data?.full_name || '',
+      phone: topLevelPhone || data?.phone || data?.phone_number || '',
+      email: topLevelEmail || data?.email || data?.email_address || '',
+      bookVisit: topLevelBookVisit || data?.book_a_visit || data?.bookVisit || '',
+      book_a_visit: topLevelBookVisit || data?.book_a_visit || data?.bookVisit || '',
       // Preserve the exact local date/time selected by the visitor.
       clientTimezoneOffsetMinutes: new Date().getTimezoneOffset(),
       sourceUrl: window.location.href,
@@ -971,8 +999,11 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         leadSubmissionSucceeded = true;
         console.log('[LEAD] submission success:', resData.leadId);
         newLeadRecord.id = resData.leadId || newLeadRecord.id;
+        newLeadRecord.fields = Array.isArray(resData.fields) ? resData.fields : fieldsList;
+        newLeadRecord.data = resData.data && typeof resData.data === 'object' ? resData.data : data;
         newLeadRecord.googleSheetSyncStatus = resData.googleSheetSync?.status || 'pending';
         newLeadRecord.googleSheetSyncAction = resData.googleSheetSync?.action || null;
+        if (resData.googleSheetSync?.error) newLeadRecord.googleSheetSyncError = resData.googleSheetSync.error;
         leadSubmittedRef.current = true;
       } else {
         console.error('[LEAD] submission rejected:', {
