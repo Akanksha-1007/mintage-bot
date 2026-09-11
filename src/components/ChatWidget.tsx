@@ -127,6 +127,57 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   const leadSubmissionFingerprintRef = useRef<string | null>(null);
   const thankYouShownRef = useRef(false);
 
+  // Flow timers are cancelled whenever the visitor answers. This prevents a
+  // previously queued auto-advance from firing after a reply and skipping the
+  // next question.
+  const flowTimerRefs = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const flowRunRef = useRef(0);
+
+  const clearFlowTimers = () => {
+    flowTimerRefs.current.forEach(timer => clearTimeout(timer));
+    flowTimerRefs.current = [];
+  };
+
+  const queueFlowTimer = (callback: () => void, delay: number) => {
+    const runId = flowRunRef.current;
+    const timer = setTimeout(() => {
+      flowTimerRefs.current = flowTimerRefs.current.filter(t => t !== timer);
+      if (runId !== flowRunRef.current) return;
+      callback();
+    }, delay);
+    flowTimerRefs.current.push(timer);
+    return timer;
+  };
+
+  // Keep this list aligned with the node types exposed by the flow builder.
+  // Every one of these nodes MUST stop the flow until the visitor responds.
+  const isUserInputNode = (node: any) => {
+    if (!node) return false;
+
+    const type = String(node.type || node.data?.componentType || '').trim().toLowerCase();
+    const inputTypes = new Set([
+      'name', 'phone', 'email',
+      'singlechoice', 'multiplechoice', 'textquestion',
+      'file', 'location', 'appointment', 'datetime', 'datetime-local',
+      'rating', 'range', 'numericinput', 'smartquestion',
+      'question', 'input', 'userinput', 'textinput'
+    ]);
+
+    if (inputTypes.has(type)) return true;
+
+    const data = node.data || {};
+    if (data.requiresInput === true || data.waitForUser === true || data.waitForReply === true || data.isInteractive === true) {
+      return true;
+    }
+
+    const inputType = String(data.inputType || data.responseType || data.fieldType || '').trim().toLowerCase();
+    if (inputType && ['text', 'email', 'tel', 'phone', 'number', 'date', 'datetime', 'datetime-local', 'choice', 'select', 'file', 'location', 'rating', 'range'].includes(inputType)) {
+      return true;
+    }
+
+    return false;
+  };
+
   const showThankYouOnce = () => {
     // Guard at component level.
     if (thankYouShownRef.current) return;
@@ -253,9 +304,17 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   const processBotStep = (node: any, allNodes: any[] = safeNodes, allEdges: any[] = safeEdges) => {
     const nodesList = Array.isArray(allNodes) && allNodes.length > 0 ? allNodes : safeNodes;
     const edgesList = Array.isArray(allEdges) && allEdges.length > 0 ? allEdges : safeEdges;
+    if (!node) return;
+
+    // Starting a new step invalidates any old queued step.
+    clearFlowTimers();
+    const runId = ++flowRunRef.current;
 
     setIsTyping(true);
-    setTimeout(() => {
+    const typingTimer = setTimeout(() => {
+      flowTimerRefs.current = flowTimerRefs.current.filter(t => t !== typingTimer);
+      if (runId !== flowRunRef.current) return;
+
       setIsTyping(false);
       const newMessage: Message = {
         id: Date.now().toString() + '_' + Math.random().toString(36).substring(2, 6),
@@ -270,54 +329,54 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       };
       setMessages(prev => [...prev, newMessage]);
 
-      // Track bot response in Firebase / Backend
       if (newMessage.text) {
-        trackMessageToBackend('bot', newMessage.text, node.type || 'text');
+        void trackMessageToBackend('bot', newMessage.text, node.type || 'text');
       }
 
-      // Check if this node is non-interactive (does not require user input)
-      const isInteractive = ['name', 'email', 'phone', 'textQuestion', 'singleChoice', 'multipleChoice', 'dateTime', 'datetime', 'datetime-local', 'appointment'].includes(String(node.type || '').toLowerCase());
+      // IMPORTANT: input/question nodes are terminal for this step.
+      // Do NOT follow nextStepId/edges until handleUserInput receives a reply.
+      if (isUserInputNode(node)) {
+        setCurrentNodeId(node.id);
+        return;
+      }
 
-      if (!isInteractive) {
-        // Automatically find next node
-        let targetNodeId: string | null = null;
-        if (node.data?.nextStepId) {
-          if (node.data.nextStepId !== 'END') {
-            targetNodeId = node.data.nextStepId;
-          } else {
-            return; // Explicitly end flow
-          }
+      // Non-input nodes can continue automatically.
+      let targetNodeId: string | null = null;
+      if (node.data?.nextStepId) {
+        if (node.data.nextStepId !== 'END') {
+          targetNodeId = node.data.nextStepId;
+        } else {
+          return;
         }
+      }
 
-        if (!targetNodeId) {
-          const defaultEdge = edgesList.find((e: any) => e.source === node.id && !e.sourceHandle);
-          if (defaultEdge) {
-            targetNodeId = defaultEdge.target;
-          } else {
-            const anyEdge = edgesList.find((e: any) => e.source === node.id);
-            if (anyEdge) targetNodeId = anyEdge.target;
-          }
+      if (!targetNodeId) {
+        const defaultEdge = edgesList.find((e: any) => e.source === node.id && !e.sourceHandle);
+        if (defaultEdge) {
+          targetNodeId = defaultEdge.target;
+        } else {
+          const anyEdge = edgesList.find((e: any) => e.source === node.id);
+          if (anyEdge) targetNodeId = anyEdge.target;
         }
+      }
 
-        if (!targetNodeId) {
-          const currentIdx = nodesList.findIndex((n: any) => n.id === node.id);
-          if (currentIdx !== -1 && currentIdx + 1 < nodesList.length) {
-            targetNodeId = nodesList[currentIdx + 1].id;
-          }
+      if (!targetNodeId) {
+        const currentIdx = nodesList.findIndex((n: any) => n.id === node.id);
+        if (currentIdx !== -1 && currentIdx + 1 < nodesList.length) {
+          targetNodeId = nodesList[currentIdx + 1].id;
         }
+      }
 
-        if (targetNodeId) {
-          const nextNode = nodesList.find((n: any) => n.id === targetNodeId);
-          if (nextNode) {
-            setCurrentNodeId(nextNode.id);
-            // Auto advance to next step with natural typing pause
-            setTimeout(() => {
-              processBotStep(nextNode, nodesList, edgesList);
-            }, 800);
-          }
+      if (targetNodeId) {
+        const nextNode = nodesList.find((n: any) => n.id === targetNodeId);
+        if (nextNode) {
+          setCurrentNodeId(nextNode.id);
+          queueFlowTimer(() => processBotStep(nextNode, nodesList, edgesList), 800);
         }
       }
     }, 600);
+
+    flowTimerRefs.current.push(typingTimer);
   };
 
   useEffect(() => {
@@ -510,6 +569,8 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         return;
       }
 
+      clearFlowTimers();
+      flowRunRef.current += 1;
       setNodes(nodesData);
       setEdges(edgesData);
       setMessages([]);
@@ -668,6 +729,11 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   const handleUserInput = async (text: string) => {
     const cleanText = text.trim();
     if (!cleanText) return;
+
+    // The visitor has replied. Cancel any stale auto-advance and invalidate
+    // callbacks created by the previous node before moving to the next node.
+    clearFlowTimers();
+    flowRunRef.current += 1;
 
     const currentNode = safeNodes.find((n: any) => n.id === currentNodeId);
 
