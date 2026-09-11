@@ -651,6 +651,15 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
   };
 
+  const isBookVisitNodeForInput = (node: any) => {
+    if (!node) return false;
+    const type = String(node.type || node.data?.componentType || '').trim().toLowerCase();
+    const label = String(node.data?.label || node.data?.text || node.data?.question || '').trim();
+    const key = String(node.data?.key || node.data?.leadKey || node.data?.fieldKey || '').trim();
+    return ['datetime', 'datetime-local', 'appointment', 'bookvisit', 'book_a_visit', 'book-a-visit', 'date', 'time'].includes(type) ||
+      /\b(book\s*(a\s*)?visit|visit|appointment|date\s*(and|&)\s*time|date[_ -]?time)\b/i.test(`${label} ${key}`);
+  };
+
   const validateLeadField = (node: any, value: string): string | null => {
     const cleanValue = String(value || '').trim();
     if (!node || !cleanValue) return null;
@@ -770,6 +779,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     let fieldLabel = 'Field';
     let fieldKey = 'custom_field';
     let profileUpdate: { name?: string; email?: string; phone?: string } | undefined = undefined;
+    let shouldPersistLeadNow = false;
 
     if (currentNode) {
       if (currentNode.type === 'name') {
@@ -793,8 +803,11 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
         if (isBookVisitNode) {
           // Always normalize every appointment/date-time node to one canonical field.
+          // Persist immediately so Book a Visit cannot be lost if another backend
+          // profile update happens at the same time.
           fieldLabel = 'Book a Visit';
           fieldKey = 'book_a_visit';
+          shouldPersistLeadNow = true;
         } else {
           fieldLabel = currentLabel || currentKey || 'Field';
           fieldKey = currentKey || currentLabel || ('field_' + Date.now());
@@ -802,8 +815,10 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       }
     }
 
-    // Track user message in Backend / Firebase
-    trackMessageToBackend('user', cleanText, currentNode?.type || 'text', profileUpdate);
+    // Track the message first. This is intentionally awaited: the chatbot
+    // profile updater can also touch the same lead record, and allowing it to
+    // run concurrently with saveLead can overwrite a newly selected visit.
+    await trackMessageToBackend('user', cleanText, currentNode?.type || 'text', profileUpdate);
 
     const fieldId = currentNode?.id || ('node_' + Date.now());
 
@@ -817,6 +832,13 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     // Update legacy leadData map for backwards compatibility
     const newLeadData = { ...leadData, [fieldKey]: cleanText };
     setLeadData(newLeadData);
+
+    // A Book a Visit answer is itself a lead update. Save it before following
+    // the next flow edge so the appointment reaches the server even when the
+    // flow contains an earlier saveLead node or completion branch.
+    if (shouldPersistLeadNow) {
+      await saveLead(newLeadData, updatedDynamicFields);
+    }
 
     if (currentNode) {
       let targetNodeId: string | null = null;
@@ -978,8 +1000,8 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       name: topLevelName || data?.name || data?.full_name || '',
       phone: topLevelPhone || data?.phone || data?.phone_number || '',
       email: topLevelEmail || data?.email || data?.email_address || '',
-      bookVisit: topLevelBookVisit || data?.book_a_visit || data?.bookVisit || '',
-      book_a_visit: topLevelBookVisit || data?.book_a_visit || data?.bookVisit || '',
+      bookVisit: topLevelBookVisit || data?.book_a_visit || data?.bookVisit || data?.['Book a Visit'] || '',
+      book_a_visit: topLevelBookVisit || data?.book_a_visit || data?.bookVisit || data?.['Book a Visit'] || '',
       // Preserve the exact local date/time selected by the visitor.
       clientTimezoneOffsetMinutes: new Date().getTimezoneOffset(),
       sourceUrl: window.location.href,
@@ -1224,12 +1246,12 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
           <input
             type={
               currentNode?.type === 'email' ? 'email' :
-                ['dateTime', 'datetime', 'datetime-local', 'appointment'].includes(String(currentNode?.type || '').toLowerCase()) ? 'datetime-local' : 'text'
+                isBookVisitNodeForInput(currentNode) ? 'datetime-local' : 'text'
             }
             inputMode={
               isPhoneNode(currentNode) ? 'tel' :
                 currentNode?.type === 'email' ? 'email' :
-                  ['dateTime', 'datetime', 'datetime-local', 'appointment'].includes(String(currentNode?.type || '').toLowerCase()) ? 'datetime' : 'text'
+                  isBookVisitNodeForInput(currentNode) ? 'datetime' : 'text'
             }
             autoComplete={
               currentNode?.type === 'name' ? 'name' :
@@ -1238,12 +1260,12 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
             }
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            min={['dateTime', 'datetime', 'datetime-local', 'appointment'].includes(String(currentNode?.type || '').toLowerCase()) ? getLocalDateTimeMin() : undefined}
+            min={isBookVisitNodeForInput(currentNode) ? getLocalDateTimeMin() : undefined}
             placeholder={
               currentNode?.type === 'name' ? 'Type your full name...' :
                 isPhoneNode(currentNode) ? 'Type your phone number...' :
                   currentNode?.type === 'email' ? 'Type your email address...' :
-                    ['dateTime', 'datetime', 'datetime-local', 'appointment'].includes(String(currentNode?.type || '').toLowerCase()) ? 'Select date and time...' :
+                    isBookVisitNodeForInput(currentNode) ? 'Select date and time...' :
                       'Type your response...'
             }
             className="flex-1 border rounded-xl px-4 py-2.5 text-xs font-medium outline-none transition-all" style={{ background: design.widgetBgColor || '#f8fafc', color: design.botBubbleText || '#1e293b', borderColor: `${design.accentColor || '#4f46e5'}25` }}

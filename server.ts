@@ -2979,12 +2979,39 @@ async function startServer() {
       if (field.value) fieldMap.set(field.label.toLowerCase(), field);
     });
 
+    // Preserve any appointment that was already captured by /api/leads. The
+    // chatbot profile endpoint is contact-oriented, but it can run after the
+    // visitor selects Book a Visit. It must never replace the appointment with
+    // a contact-only field set.
+    const existingBookVisit = normalizeBookVisitValue(
+      existingLead?.bookVisit ??
+      existingLead?.book_a_visit ??
+      existingLead?.data?.book_a_visit ??
+      existingLead?.data?.bookVisit ??
+      existingLead?.data?.['Book a Visit'] ??
+      existingLead?.data?.appointment ??
+      existingLead?.data?.dateTime ??
+      existingLead?.data?.datetime ??
+      ''
+    );
+
+    if (existingBookVisit) {
+      fieldMap.set('book a visit', {
+        fieldId: 'book_a_visit',
+        label: 'Book a Visit',
+        value: existingBookVisit,
+        fieldKey: 'book_a_visit',
+        type: 'datetime-local'
+      });
+    }
+
     const fields = Array.from(fieldMap.values());
     const data = {
       ...(existingLead?.data && typeof existingLead.data === 'object' ? existingLead.data : {}),
       ...(name ? { Name: name } : {}),
       ...(phone ? { 'Phone Number': phone } : {}),
-      ...(email ? { Email: email } : {})
+      ...(email ? { Email: email } : {}),
+      ...(existingBookVisit ? { 'Book a Visit': existingBookVisit, book_a_visit: existingBookVisit } : {})
     };
 
     const leadRecord: any = {
@@ -3002,6 +3029,8 @@ async function startServer() {
       name: name || existingLead?.name || '',
       email: email || existingLead?.email || '',
       phone: phone || existingLead?.phone || '',
+      bookVisit: existingBookVisit || existingLead?.bookVisit || existingLead?.book_a_visit || '',
+      book_a_visit: existingBookVisit || existingLead?.book_a_visit || existingLead?.bookVisit || '',
       status: existingLead?.status || 'New',
       fields,
       data,
@@ -3032,9 +3061,16 @@ async function startServer() {
     }
 
     broadcastEvent('LEAD_CAPTURED', leadRecord);
-    void autoSyncPendingLeads(botId, clientId).catch((err) => {
-      console.warn('[CHATBOT_LEAD_SHEET_SYNC_WARNING]', err?.message || err);
-    });
+
+    // IMPORTANT: Do not start an immediate background Sheet sync from the
+    // chatbot-profile path. The widget sends the visitor's Book a Visit value
+    // through /api/leads immediately after this message/profile update. Starting
+    // a second sync here can race with that request and write the older
+    // contact-only version over the newer appointment value.
+    //
+    // Pending leads are still picked up by the normal dashboard/background
+    // auto-sync engine, while /api/leads remains the authoritative path for
+    // completed lead submissions.
 
     console.log('[CHATBOT_LEAD_UPSERTED]', {
       leadId,
