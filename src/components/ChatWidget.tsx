@@ -376,10 +376,10 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         const nextNode = nodesList.find((n: any) => n.id === targetNodeId);
         if (nextNode) {
           setCurrentNodeId(nextNode.id);
-          queueFlowTimer(() => processBotStep(nextNode, nodesList, edgesList), 800);
+          queueFlowTimer(() => processBotStep(nextNode, nodesList, edgesList), 120);
         }
       }
-    }, 600);
+    }, 250);
 
     flowTimerRefs.current.push(typingTimer);
   };
@@ -818,7 +818,11 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     // Track the message first. This is intentionally awaited: the chatbot
     // profile updater can also touch the same lead record, and allowing it to
     // run concurrently with saveLead can overwrite a newly selected visit.
-    await trackMessageToBackend('user', cleanText, currentNode?.type || 'text', profileUpdate);
+    // Do not block the next question on message/profile tracking. The UI should
+    // advance immediately after a valid visitor reply. Book a Visit is the one
+    // exception because its value must be persisted before the flow continues.
+    const trackPromise = trackMessageToBackend('user', cleanText, currentNode?.type || 'text', profileUpdate);
+    if (shouldPersistLeadNow) await trackPromise;
 
     const fieldId = currentNode?.id || ('node_' + Date.now());
 
