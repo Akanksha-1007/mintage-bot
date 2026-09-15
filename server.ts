@@ -899,8 +899,8 @@ async function startServer() {
                   startIndex: 6,
                   endIndex: 7
                 },
-                properties: { hidden: true },
-                fields: 'hidden'
+                properties: { hiddenByUser: true },
+                fields: 'hiddenByUser'
               }
             }]
           }
