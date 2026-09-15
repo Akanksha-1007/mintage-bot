@@ -984,7 +984,7 @@ export default function Leads() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>Submitted</th>
+                <th>Date</th>
                 <th>Chatbot</th>
 
                 {dynamicColumnLabels.length > 0 ? (

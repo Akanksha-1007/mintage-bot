@@ -106,6 +106,23 @@ function dateTimeLocalToSheetsSerial(value: string): number | null {
   ) + 25569;
 }
 
+function submittedAtToSheetsSerial(value: any, clientTimezoneOffsetMinutes?: any): number | null {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  // Keep the lead timestamp in the visitor's local wall-clock time when the
+  // widget supplied its timezone offset. Fall back to the stored timestamp.
+  const offset = Number(clientTimezoneOffsetMinutes);
+  const adjustedMs = Number.isFinite(offset)
+    ? parsed.getTime() - (offset * 60 * 1000)
+    : parsed.getTime();
+
+  return (adjustedMs / 86400000) + 25569;
+}
+
 function isDateTimeLocalInPresentOrFuture(
   value: string,
   clientTimezoneOffsetMinutes?: number
@@ -619,7 +636,7 @@ async function startServer() {
   // written to the user-facing lead data tab.
   // Google Sheets synchronization.
   // Lead Data contains ONLY the contact/visit details required by the client:
-  //   Name | Phone Number | Email | Book a Visit
+  //   Date | Name | Phone Number | Email | Book a Visit
   // All other chatbot questions are intentionally excluded.
   async function syncLeadToGoogleSheets(tokens: any, rawSpreadsheetId: string, worksheetName = 'Sheet1', lead: any) {
     const spreadsheetId = extractSpreadsheetId(rawSpreadsheetId);
@@ -633,7 +650,7 @@ async function startServer() {
     return withGoogleSheetWorksheetLock(spreadsheetId, 'Lead Data', async () => {
       const auth = createOAuth2Client(tokens);
       const sheets = google.sheets({ version: 'v4', auth });
-      const requiredHeaders = ['Name', 'Phone Number', 'Email', 'Book a Visit'];
+      const requiredHeaders = ['Date', 'Name', 'Phone Number', 'Email', 'Book a Visit'];
       let targetWorksheet = 'Lead Data';
       let targetSheetId: number | null = null;
 
@@ -779,10 +796,33 @@ async function startServer() {
         .map((h: any) => String(h ?? '').replace(/\s+/g, ' ').trim())
         .filter(Boolean);
 
-      // If Lead Data already contains the old dynamic-question layout, preserve it
-      // by moving it to a backup tab, then create a clean Lead Data tab.
+      // Migrate the previous four-column Lead Data layout in place.
+      // Existing rows are preserved and simply shifted one column to the right;
+      // their Date remains blank because the old sheet did not store it.
+      const oldFourColumnHeaders = ['Name', 'Phone Number', 'Email', 'Book a Visit'];
       const headersMatch = JSON.stringify(existingHeaders) === JSON.stringify(requiredHeaders);
-      if (existingRows.length > 0 && !headersMatch) {
+      const oldFourColumnMatch = JSON.stringify(existingHeaders) === JSON.stringify(oldFourColumnHeaders);
+
+      if (existingRows.length > 0 && oldFourColumnMatch) {
+        existingRows = existingRows.map((row: any[], index: number) =>
+          index === 0 ? requiredHeaders : ['', ...(row || []).slice(0, 4)]
+        );
+
+        const lastRow = Math.max(existingRows.length, 1);
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: `'${targetWorksheet}'!A1:E${lastRow}`,
+          valueInputOption: 'RAW',
+          requestBody: {
+            values: existingRows.map(row => [
+              ...(row || []),
+              ...Array(Math.max(0, 5 - (row || []).length)).fill('')
+            ].slice(0, 5))
+          }
+        });
+      } else if (existingRows.length > 0 && !headersMatch) {
+        // If Lead Data contains an unrelated legacy/dynamic layout, preserve it
+        // by moving it to a backup tab, then create a clean Lead Data tab.
         const backupBase = 'Lead Data - Old';
         let backupName = backupBase;
         let suffix = 2;
@@ -813,13 +853,20 @@ async function startServer() {
         existingRows = [];
       }
 
-      // Fixed schema: ONLY these four columns.
+      // Fixed schema: ONLY these five columns.
       await sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: `'${targetWorksheet}'!A1:D1`,
+        range: `'${targetWorksheet}'!A1:E1`,
         valueInputOption: 'USER_ENTERED',
         requestBody: { values: [requiredHeaders] }
       });
+
+      // Column A stores the lead's submission date/time. Keep it as a real
+      // Google Sheets date-time value so it can be sorted and filtered normally.
+      const leadDateSerial = submittedAtToSheetsSerial(
+        lead?.submittedAt,
+        lead?.clientTimezoneOffsetMinutes ?? lead?.data?.clientTimezoneOffsetMinutes
+      );
 
       // Keep the exact selected date/time in Book a Visit. Google Sheets receives a
       // serial value only for this one cell and the number format makes it readable.
@@ -828,6 +875,7 @@ async function startServer() {
         : null;
 
       const rowValues = [
+        leadDateSerial ?? '',
         selectedFields.name,
         selectedFields.phone,
         selectedFields.email,
@@ -845,9 +893,9 @@ async function startServer() {
       const matchingRows: Array<{ rowNumber: number; row: any[]; score: number }> = [];
       existingRows.slice(1).forEach((row: any[], index: number) => {
         const rowNumber = index + 2;
-        const rowName = normalizeLeadName(row?.[0]);
-        const rowPhone = normalizeLeadPhone(row?.[1]);
-        const rowEmail = normalizeLeadEmail(row?.[2]);
+        const rowName = normalizeLeadName(row?.[1]);
+        const rowPhone = normalizeLeadPhone(row?.[2]);
+        const rowEmail = normalizeLeadEmail(row?.[3]);
 
         const emailMatch = Boolean(wantedEmail && rowEmail && wantedEmail === rowEmail);
         const phoneMatch = Boolean(wantedPhone && rowPhone && wantedPhone === rowPhone);
@@ -860,7 +908,7 @@ async function startServer() {
             rowNumber,
             row,
             score: (emailMatch ? 100 : 0) + (phoneMatch ? 80 : 0) + (nameMatch ? 10 : 0) +
-              row.slice(0, 4).filter((v: any) => String(v ?? '').trim() !== '').length
+              row.slice(1, 5).filter((v: any) => String(v ?? '').trim() !== '').length
           });
         }
       });
@@ -882,7 +930,7 @@ async function startServer() {
 
       if (primaryMatch) {
         rowNumber = primaryMatch.rowNumber;
-        updatedRange = `'${targetWorksheet}'!A${rowNumber}:D${rowNumber}`;
+        updatedRange = `'${targetWorksheet}'!A${rowNumber}:E${rowNumber}`;
 
         // Update the existing lead row. This fills Book a Visit when it arrives
         // after Name/Phone/Email instead of creating another row.
@@ -918,7 +966,7 @@ async function startServer() {
       } else {
         const appendRes = await sheets.spreadsheets.values.append({
           spreadsheetId,
-          range: `'${targetWorksheet}'!A:D`,
+          range: `'${targetWorksheet}'!A:E`,
           valueInputOption: 'RAW',
           insertDataOption: 'INSERT_ROWS',
           requestBody: { values: [rowValues] }
@@ -927,15 +975,49 @@ async function startServer() {
         rowNumber = updatedRange ? Number(String(updatedRange).match(/![A-Z]+(\d+)/)?.[1] || 0) || null : null;
       }
 
+      // Format the lead submission date/time cell.
+      const finalLeadDate = mergedRowValues[0];
+      const finalLeadDateSerial = typeof finalLeadDate === 'number'
+        ? finalLeadDate
+        : submittedAtToSheetsSerial(lead?.submittedAt, lead?.clientTimezoneOffsetMinutes ?? lead?.data?.clientTimezoneOffsetMinutes);
+
+      if (targetSheetId !== null && finalLeadDateSerial !== null && rowNumber !== null) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId,
+          requestBody: {
+            requests: [{
+              repeatCell: {
+                range: {
+                  sheetId: targetSheetId,
+                  startRowIndex: rowNumber - 1,
+                  endRowIndex: rowNumber,
+                  startColumnIndex: 0,
+                  endColumnIndex: 1
+                },
+                cell: {
+                  userEnteredFormat: {
+                    numberFormat: {
+                      type: 'DATE_TIME',
+                      pattern: 'dd/mm/yyyy hh:mm:ss'
+                    }
+                  }
+                },
+                fields: 'userEnteredFormat.numberFormat'
+              }
+            }]
+          }
+        });
+      }
+
       // Format only the Book a Visit cell for this lead.
-      const finalBookVisit = mergedRowValues[3];
+      const finalBookVisit = mergedRowValues[4];
       const finalBookVisitSerial = typeof finalBookVisit === 'number'
         ? finalBookVisit
         : (parseDateTimeLocal(String(finalBookVisit || ''))
           ? dateTimeLocalToSheetsSerial(String(finalBookVisit))
           : null);
 
-      const bookVisitColumnIndex = 3;
+      const bookVisitColumnIndex = 4;
       if (targetSheetId !== null && finalBookVisitSerial !== null && rowNumber !== null) {
         await sheets.spreadsheets.batchUpdate({
           spreadsheetId,
@@ -1881,7 +1963,7 @@ async function startServer() {
       sourceUrl: leadPayload.sourceUrl || existingLead?.sourceUrl || '',
       source: leadPayload.source || existingLead?.source || 'Website Widget',
       referrer: leadPayload.referrer || existingLead?.referrer || '',
-      submittedAt: leadPayload.submittedAt || existingLead?.submittedAt || nowIso,
+      submittedAt: existingLead?.submittedAt || leadPayload.submittedAt || nowIso,
       clientTimezoneOffsetMinutes: Number.isFinite(Number(leadPayload.clientTimezoneOffsetMinutes))
         ? Number(leadPayload.clientTimezoneOffsetMinutes)
         : (existingLead?.clientTimezoneOffsetMinutes ?? null),
