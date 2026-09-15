@@ -47,6 +47,9 @@ interface Lead {
   flowName?: string;
   clientName?: string;
   name?: string;
+  project?: string;
+  selectedProject?: string;
+  projectName?: string;
   status?: string;
   conversationId?: string;
   fields?: DynamicField[];
@@ -102,6 +105,29 @@ const getLeadDate = (lead: Lead): Date | null => {
   return getTimestampDate(lead.timestamp);
 };
 
+const getLeadProject = (lead: Lead): string => {
+  const direct = lead.project || lead.selectedProject || lead.projectName;
+  if (direct) return String(direct).trim();
+
+  const data = lead.data && typeof lead.data === 'object' ? lead.data : {};
+  const dataProject =
+    data.selectedProject ??
+    data.project ??
+    data.projectName ??
+    data['Selected Project'] ??
+    data['Project'];
+  if (dataProject) return String(dataProject).trim();
+
+  if (Array.isArray(lead.fields)) {
+    const projectField = lead.fields.find((field) =>
+      /\b(project|property|community|development|residence|residential)\b/i.test(String(field?.label || '')),
+    );
+    if (projectField?.value) return String(projectField.value).trim();
+  }
+
+  return '';
+};
+
 const escapeCsv = (value: unknown): string => {
   return `"${String(value ?? '').replace(/"/g, '""')}"`;
 };
@@ -123,6 +149,9 @@ export default function Leads() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
 
   const [isDeletingLead, setIsDeletingLead] = useState(false);
+  const [selectedLeadIds, setSelectedLeadIds] = useState<Set<string>>(new Set());
+  const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
+  const [isDeletingBulk, setIsDeletingBulk] = useState(false);
   const [isRetryingSync, setIsRetryingSync] = useState(false);
   const [isSyncingAll, setIsSyncingAll] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
@@ -235,6 +264,86 @@ export default function Leads() {
     setBotNames((previous) => ({ ...previous, ...names }));
   };
 
+  const toggleLeadSelection = (leadId: string) => {
+    setSelectedLeadIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(leadId)) next.delete(leadId);
+      else next.add(leadId);
+      return next;
+    });
+  };
+
+  const toggleSelectAllVisible = () => {
+    setSelectedLeadIds((previous) => {
+      const next = new Set(previous);
+      const visibleIds = filteredLeads.map((lead) => lead.id);
+      const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => next.has(id));
+
+      if (allVisibleSelected) {
+        visibleIds.forEach((id) => next.delete(id));
+      } else {
+        visibleIds.forEach((id) => next.add(id));
+      }
+
+      return next;
+    });
+  };
+
+  const confirmDeleteSelectedLeads = async () => {
+    const targetIds = Array.from(selectedLeadIds);
+    if (targetIds.length === 0) return;
+
+    setIsDeletingBulk(true);
+    try {
+      const response = await fetch('/api/leads/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: targetIds }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || 'Failed to delete selected leads.');
+      }
+
+      const deletedIds: string[] = Array.isArray(data.deletedIds)
+        ? data.deletedIds.map((id: unknown) => String(id))
+        : targetIds;
+
+      const localDeletedIds = getDeletedLeadIds();
+      const mergedDeletedIds = Array.from(new Set([...localDeletedIds, ...deletedIds]));
+      localStorage.setItem('mintage_deleted_lead_ids', JSON.stringify(mergedDeletedIds));
+
+      const localLeads = getLocalLeads();
+      localStorage.setItem(
+        'mintage_leads',
+        JSON.stringify(localLeads.filter((lead) => !deletedIds.includes(lead?.id || ''))),
+      );
+
+      setLeads((previous) => previous.filter((lead) => !deletedIds.includes(lead.id)));
+      setSelectedLeadIds(new Set());
+      setIsBulkDeleteConfirmOpen(false);
+
+      const failedCount = Array.isArray(data.failed) ? data.failed.length : 0;
+      showToast(
+        failedCount > 0
+          ? `${deletedIds.length} leads deleted. ${failedCount} could not be deleted.`
+          : `${deletedIds.length} leads deleted permanently.`,
+        failedCount > 0 ? 'error' : 'success',
+      );
+    } catch (error) {
+      console.error('[LEADS_PAGE] Bulk delete error:', error);
+      showToast(
+        `Failed to delete selected leads: ${error instanceof Error ? error.message : 'Unknown error'
+        }`,
+        'error',
+      );
+    } finally {
+      setIsDeletingBulk(false);
+    }
+  };
+
   const confirmDeleteLead = async () => {
     if (!deletingLead) return;
 
@@ -290,6 +399,11 @@ export default function Leads() {
       }
 
       setDeletingLead(null);
+      setSelectedLeadIds((previous) => {
+        const next = new Set(previous);
+        next.delete(targetId);
+        return next;
+      });
       showToast('Lead deleted permanently.');
     } catch (error) {
       console.error('[LEADS_PAGE] Error deleting lead:', error);
@@ -590,7 +704,7 @@ export default function Leads() {
       const response = await fetch('/api/leads/retry-sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ leadId: lead.id, lead }),
+        body: JSON.stringify({ leadId: lead.id }),
       });
 
       const data = await response.json().catch(() => ({}));
@@ -732,9 +846,11 @@ export default function Leads() {
       const urlMatch = (lead.sourceUrl || '').toLowerCase().includes(query);
       const idMatch = lead.id.toLowerCase().includes(query);
       const statusMatch = currentStatus.toLowerCase().includes(query);
+      const projectMatch = getLeadProject(lead).toLowerCase().includes(query);
 
       return (
         botName.includes(query) ||
+        projectMatch ||
         fieldMatch ||
         urlMatch ||
         idMatch ||
@@ -779,6 +895,7 @@ export default function Leads() {
       'Date',
       'Lead ID',
       'Bot Name',
+      'Project',
       ...dynamicColumnLabels,
       'Source URL',
       'Google Sheet Sync',
@@ -807,6 +924,7 @@ export default function Leads() {
         escapeCsv(dateString),
         escapeCsv(lead.id),
         escapeCsv(botName),
+        escapeCsv(getLeadProject(lead)),
         ...dynamicColumnLabels.map((label) =>
           escapeCsv(fieldMap.get(label) || ''),
         ),
@@ -979,13 +1097,62 @@ export default function Leads() {
         </div>
       )}
 
+      {selectedLeadIds.size > 0 && (
+        <div
+          className="leads-bulk-bar"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+            marginBottom: '12px',
+            padding: '10px 14px',
+            border: '1px solid rgba(91,61,245,0.16)',
+            borderRadius: '12px',
+            background: 'rgba(91,61,245,0.05)',
+          }}
+        >
+          <span style={{ fontSize: '13px', fontWeight: 600 }}>
+            {selectedLeadIds.size} lead{selectedLeadIds.size === 1 ? '' : 's'} selected
+          </span>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              type="button"
+              onClick={() => setSelectedLeadIds(new Set())}
+              className="button-secondary compact"
+            >
+              Clear selection
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsBulkDeleteConfirmOpen(true)}
+              className="button-danger compact"
+            >
+              <Trash2 />
+              Delete selected
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="table-card">
         <div className="table-scroll">
           <table className="data-table">
             <thead>
               <tr>
-                <th>Date</th>
+                <th style={{ width: '44px' }}>
+                  <input
+                    type="checkbox"
+                    checked={filteredLeads.length > 0 && filteredLeads.every((lead) => selectedLeadIds.has(lead.id))}
+                    onChange={toggleSelectAllVisible}
+                    aria-label="Select all visible leads"
+                    title="Select all visible leads"
+                    onClick={(event) => event.stopPropagation()}
+                  />
+                </th>
+                <th>Submitted</th>
                 <th>Chatbot</th>
+                <th>Project</th>
 
                 {dynamicColumnLabels.length > 0 ? (
                   dynamicColumnLabels.map((label) => (
@@ -1005,7 +1172,7 @@ export default function Leads() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={dynamicColumnLabels.length + 6}>
+                  <td colSpan={dynamicColumnLabels.length + 8}>
                     <div className="loading-state is-inline">
                       <Loader2 className="animate-spin" />
                       <span>Loading leads…</span>
@@ -1014,7 +1181,7 @@ export default function Leads() {
                 </tr>
               ) : filteredLeads.length === 0 ? (
                 <tr>
-                  <td colSpan={dynamicColumnLabels.length + 6}>
+                  <td colSpan={dynamicColumnLabels.length + 8}>
                     <div className="loading-state is-inline">
                       <span>No leads match your current filters.</span>
                     </div>
@@ -1049,6 +1216,15 @@ export default function Leads() {
                       onClick={() => setSelectedLead(lead)}
                       style={{ cursor: 'pointer' }}
                     >
+                      <td onClick={(event) => event.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedLeadIds.has(lead.id)}
+                          onChange={() => toggleLeadSelection(lead.id)}
+                          aria-label={`Select lead ${lead.id}`}
+                        />
+                      </td>
+
                       <td>
                         <span className="cell-title block whitespace-nowrap">
                           {date ? format(date, 'MMM d, yyyy') : 'Recently'}
@@ -1063,6 +1239,10 @@ export default function Leads() {
                           <Bot />
                           {botName}
                         </span>
+                      </td>
+
+                      <td className="max-w-[190px] truncate">
+                        {getLeadProject(lead) || <span className="cell-empty">—</span>}
                       </td>
 
                       {dynamicColumnLabels.length > 0 ? (
@@ -1272,6 +1452,10 @@ export default function Leads() {
               <p className="modal-section-title">Submission metadata</p>
 
               <dl className="meta-grid">
+                <div>
+                  <dt>Project</dt>
+                  <dd>{getLeadProject(selectedLead) || 'Not specified'}</dd>
+                </div>
                 <div>
                   <dt>Submitted</dt>
                   <dd>
@@ -1496,6 +1680,48 @@ export default function Leads() {
                 <span>
                   {isDeletingLead ? 'Deleting…' : 'Delete lead'}
                 </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isBulkDeleteConfirmOpen && (
+        <div className="modal-backdrop">
+          <div
+            className="app-modal is-centered"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="bulk-delete-leads-title"
+          >
+            <div className="modal-danger-icon">
+              <AlertTriangle />
+            </div>
+
+            <h3 id="bulk-delete-leads-title">Delete selected leads?</h3>
+            <p className="mt-1.5">
+              You are about to permanently delete <strong>{selectedLeadIds.size}</strong> selected lead{selectedLeadIds.size === 1 ? '' : 's'}.
+            </p>
+            <p className="modal-note">This action cannot be undone.</p>
+
+            <div className="modal-actions">
+              <button
+                type="button"
+                onClick={() => setIsBulkDeleteConfirmOpen(false)}
+                disabled={isDeletingBulk}
+                className="button-secondary flex-1"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void confirmDeleteSelectedLeads()}
+                disabled={isDeletingBulk}
+                className="button-danger flex-1"
+              >
+                {isDeletingBulk ? <Loader2 className="animate-spin" /> : <Trash2 />}
+                <span>{isDeletingBulk ? 'Deleting…' : 'Delete selected'}</span>
               </button>
             </div>
           </div>

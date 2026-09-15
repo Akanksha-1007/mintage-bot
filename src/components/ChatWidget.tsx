@@ -744,6 +744,17 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     return null;
   };
 
+  const isProjectSelectionNode = (node: any) => {
+    if (!node) return false;
+    const type = String(node.type || node.data?.componentType || '').trim().toLowerCase();
+    const label = String(node.data?.label || node.data?.text || node.data?.question || '').trim();
+    const key = String(node.data?.key || node.data?.leadKey || node.data?.fieldKey || '').trim();
+    const explicitFlag = node.data?.isProjectSelection === true || node.data?.projectSelector === true || node.data?.projectField === true;
+    if (explicitFlag) return true;
+    if (!['singlechoice', 'multiplechoice', 'choice', 'select'].includes(type)) return false;
+    return /\b(project|property|community|development|residence|residential|which project|choose project|select project)\b/i.test(`${label} ${key}`);
+  };
+
   const handleUserInput = async (text: string, sourceNodeId?: string) => {
     const cleanText = text.trim();
     if (!cleanText) return;
@@ -758,8 +769,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
     // Remember the latest choice value. The server only uses it for routing when
     // a matching project->spreadsheet mapping has been configured for this flow.
-    const currentNodeType = String(currentNode?.type || currentNode?.data?.componentType || '').toLowerCase();
-    if (['singlechoice', 'multiplechoice', 'choice', 'select'].includes(currentNodeType)) {
+    if (isProjectSelectionNode(currentNode)) {
       selectedProjectRef.current = cleanText;
     }
 
@@ -1038,7 +1048,12 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       botId,
       flowId: botId,
       fields: fieldsList,
-      data,
+      data: {
+        ...(data && typeof data === 'object' ? data : {}),
+        selectedProject: selectedProjectRef.current || data?.selectedProject || data?.projectName || data?.project || '',
+        project: selectedProjectRef.current || data?.project || data?.projectName || data?.selectedProject || '',
+        projectName: selectedProjectRef.current || data?.projectName || data?.selectedProject || data?.project || ''
+      },
       sourceUrl: window.location.href,
       submittedAt: new Date().toISOString(),
       googleSheetSyncStatus: 'pending'

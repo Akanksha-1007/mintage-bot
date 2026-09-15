@@ -28,9 +28,20 @@ import { useAuth } from '../context/AuthContext';
 interface RecentLead {
   id: string;
   flowName?: string;
+  project?: string;
+  selectedProject?: string;
+  projectName?: string;
   data: Record<string, any>;
   timestamp?: any;
 }
+
+const getRecentLeadProject = (lead: RecentLead): string => {
+  const direct = lead.project || lead.selectedProject || lead.projectName;
+  if (direct) return String(direct).trim();
+  const data = lead.data && typeof lead.data === 'object' ? lead.data : {};
+  const value = data.selectedProject ?? data.project ?? data.projectName ?? data['Selected Project'] ?? data['Project'];
+  return value ? String(value).trim() : '';
+};
 
 export default function Dashboard() {
   const { effectiveUserId, impersonatedClient, clientUser, isAdmin } = useAuth();
@@ -527,6 +538,11 @@ export default function Dashboard() {
                       <span>
                         <Clock /> Recent submission
                       </span>
+                      {getRecentLeadProject(lead) && (
+                        <span style={{ marginTop: 3, fontWeight: 600 }}>
+                          Project: {getRecentLeadProject(lead)}
+                        </span>
+                      )}
                     </div>
 
                     <span className="status-pill">
