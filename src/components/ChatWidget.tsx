@@ -825,7 +825,10 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     // advance immediately after a valid visitor reply. Book a Visit is the one
     // exception because its value must be persisted before the flow continues.
     const trackPromise = trackMessageToBackend('user', cleanText, currentNode?.type || 'text', profileUpdate);
-    if (shouldPersistLeadNow) await trackPromise;
+    // Never block the customer-facing flow on backend tracking. The lead save
+    // below is also fire-and-forget for Book a Visit so the thank-you message
+    // appears immediately after the visitor selects a slot.
+    void trackPromise;
 
     const fieldId = currentNode?.id || ('node_' + Date.now());
 
@@ -844,7 +847,9 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     // the next flow edge so the appointment reaches the server even when the
     // flow contains an earlier saveLead node or completion branch.
     if (shouldPersistLeadNow) {
-      await saveLead(newLeadData, updatedDynamicFields);
+      // Persist the appointment in the background. Do not make the visitor wait
+      // for the network request before the next step / thank-you message.
+      void saveLead(newLeadData, updatedDynamicFields);
     }
 
     if (currentNode) {
