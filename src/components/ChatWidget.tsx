@@ -33,6 +33,7 @@ interface Message {
   imageUrl?: string;
   url?: string;
   urlLabel?: string;
+  nodeId?: string;
 }
 
 interface LeadRecord {
@@ -331,6 +332,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         imageUrl: node.data?.imageUrl,
         url: node.data?.url || node.data?.linkUrl || '',
         urlLabel: node.data?.urlLabel || 'Open link',
+        nodeId: node.id,
       };
       setMessages(prev => [...prev, newMessage]);
 
@@ -740,7 +742,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     return null;
   };
 
-  const handleUserInput = async (text: string) => {
+  const handleUserInput = async (text: string, sourceNodeId?: string) => {
     const cleanText = text.trim();
     if (!cleanText) return;
 
@@ -749,7 +751,8 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     clearFlowTimers();
     flowRunRef.current += 1;
 
-    const currentNode = safeNodes.find((n: any) => n.id === currentNodeId);
+    const activeNodeId = sourceNodeId || currentNodeId;
+    const currentNode = safeNodes.find((n: any) => n.id === activeNodeId);
 
     // Validate name, phone and email before storing/tracking the answer or moving
     // to the next node. Invalid values stay in the input so the user can correct them.
@@ -871,7 +874,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       // 3. Check if an edge explicitly matches this choice text
       if (!targetNodeId) {
         const choiceEdge = safeEdges.find((e: any) =>
-          e.source === currentNodeId &&
+          e.source === activeNodeId &&
           ((e.label && e.label.toLowerCase().trim() === cleanText.toLowerCase()) ||
             (e.sourceHandle && e.sourceHandle.toLowerCase().trim() === cleanText.toLowerCase()) ||
             (e.choice && e.choice.toLowerCase().trim() === cleanText.toLowerCase()))
@@ -883,18 +886,18 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
       // 4. Fallback to default edge from currentNodeId
       if (!targetNodeId) {
-        const defaultEdge = safeEdges.find((e: any) => e.source === currentNodeId && !e.sourceHandle);
+        const defaultEdge = safeEdges.find((e: any) => e.source === activeNodeId && !e.sourceHandle);
         if (defaultEdge) {
           targetNodeId = defaultEdge.target;
         } else {
-          const anyEdge = safeEdges.find((e: any) => e.source === currentNodeId);
+          const anyEdge = safeEdges.find((e: any) => e.source === activeNodeId);
           if (anyEdge) targetNodeId = anyEdge.target;
         }
       }
 
       // 5. Fallback to sequential next node in safeNodes
       if (!targetNodeId) {
-        const currentIdx = safeNodes.findIndex((n: any) => n.id === currentNodeId);
+        const currentIdx = safeNodes.findIndex((n: any) => n.id === activeNodeId);
         if (currentIdx !== -1 && currentIdx + 1 < safeNodes.length) {
           targetNodeId = safeNodes[currentIdx + 1].id;
         }
@@ -930,13 +933,13 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     }
   };
 
-  const handleChoice = (choice: string, url?: string) => {
+  const handleChoice = (choice: string, url?: string, sourceNodeId?: string) => {
     const cleanUrl = String(url || '').trim();
     if (cleanUrl && isAllowedLink(cleanUrl)) {
       window.open(cleanUrl, '_blank', 'noopener,noreferrer');
       return;
     }
-    handleUserInput(choice);
+    void handleUserInput(choice, sourceNodeId);
   };
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1206,8 +1209,9 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
                       const choiceUrl = msg.optionUrls?.[choice] || '';
                       return (
                         <button
+                          type="button"
                           key={i}
-                          onClick={() => handleChoice(choice, choiceUrl)}
+                          onClick={() => handleChoice(choice, choiceUrl, msg.nodeId)}
                           className="w-full text-left p-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-between group border"
                           style={{ borderColor: `${design.accentColor || '#4f46e5'}35`, color: design.accentColor || '#4f46e5', backgroundColor: `${design.accentColor || '#4f46e5'}0a` }}
                         >
