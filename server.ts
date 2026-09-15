@@ -1310,7 +1310,7 @@ async function startServer() {
 
   // Save/Update Bot Configuration
   app.post('/api/bots/save', (req, res) => {
-    const { id, name, nodes, edges, spreadsheetId, createdBy, googleOwnerId, worksheetName, designConfig } = req.body;
+    const { id, name, nodes, edges, spreadsheetId, createdBy, googleOwnerId, worksheetName, designConfig, projectSheetMappings } = req.body;
     if (!id) {
       return res.status(400).json({ error: 'Bot ID is required' });
     }
@@ -1323,6 +1323,9 @@ async function startServer() {
       edges: Array.isArray(edges) ? edges : (existing?.edges || []),
       spreadsheetId: spreadsheetId !== undefined ? spreadsheetId : (existing?.spreadsheetId || ''),
       worksheetName: worksheetName || existing?.worksheetName || 'Sheet1',
+      projectSheetMappings: Array.isArray(projectSheetMappings)
+        ? projectSheetMappings
+        : (Array.isArray(existing?.projectSheetMappings) ? existing.projectSheetMappings : []),
       createdBy: createdBy || existing?.createdBy || existing?.clientId || existing?.ownerId || 'guest_user',
       googleOwnerId: googleOwnerId || existing?.googleOwnerId || createdBy || existing?.createdBy || '',
       designConfig: designConfig || existing?.designConfig || undefined,
@@ -1338,6 +1341,61 @@ async function startServer() {
     }
 
     res.json({ success: true, bot: botObj });
+  });
+
+  // Save project/option -> Google Spreadsheet routing independently of the main flow
+  // spreadsheet. This makes routing reusable for every flow, not just DSR.
+  app.post('/api/bots/project-sheet-routing', async (req, res) => {
+    const { id, projectSheetMappings } = req.body || {};
+    if (!id) {
+      return res.status(400).json({ error: 'Bot ID is required' });
+    }
+
+    const cleanedMappings = Array.isArray(projectSheetMappings)
+      ? projectSheetMappings
+        .map((m: any) => ({
+          project: String(m?.project || m?.projectName || m?.name || '').replace(/\s+/g, ' ').trim(),
+          spreadsheetId: extractSpreadsheetId(m?.spreadsheetId || m?.sheetId || m?.spreadsheetUrl),
+          worksheetName: String(m?.worksheetName || 'Lead Data').trim() || 'Lead Data'
+        }))
+        .filter((m: any) => m.project && m.spreadsheetId)
+      : [];
+
+    loadBotsFromFile();
+    const existing = serverBotsMap.get(id);
+    const updatedBot = {
+      ...(existing || { id, name: 'Unnamed Bot', nodes: [], edges: [] }),
+      projectSheetMappings: cleanedMappings,
+      updatedAt: new Date().toISOString()
+    };
+
+    serverBotsMap.set(id, updatedBot);
+    saveBotsToFile();
+
+    if (db) {
+      await setDoc(doc(db, 'bot_configurations', id), {
+        projectSheetMappings: cleanedMappings,
+        updatedAt: new Date().toISOString()
+      }, { merge: true }).catch((err) => {
+        console.warn('[PROJECT_SHEET_ROUTING_FIRESTORE_WARNING]', err?.message || err);
+      });
+    }
+
+    // Re-sync any pending leads immediately using the new routing rules.
+    autoSyncPendingLeads(id).catch((err) => {
+      console.warn('[PROJECT_SHEET_ROUTING_AUTOSYNC_WARNING]', err?.message || err);
+    });
+
+    broadcastEvent('BOT_PROJECT_SHEET_ROUTING_SAVED', {
+      botId: id,
+      projectSheetMappings: cleanedMappings
+    });
+
+    res.json({
+      success: true,
+      botId: id,
+      projectSheetMappings: cleanedMappings
+    });
   });
 
   // Get Bot Configuration by ID
@@ -1549,17 +1607,129 @@ async function startServer() {
     };
   }
 
+  // ---------------------------------------------------------------------------
+  // GENERIC FLOW / PROJECT GOOGLE SHEET ROUTING
+  // ---------------------------------------------------------------------------
+  // Each bot/flow can have a default spreadsheet and optional project-specific
+  // spreadsheet mappings. This is intentionally generic: it works for DSR
+  // projects as well as any other flow.
+  function normalizeSheetRouteKey(value: any): string {
+    return String(value ?? '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  }
+
+  function collectLeadRouteValues(lead: any): string[] {
+    const values: string[] = [];
+    const push = (value: any) => {
+      const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+      if (text) values.push(text);
+    };
+
+    push(lead?.selectedProject);
+    push(lead?.project);
+    push(lead?.projectName);
+    push(lead?.data?.selectedProject);
+    push(lead?.data?.project);
+    push(lead?.data?.projectName);
+    push(lead?.data?.['Selected Project']);
+    push(lead?.data?.['Project']);
+
+    if (Array.isArray(lead?.fields)) {
+      for (const field of lead.fields) {
+        const label = String(field?.label ?? '').replace(/\s+/g, ' ').trim();
+        const key = String(field?.fieldKey || field?.key || field?.leadKey || '').replace(/\s+/g, ' ').trim();
+        const value = String(field?.value ?? '').replace(/\s+/g, ' ').trim();
+
+        // Project/property/community questions are the strongest signals.
+        if (value && /\b(project|property|community|development|residence|residential|select|choose)\b/i.test(`${label} ${key}`)) {
+          push(value);
+        }
+        // Also retain every choice value so a configured mapping can match any
+        // project option without requiring a specific node type or label.
+        if (value && ['singlechoice', 'multiplechoice', 'choice', 'select'].includes(String(field?.type || '').toLowerCase())) {
+          push(value);
+        }
+      }
+    }
+
+    return Array.from(new Set(values));
+  }
+
+  async function getFlowProjectSheetMappings(botId?: string): Promise<any[]> {
+    const cleanBotId = String(botId || '').trim();
+    if (!cleanBotId) return [];
+
+    loadBotsFromFile();
+    const cached = serverBotsMap.get(cleanBotId);
+    if (Array.isArray(cached?.projectSheetMappings)) {
+      return cached.projectSheetMappings;
+    }
+
+    if (db) {
+      try {
+        const snap = await getDoc(doc(db, 'bot_configurations', cleanBotId)).catch(() => null);
+        if (snap?.exists()) {
+          const data = snap.data() || {};
+          if (Array.isArray(data.projectSheetMappings)) return data.projectSheetMappings;
+        }
+      } catch (e) {
+        console.warn('[FLOW_PROJECT_SHEET_MAPPING_LOOKUP_WARNING]', e);
+      }
+    }
+
+    return [];
+  }
+
+  function matchProjectSheetMapping(mappings: any[], lead: any): any | null {
+    if (!Array.isArray(mappings) || mappings.length === 0) return null;
+
+    const routeValues = collectLeadRouteValues(lead).map(normalizeSheetRouteKey).filter(Boolean);
+    if (routeValues.length === 0) return null;
+
+    for (const mapping of mappings) {
+      const project = normalizeSheetRouteKey(mapping?.project || mapping?.projectName || mapping?.name);
+      const spreadsheetId = extractSpreadsheetId(mapping?.spreadsheetId || mapping?.sheetId || mapping?.spreadsheetUrl);
+      if (!project || !spreadsheetId) continue;
+
+      if (routeValues.includes(project)) {
+        return {
+          project: mapping.project || mapping.projectName || mapping.name,
+          spreadsheetId,
+          worksheetName: mapping.worksheetName || 'Sheet1'
+        };
+      }
+    }
+
+    return null;
+  }
+
   // Resolve Google Sheets credentials only for the explicit Google owner of the bot.
   async function resolveClientGoogleSheetsConfig(
     clientId: string,
     botSpreadsheetId?: string,
     botWorksheetName?: string,
-    googleOwnerId?: string
+    googleOwnerId?: string,
+    botId?: string,
+    lead?: any
   ) {
     let googleTokens: any = null;
     let spreadsheetId = extractSpreadsheetId(botSpreadsheetId) || '';
     let worksheetName = botWorksheetName || 'Sheet1';
+    let routingProject = '';
+    let routingSource = spreadsheetId ? 'bot_config' : 'none';
     const ownerId = (googleOwnerId || clientId || '').trim();
+
+    // A project-specific mapping always wins over the flow's default sheet.
+    const projectSheetMappings = await getFlowProjectSheetMappings(botId);
+    const matchedProjectSheet = matchProjectSheetMapping(projectSheetMappings, lead);
+    if (matchedProjectSheet?.spreadsheetId) {
+      spreadsheetId = matchedProjectSheet.spreadsheetId;
+      worksheetName = matchedProjectSheet.worksheetName || worksheetName;
+      routingProject = matchedProjectSheet.project || '';
+      routingSource = 'project_mapping';
+    }
 
     if (db && ownerId) {
       try {
@@ -1583,7 +1753,14 @@ async function startServer() {
     if (!spreadsheetId && process.env.GOOGLE_SPREADSHEET_ID) spreadsheetId = extractSpreadsheetId(process.env.GOOGLE_SPREADSHEET_ID);
     if (!spreadsheetId && process.env.SPREADSHEET_ID) spreadsheetId = extractSpreadsheetId(process.env.SPREADSHEET_ID);
 
-    return { googleTokens, spreadsheetId, worksheetName, googleOwnerId: ownerId };
+    return {
+      googleTokens,
+      spreadsheetId,
+      worksheetName,
+      googleOwnerId: ownerId,
+      project: routingProject,
+      spreadsheetSource: routingSource
+    };
   }
 
   // Dynamic Background Auto-Sync Engine for Pending Leads
@@ -1637,7 +1814,7 @@ async function startServer() {
         }
 
         const clientId = lead.clientId || lead.ownerId || (resolvedBot ? resolvedBot.clientId : 'demo_user');
-        const sheetConfig = await resolveClientGoogleSheetsConfig(clientId, resolvedBot?.spreadsheetId, resolvedBot?.worksheetName, resolvedBot?.googleOwnerId || lead.googleOwnerId);
+        const sheetConfig = await resolveClientGoogleSheetsConfig(clientId, resolvedBot?.spreadsheetId, resolvedBot?.worksheetName, resolvedBot?.googleOwnerId || lead.googleOwnerId, botId, lead);
 
         if (sheetConfig.googleTokens && sheetConfig.spreadsheetId) {
           const syncResult = await syncLeadToGoogleSheets(sheetConfig.googleTokens, sheetConfig.spreadsheetId, sheetConfig.worksheetName, lead);
@@ -1948,6 +2125,7 @@ async function startServer() {
       clientId,
       ownerId: clientId,
       googleOwnerId: resolvedBot?.googleOwnerId || existingLead?.googleOwnerId || '',
+      selectedProject: leadPayload.selectedProject || leadPayload.projectName || existingLead?.selectedProject || '',
       userId: userId || existingLead?.userId || '',
       conversationId: conversationId || existingLead?.conversationId || '',
       botName,
@@ -2013,7 +2191,9 @@ async function startServer() {
         clientId,
         resolvedBot?.spreadsheetId,
         resolvedBot?.worksheetName,
-        resolvedBot?.googleOwnerId
+        resolvedBot?.googleOwnerId,
+        botId,
+        leadRecord
       );
 
       if (sheetConfig.googleTokens && sheetConfig.spreadsheetId) {
@@ -2506,7 +2686,7 @@ async function startServer() {
       return res.status(400).json({ success: false, error: 'Could not resolve client owner for lead.' });
     }
 
-    const sheetConfig = await resolveClientGoogleSheetsConfig(clientId || googleOwnerId, resolvedBot?.spreadsheetId, resolvedBot?.worksheetName, googleOwnerId || resolvedBot?.googleOwnerId);
+    const sheetConfig = await resolveClientGoogleSheetsConfig(clientId || googleOwnerId, resolvedBot?.spreadsheetId, resolvedBot?.worksheetName, googleOwnerId || resolvedBot?.googleOwnerId, lead.botId || lead.flowId, lead);
 
     if (!sheetConfig.googleTokens || !sheetConfig.spreadsheetId) {
       return res.status(400).json({ success: false, error: 'Google Account or Spreadsheet not connected for client.' });
@@ -2622,7 +2802,9 @@ async function startServer() {
         lead.clientId || targetClientId || resolvedBot?.clientId || 'demo_user',
         resolvedBot?.spreadsheetId,
         resolvedBot?.worksheetName,
-        targetGoogleOwnerId || lead.googleOwnerId || resolvedBot?.googleOwnerId
+        targetGoogleOwnerId || lead.googleOwnerId || resolvedBot?.googleOwnerId,
+        lead.botId || lead.flowId,
+        lead
       );
 
       const hasConfig = !!(sheetConfig.googleTokens && sheetConfig.spreadsheetId);

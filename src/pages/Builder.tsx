@@ -53,6 +53,7 @@ function BuilderContent() {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [botName, setBotName] = useState('My New Bot');
   const [botSpreadsheetId, setBotSpreadsheetId] = useState('');
+  const [projectSheetMappings, setProjectSheetMappings] = useState<Array<{ project: string; spreadsheetId: string; worksheetName?: string }>>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showSheetsModal, setShowSheetsModal] = useState(false);
@@ -235,6 +236,79 @@ function BuilderContent() {
     showToast('Google Sheet linked to Chatbot!');
   };
 
+  const normalizeSheetIdForBuilder = (value: string) => {
+    let cleanId = String(value || '').trim();
+    if (cleanId.includes('/d/')) {
+      const match = cleanId.match(/\/d\/([\w-]+)/);
+      if (match && match[1]) cleanId = match[1];
+    }
+    return cleanId;
+  };
+
+  const saveProjectSheetMappings = async (mappings: Array<{ project: string; spreadsheetId: string; worksheetName?: string }>) => {
+    const cleaned = mappings
+      .map(m => ({
+        project: String(m?.project || '').trim(),
+        spreadsheetId: normalizeSheetIdForBuilder(String(m?.spreadsheetId || '')),
+        worksheetName: String(m?.worksheetName || 'Lead Data').trim() || 'Lead Data'
+      }))
+      .filter(m => m.project && m.spreadsheetId);
+
+    setProjectSheetMappings(cleaned);
+
+    if (!id) return;
+
+    try {
+      await updateDoc(doc(db, 'bot_configurations', id), {
+        projectSheetMappings: cleaned,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (err) {
+      console.warn('Firestore project sheet mapping update warning:', err);
+    }
+
+    try {
+      const localBotsRaw = localStorage.getItem('mintage_bots');
+      if (localBotsRaw) {
+        const parsed = JSON.parse(localBotsRaw);
+        const updated = parsed.map((bot: any) => bot.id === id ? { ...bot, projectSheetMappings: cleaned } : bot);
+        localStorage.setItem('mintage_bots', JSON.stringify(updated));
+      }
+    } catch { }
+
+    try {
+      await fetch('/api/bots/project-sheet-routing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, projectSheetMappings: cleaned })
+      });
+    } catch (err) {
+      console.warn('Server project sheet routing update warning:', err);
+    }
+  };
+
+  const detectedProjectOptions = useMemo(() => {
+    const result: string[] = [];
+    safeNodes.forEach((node: any) => {
+      const type = String(node?.type || node?.data?.componentType || '').toLowerCase();
+      if (!['singlechoice', 'multiplechoice', 'choice', 'select'].includes(type)) return;
+
+      const choices = Array.isArray(node?.data?.choices) ? node.data.choices : [];
+      choices.forEach((choice: any) => {
+        const value = typeof choice === 'string'
+          ? choice
+          : String(choice?.label || choice?.value || choice?.text || '').trim();
+        if (!value) return;
+        const question = String(node?.data?.label || node?.data?.text || node?.data?.question || '');
+        if (/\b(project|property|community|development|residence|residential|choose|select)\b/i.test(question) ||
+          /\bdsr\b/i.test(value)) {
+          if (!result.some(v => v.toLowerCase() === value.toLowerCase())) result.push(value);
+        }
+      });
+    });
+    return result;
+  }, [safeNodes]);
+
   // Load an existing bot by ID, or start a completely clean flow for /builder.
   // The store is shared between pages, so it must be cleared when creating a new bot;
   // otherwise the previously opened bot's nodes remain visible and can be saved again.
@@ -247,6 +321,7 @@ function BuilderContent() {
       // NEW BOT: never reuse the previous bot's in-memory flow.
       setBotName('My New Bot');
       setBotSpreadsheetId('');
+      setProjectSheetMappings([]);
       setNodes([]);
       setEdges([]);
       return () => {
@@ -274,6 +349,7 @@ function BuilderContent() {
 
           setBotName(data.name || 'My New Bot');
           setBotSpreadsheetId(data.spreadsheetId || '');
+          setProjectSheetMappings(Array.isArray(data.projectSheetMappings) ? data.projectSheetMappings : []);
           setNodes(nodesArr);
           setEdges(edgesArr);
           return;
@@ -307,6 +383,7 @@ function BuilderContent() {
 
             setBotName(found.name || 'My New Bot');
             setBotSpreadsheetId(found.spreadsheetId || '');
+            setProjectSheetMappings(Array.isArray(found.projectSheetMappings) ? found.projectSheetMappings : []);
             setNodes(localNodesArr);
             setEdges(localEdgesArr);
           }
@@ -472,6 +549,7 @@ function BuilderContent() {
           nodes: cleanNodes,
           edges: cleanEdges,
           spreadsheetId: cleanSpreadsheetId,
+          projectSheetMappings,
           createdBy: targetUserId,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
@@ -492,6 +570,7 @@ function BuilderContent() {
         nodes: cleanNodes,
         edges: cleanEdges,
         spreadsheetId: cleanSpreadsheetId,
+        projectSheetMappings,
         createdBy: targetUserId,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
@@ -628,34 +707,6 @@ function BuilderContent() {
       position: { x: 400, y: 200 },
     };
     setNodes([...(Array.isArray(nodes) ? nodes : []), newNode]);
-  };
-
-  const duplicateNode = (node: Node) => {
-    const currentNodes = Array.isArray(nodes) ? nodes : [];
-    const currentEdges = Array.isArray(edges) ? edges : [];
-    const newId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : `node_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
-    // Clone the component and all of its configured properties, but do not
-    // clone edges. The duplicate starts as an independent component so the
-    // user can decide where it belongs in the flow.
-    const duplicatedNode: Node = {
-      ...node,
-      id: newId,
-      data: { ...node.data },
-      position: {
-        x: (node.position?.x || 0) + 60,
-        y: (node.position?.y || 0) + 60,
-      },
-      selected: false,
-    };
-
-    setNodes([...currentNodes, duplicatedNode]);
-    // Keep the existing connections untouched.
-    setEdges(currentEdges);
-    setSelectedNode(duplicatedNode);
-    showToast('Component duplicated successfully!');
   };
 
   const deleteNode = (id: string) => {
@@ -1010,6 +1061,101 @@ function BuilderContent() {
                         </div>
                       ) : (
                         <p className="subtle-card text-muted text-[12.5px]">No spreadsheets found in Drive. Create one above to get started.</p>
+                      )}
+                    </div>
+
+                    {/* Project-specific spreadsheet routing */}
+                    <div className="modal-section">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="modal-section-title" style={{ marginBottom: 2 }}>Project-specific Google Sheets</p>
+                          <p className="text-muted text-[12px]">Assign a different spreadsheet to each project/option in this flow.</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setProjectSheetMappings(prev => [...prev, { project: '', spreadsheetId: '', worksheetName: 'Lead Data' }])}
+                          className="button-secondary compact inline-flex items-center gap-1"
+                        >
+                          <Plus className="h-3 w-3" /> Add project
+                        </button>
+                      </div>
+
+                      {detectedProjectOptions.length > 0 && (
+                        <div className="subtle-card" style={{ marginTop: 10 }}>
+                          <p className="text-[12px] font-semibold text-ink" style={{ marginBottom: 6 }}>Detected project options</p>
+                          <div className="flex flex-wrap gap-2">
+                            {detectedProjectOptions
+                              .filter(project => !projectSheetMappings.some(m => m.project.trim().toLowerCase() === project.toLowerCase()))
+                              .map(project => (
+                                <button
+                                  key={project}
+                                  type="button"
+                                  onClick={() => setProjectSheetMappings(prev => [...prev, { project, spreadsheetId: '', worksheetName: 'Lead Data' }])}
+                                  className="button-secondary compact"
+                                >
+                                  + {project}
+                                </button>
+                              ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="space-y-2" style={{ marginTop: 10 }}>
+                        {projectSheetMappings.map((mapping, index) => (
+                          <div key={`${mapping.project}-${index}`} className="subtle-card" style={{ padding: 10 }}>
+                            <div className="grid grid-cols-1 md:grid-cols-[1fr_1.5fr_auto] gap-2 items-center">
+                              <input
+                                type="text"
+                                value={mapping.project}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  setProjectSheetMappings(prev => prev.map((m, i) => i === index ? { ...m, project: value } : m));
+                                }}
+                                placeholder="Project / option name"
+                                className="input"
+                              />
+                              <select
+                                value={mapping.spreadsheetId}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  const next = projectSheetMappings.map((m, i) => i === index ? { ...m, spreadsheetId: value } : m);
+                                  setProjectSheetMappings(next);
+                                  void saveProjectSheetMappings(next);
+                                }}
+                                className="input"
+                              >
+                                <option value="">Select Google Sheet</option>
+                                {userSheets.map((sheet: any) => (
+                                  <option key={sheet.id} value={sheet.id}>{sheet.name}</option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => setProjectSheetMappings(prev => prev.filter((_, i) => i !== index))}
+                                className="icon-button danger bordered"
+                                title="Remove mapping"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                            <div className="flex items-center justify-between gap-2" style={{ marginTop: 6 }}>
+                              <span className="text-[11px] text-muted">The selected spreadsheet receives only leads from this matching project/option.</span>
+                              <button
+                                type="button"
+                                onClick={() => void saveProjectSheetMappings(projectSheetMappings)}
+                                className="link-button"
+                              >
+                                Save routing
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {projectSheetMappings.length === 0 && (
+                        <p className="subtle-card text-muted text-[12px]" style={{ marginTop: 10 }}>
+                          No project routing configured. The normal flow spreadsheet above will be used.
+                        </p>
                       )}
                     </div>
 
@@ -1522,13 +1668,6 @@ function BuilderContent() {
                     >
                       <Check />
                       Apply changes
-                    </button>
-                    <button
-                      onClick={() => duplicateNode(selectedNode)}
-                      className="button-secondary button-block"
-                    >
-                      <Copy />
-                      Duplicate component
                     </button>
                     <button
                       onClick={() => deleteNode(selectedNode.id)}

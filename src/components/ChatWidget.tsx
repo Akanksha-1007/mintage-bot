@@ -58,6 +58,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [leadData, setLeadData] = useState<Record<string, any>>({});
+  const selectedProjectRef = useRef<string>('');
   const [dynamicFields, setDynamicFields] = useState<Array<{ fieldId: string; label: string; value: string; fieldKey?: string; type?: string }>>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -582,6 +583,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       setEdges(edgesData);
       setMessages([]);
       setLeadData({});
+      selectedProjectRef.current = '';
       setDynamicFields([]);
       leadSubmitInFlightRef.current = false;
       leadSubmittedRef.current = false;
@@ -753,6 +755,13 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
 
     const activeNodeId = sourceNodeId || currentNodeId;
     const currentNode = safeNodes.find((n: any) => n.id === activeNodeId);
+
+    // Remember the latest choice value. The server only uses it for routing when
+    // a matching project->spreadsheet mapping has been configured for this flow.
+    const currentNodeType = String(currentNode?.type || currentNode?.data?.componentType || '').toLowerCase();
+    if (['singlechoice', 'multiplechoice', 'choice', 'select'].includes(currentNodeType)) {
+      selectedProjectRef.current = cleanText;
+    }
 
     // Validate name, phone and email before storing/tracking the answer or moving
     // to the next node. Invalid values stay in the input so the user can correct them.
@@ -1014,6 +1023,8 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       email: topLevelEmail || data?.email || data?.email_address || '',
       bookVisit: topLevelBookVisit || data?.book_a_visit || data?.bookVisit || data?.['Book a Visit'] || '',
       book_a_visit: topLevelBookVisit || data?.book_a_visit || data?.bookVisit || data?.['Book a Visit'] || '',
+      selectedProject: selectedProjectRef.current || data?.selectedProject || data?.projectName || data?.project || '',
+      projectName: selectedProjectRef.current || data?.projectName || data?.selectedProject || data?.project || '',
       // Preserve the exact local date/time selected by the visitor.
       clientTimezoneOffsetMinutes: new Date().getTimezoneOffset(),
       sourceUrl: window.location.href,
