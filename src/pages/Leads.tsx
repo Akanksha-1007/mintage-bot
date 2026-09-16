@@ -24,6 +24,7 @@ import {
   RefreshCw,
   Search,
   Tag,
+  Filter,
   Trash2,
   X,
 } from 'lucide-react';
@@ -143,6 +144,19 @@ export default function Leads() {
   const [selectedBotFilter, setSelectedBotFilter] = useState('ALL');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Advanced lead filters
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [timeFrom, setTimeFrom] = useState('');
+  const [timeTo, setTimeTo] = useState('');
+  const [selectedProjectFilter, setSelectedProjectFilter] = useState('ALL');
+  const [nameFilter, setNameFilter] = useState('');
+  const [phoneFilter, setPhoneFilter] = useState('');
+  const [emailFilter, setEmailFilter] = useState('');
+  const [bookVisitFrom, setBookVisitFrom] = useState('');
+  const [bookVisitTo, setBookVisitTo] = useState('');
+  const [selectedSyncFilter, setSelectedSyncFilter] = useState('ALL');
 
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [deletingLead, setDeletingLead] = useState<Lead | null>(null);
@@ -797,6 +811,93 @@ export default function Leads() {
     }
   };
 
+  const getLeadFieldValue = (lead: Lead, matcher: (label: string, key: string) => boolean): string => {
+    if (Array.isArray(lead.fields)) {
+      for (const field of lead.fields) {
+        const label = String(field?.label || '').trim();
+        const key = String((field as any)?.fieldKey || (field as any)?.key || '').trim();
+        const value = field?.value == null ? '' : String(field.value).trim();
+        if (value && matcher(label, key)) return value;
+      }
+    }
+
+    if (lead.data && typeof lead.data === 'object') {
+      for (const [key, rawValue] of Object.entries(lead.data)) {
+        const value = rawValue == null ? '' : String(rawValue).trim();
+        if (value && matcher(key, key)) return value;
+      }
+    }
+
+    return '';
+  };
+
+  const getLeadName = (lead: Lead): string =>
+    String(lead.name || getLeadFieldValue(lead, (label, key) =>
+      /^(name|full[ _-]?name)$/i.test(key) || /\b(full\s*)?name\b/i.test(label),
+    )).trim();
+
+  const getLeadPhone = (lead: Lead): string =>
+    getLeadFieldValue(lead, (label, key) =>
+      /^(phone|phone_number|mobile|mobile_number|contact_number)$/i.test(key) ||
+      /\b(phone|mobile|contact\s*(number|no\.?)?)\b/i.test(label),
+    );
+
+  const getLeadEmail = (lead: Lead): string =>
+    getLeadFieldValue(lead, (label, key) =>
+      /^(email|email_address)$/i.test(key) || /\bemail\b/i.test(label),
+    );
+
+  const getLeadBookVisit = (lead: Lead): string => {
+    const direct = (lead.data && typeof lead.data === 'object'
+      ? (lead.data['Book a Visit'] ?? lead.data.book_a_visit ?? lead.data.bookVisit ?? lead.data.appointment ?? lead.data.dateTime ?? lead.data.datetime)
+      : '') as unknown;
+    if (direct) return String(direct).trim();
+
+    return getLeadFieldValue(lead, (label, key) =>
+      /\b(book\s*(a\s*)?visit|visit|appointment|date\s*(and|&)\s*time|date[_ -]?time)\b/i.test(`${label} ${key}`),
+    );
+  };
+
+  const parseFilterDateTime = (value: string): Date | null => {
+    if (!value) return null;
+    const normalized = value.includes('T') ? value : value.replace(' ', 'T');
+    const date = new Date(normalized);
+    return Number.isNaN(date.getTime()) ? null : date;
+  };
+
+  const getBookVisitDate = (lead: Lead): Date | null => {
+    const raw = getLeadBookVisit(lead);
+    if (!raw) return null;
+    const localMatch = raw.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (localMatch) {
+      const date = new Date(`${localMatch[1]}T${localMatch[2]}:${localMatch[3]}:${localMatch[4] || '00'}`);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+    return parseFilterDateTime(raw);
+  };
+
+  const projectOptions = useMemo(() => {
+    return Array.from(new Set(leads.map(getLeadProject).filter(Boolean) as string[]))
+      .sort((a, b) => String(a).localeCompare(String(b)));
+  }, [leads]);
+
+  const clearLeadFilters = () => {
+    setDateFrom('');
+    setDateTo('');
+    setTimeFrom('');
+    setTimeTo('');
+    setSelectedProjectFilter('ALL');
+    setNameFilter('');
+    setPhoneFilter('');
+    setEmailFilter('');
+    setBookVisitFrom('');
+    setBookVisitTo('');
+    setSelectedSyncFilter('ALL');
+    setSearchQuery('');
+    setSelectedBotFilter('ALL');
+    setSelectedStatusFilter('ALL');
+  };
+
   const leadStats = useMemo(
     () => ({
       total: leads.length,
@@ -811,50 +912,85 @@ export default function Leads() {
 
   const filteredLeads = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
+    const normalizedName = nameFilter.trim().toLowerCase();
+    const normalizedPhone = phoneFilter.replace(/\D/g, '');
+    const normalizedEmail = emailFilter.trim().toLowerCase();
 
     return leads.filter((lead) => {
       const botId = lead.botId || lead.flowId || '';
       const currentStatus = lead.status || 'New';
+      const syncStatus = lead.googleSheetSyncStatus || 'pending';
+      const leadDate = getLeadDate(lead);
+      const leadProject = getLeadProject(lead);
+      const leadName = getLeadName(lead);
+      const leadPhone = getLeadPhone(lead);
+      const leadEmail = getLeadEmail(lead);
+      const bookVisitDate = getBookVisitDate(lead);
 
-      if (selectedBotFilter !== 'ALL' && botId !== selectedBotFilter) {
-        return false;
+      if (selectedBotFilter !== 'ALL' && botId !== selectedBotFilter) return false;
+      if (selectedStatusFilter !== 'ALL' && currentStatus !== selectedStatusFilter) return false;
+      if (selectedProjectFilter !== 'ALL' && leadProject !== selectedProjectFilter) return false;
+      if (selectedSyncFilter !== 'ALL' && syncStatus !== selectedSyncFilter) return false;
+
+      if (normalizedName && !leadName.toLowerCase().includes(normalizedName)) return false;
+      if (normalizedPhone && !leadPhone.replace(/\D/g, '').includes(normalizedPhone)) return false;
+      if (normalizedEmail && !leadEmail.toLowerCase().includes(normalizedEmail)) return false;
+
+      // Submitted date range.
+      if (dateFrom) {
+        if (!leadDate) return false;
+        const from = new Date(`${dateFrom}T00:00:00`);
+        if (leadDate < from) return false;
+      }
+      if (dateTo) {
+        if (!leadDate) return false;
+        const to = new Date(`${dateTo}T23:59:59.999`);
+        if (leadDate > to) return false;
       }
 
-      if (
-        selectedStatusFilter !== 'ALL' &&
-        currentStatus !== selectedStatusFilter
-      ) {
-        return false;
+      // Submitted time-of-day range.
+      if (timeFrom || timeTo) {
+        if (!leadDate) return false;
+        const minutes = leadDate.getHours() * 60 + leadDate.getMinutes();
+        if (timeFrom) {
+          const [h, m] = timeFrom.split(':').map(Number);
+          if (minutes < h * 60 + m) return false;
+        }
+        if (timeTo) {
+          const [h, m] = timeTo.split(':').map(Number);
+          if (minutes > h * 60 + m) return false;
+        }
+      }
+
+      // Book-a-Visit date range.
+      if (bookVisitFrom) {
+        if (!bookVisitDate) return false;
+        const from = new Date(`${bookVisitFrom}T00:00:00`);
+        if (bookVisitDate < from) return false;
+      }
+      if (bookVisitTo) {
+        if (!bookVisitDate) return false;
+        const to = new Date(`${bookVisitTo}T23:59:59.999`);
+        if (bookVisitDate > to) return false;
       }
 
       if (!query) return true;
 
       const botName = (
-        botNames[botId] ||
-        lead.botName ||
-        lead.flowName ||
-        lead.clientName ||
-        ''
+        botNames[botId] || lead.botName || lead.flowName || lead.clientName || ''
       ).toLowerCase();
-
       const fieldMatch = getLeadFieldEntries(lead).some(
-        (field) =>
-          field.label.toLowerCase().includes(query) ||
-          field.value.toLowerCase().includes(query),
+        (field) => field.label.toLowerCase().includes(query) || field.value.toLowerCase().includes(query),
       );
-
       const urlMatch = (lead.sourceUrl || '').toLowerCase().includes(query);
       const idMatch = lead.id.toLowerCase().includes(query);
       const statusMatch = currentStatus.toLowerCase().includes(query);
-      const projectMatch = getLeadProject(lead).toLowerCase().includes(query);
+      const projectMatch = leadProject.toLowerCase().includes(query);
 
       return (
-        botName.includes(query) ||
-        projectMatch ||
-        fieldMatch ||
-        urlMatch ||
-        idMatch ||
-        statusMatch
+        botName.includes(query) || projectMatch || leadName.toLowerCase().includes(query) ||
+        leadPhone.toLowerCase().includes(query) || leadEmail.toLowerCase().includes(query) ||
+        fieldMatch || urlMatch || idMatch || statusMatch
       );
     });
   }, [
@@ -862,8 +998,20 @@ export default function Leads() {
     searchQuery,
     selectedBotFilter,
     selectedStatusFilter,
+    selectedProjectFilter,
+    selectedSyncFilter,
+    nameFilter,
+    phoneFilter,
+    emailFilter,
+    dateFrom,
+    dateTo,
+    timeFrom,
+    timeTo,
+    bookVisitFrom,
+    bookVisitTo,
     botNames,
   ]);
+
 
   const dynamicColumnLabels = useMemo(
     () =>
@@ -1003,56 +1151,69 @@ export default function Leads() {
         </div>
       </header>
 
-      <div className="leads-control-bar">
+      <div className="leads-control-bar" style={{ alignItems: 'stretch', flexWrap: 'wrap', gap: '10px' }}>
         <label className="inline-select">
           <Bot />
-          <select
-            value={selectedBotFilter}
-            onChange={(event) => setSelectedBotFilter(event.target.value)}
-            aria-label="Filter by chatbot"
-          >
+          <select value={selectedBotFilter} onChange={(event) => setSelectedBotFilter(event.target.value)} aria-label="Filter by chatbot">
             <option value="ALL">All chatbots ({leads.length})</option>
-            {uniqueBotsList.map((bot) => (
-              <option key={bot.id} value={bot.id}>
-                {bot.name}
-              </option>
-            ))}
+            {uniqueBotsList.map((bot) => <option key={bot.id} value={bot.id}>{bot.name}</option>)}
           </select>
         </label>
 
         <label className="inline-select">
           <Tag />
-          <select
-            value={selectedStatusFilter}
-            onChange={(event) => setSelectedStatusFilter(event.target.value)}
-            aria-label="Filter by status"
-          >
+          <select value={selectedStatusFilter} onChange={(event) => setSelectedStatusFilter(event.target.value)} aria-label="Filter by status">
             <option value="ALL">All statuses ({leads.length})</option>
             <option value="New">New ({leadStats.new})</option>
-            <option value="Contacted">
-              Contacted ({leadStats.contacted})
-            </option>
-            <option value="Qualified">
-              Qualified ({leadStats.qualified})
-            </option>
-            <option value="Converted">
-              Converted ({leadStats.converted})
-            </option>
+            <option value="Contacted">Contacted ({leadStats.contacted})</option>
+            <option value="Qualified">Qualified ({leadStats.qualified})</option>
+            <option value="Converted">Converted ({leadStats.converted})</option>
             <option value="Lost">Lost ({leadStats.lost})</option>
           </select>
         </label>
 
-        <label className="search-field">
-          <Search />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Search leads, values, URL…"
-            className="input"
-            aria-label="Search leads"
-          />
+        <label className="inline-select">
+          <Filter />
+          <select value={selectedProjectFilter} onChange={(event) => setSelectedProjectFilter(event.target.value)} aria-label="Filter by project">
+            <option value="ALL">All projects ({leads.length})</option>
+            {projectOptions.map((project) => <option key={project} value={project}>{project}</option>)}
+          </select>
         </label>
+
+        <label className="inline-select">
+          <select value={selectedSyncFilter} onChange={(event) => setSelectedSyncFilter(event.target.value)} aria-label="Filter by Google Sheet sync status">
+            <option value="ALL">All sync states</option>
+            <option value="synced">Synced</option>
+            <option value="pending">Pending</option>
+            <option value="failed">Failed</option>
+          </select>
+        </label>
+
+        <label className="search-field" style={{ minWidth: '240px', flex: '1 1 240px' }}>
+          <Search />
+          <input type="text" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search anything…" className="input" aria-label="Search leads" />
+        </label>
+      </div>
+
+      <div style={{ marginTop: '10px', padding: '14px', border: '1px solid rgba(0,0,0,0.08)', borderRadius: '12px', background: 'rgba(0,0,0,0.02)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginBottom: '10px', flexWrap: 'wrap' }}>
+          <strong style={{ fontSize: '13px' }}>Advanced filters</strong>
+          <button type="button" onClick={clearLeadFilters} className="button-secondary compact">Clear all filters</button>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px' }}>
+          <label><span className="cell-sub">Submitted from</span><input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="input" /></label>
+          <label><span className="cell-sub">Submitted to</span><input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="input" /></label>
+          <label><span className="cell-sub">Time from</span><input type="time" value={timeFrom} onChange={(e) => setTimeFrom(e.target.value)} className="input" /></label>
+          <label><span className="cell-sub">Time to</span><input type="time" value={timeTo} onChange={(e) => setTimeTo(e.target.value)} className="input" /></label>
+          <label><span className="cell-sub">Name</span><input type="text" value={nameFilter} onChange={(e) => setNameFilter(e.target.value)} placeholder="Lead name" className="input" /></label>
+          <label><span className="cell-sub">Phone</span><input type="text" value={phoneFilter} onChange={(e) => setPhoneFilter(e.target.value)} placeholder="Phone number" className="input" /></label>
+          <label><span className="cell-sub">Email</span><input type="text" value={emailFilter} onChange={(e) => setEmailFilter(e.target.value)} placeholder="Email address" className="input" /></label>
+          <label><span className="cell-sub">Book a Visit from</span><input type="date" value={bookVisitFrom} onChange={(e) => setBookVisitFrom(e.target.value)} className="input" /></label>
+          <label><span className="cell-sub">Book a Visit to</span><input type="date" value={bookVisitTo} onChange={(e) => setBookVisitTo(e.target.value)} className="input" /></label>
+        </div>
+        <div style={{ marginTop: '10px', fontSize: '12px', opacity: 0.7 }}>
+          Showing <strong>{filteredLeads.length}</strong> of <strong>{leads.length}</strong> leads
+        </div>
       </div>
 
       <div className="leads-stat-grid">
