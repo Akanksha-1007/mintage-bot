@@ -2047,6 +2047,16 @@ async function startServer() {
     }
 
     const nowIso = new Date().toISOString();
+
+    // Every /api/leads request represents a NEW lead submission for Google Sheets.
+    // Never reuse an older lead's submittedAt value: a returning visitor can submit
+    // another lead later, and that submission must get its own actual submission time.
+    const incomingSubmittedAt = String(leadPayload.submittedAt || '').trim();
+    const parsedIncomingSubmittedAt = incomingSubmittedAt ? new Date(incomingSubmittedAt) : null;
+    const submissionTimestamp = parsedIncomingSubmittedAt && !Number.isNaN(parsedIncomingSubmittedAt.getTime())
+      ? parsedIncomingSubmittedAt.toISOString()
+      : nowIso;
+
     const isUpdate = !!existingLead;
 
     if (existingLead) {
@@ -2122,7 +2132,9 @@ async function startServer() {
       sourceUrl: leadPayload.sourceUrl || existingLead?.sourceUrl || '',
       source: leadPayload.source || existingLead?.source || 'Website Widget',
       referrer: leadPayload.referrer || existingLead?.referrer || '',
-      submittedAt: existingLead?.submittedAt || leadPayload.submittedAt || nowIso,
+      // IMPORTANT: submittedAt belongs to THIS submission, not to the older
+      // Firestore lead record. Google Sheets appends a new row for every submission.
+      submittedAt: submissionTimestamp,
       clientTimezoneOffsetMinutes: Number.isFinite(Number(leadPayload.clientTimezoneOffsetMinutes))
         ? Number(leadPayload.clientTimezoneOffsetMinutes)
         : (existingLead?.clientTimezoneOffsetMinutes ?? null),
@@ -2165,8 +2177,10 @@ async function startServer() {
     // itself must contain the real Sheet result so the dashboard never reports a
     // false "Synced" state.
     //
-    // Existing leads must also synchronize. If Book a Visit is provided later,
-    // the existing Google Sheet row is updated instead of appending another row.
+    // Every submission is appended as a NEW Google Sheets row, including when
+    // the backend recognizes the same visitor/phone/email as an existing lead.
+    // Firestore may update the conversation's lead record, but Sheets never rewrites
+    // an older submission row.
     const runGoogleSheetSyncInBackground = async () => {
       const sheetConfig = await resolveClientGoogleSheetsConfig(
         clientId,
