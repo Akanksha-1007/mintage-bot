@@ -1244,6 +1244,7 @@ function BuilderContent() {
                       <button onClick={() => addNode('name')} className="component-tile"><span className="icon-tile tone-green"><User /></span><span>Name</span></button>
                       <button onClick={() => addNode('phone')} className="component-tile"><span className="icon-tile tone-green"><Phone /></span><span>Phone number</span></button>
                       <button onClick={() => addNode('email')} className="component-tile"><span className="icon-tile tone-blue"><Mail /></span><span>Email</span></button>
+                      <button onClick={() => addNode('project')} className="component-tile"><span className="icon-tile tone-green"><Layers /></span><span>Project</span></button>
                       <button onClick={() => addNode('singleChoice')} className="component-tile"><span className="icon-tile tone-purple"><CheckSquare /></span><span>Single choice</span></button>
                       <button onClick={() => addNode('multipleChoice')} className="component-tile"><span className="icon-tile tone-purple"><List /></span><span>Multiple choice</span></button>
                       <button onClick={() => addNode('textQuestion')} className="component-tile"><span className="icon-tile tone-orange"><HelpCircle /></span><span>Text question</span></button>
@@ -1263,7 +1264,6 @@ function BuilderContent() {
                       <button onClick={() => addNode('name')} className="component-tile"><span className="icon-tile tone-green"><User /></span><span>Name</span></button>
                       <button onClick={() => addNode('phone')} className="component-tile"><span className="icon-tile tone-green"><Phone /></span><span>Phone Number</span></button>
                       <button onClick={() => addNode('email')} className="component-tile"><span className="icon-tile tone-blue"><Mail /></span><span>Email</span></button>
-                      <button onClick={() => addNode('project')} className="component-tile"><span className="icon-tile tone-green"><Layers /></span><span>Project</span></button>
                       <button onClick={() => addNode('singleChoice')} className="component-tile"><span className="icon-tile tone-purple"><CheckSquare /></span><span>Single Choice</span></button>
                       <button onClick={() => addNode('multipleChoice')} className="component-tile"><span className="icon-tile tone-purple"><List /></span><span>Multiple Choice</span></button>
                       <button onClick={() => addNode('textQuestion')} className="component-tile"><span className="icon-tile tone-orange"><HelpCircle /></span><span>Text Question</span></button>
@@ -1491,7 +1491,7 @@ function BuilderContent() {
                   {(selectedNode.type === 'project' || selectedNode.type === 'singleChoice' || selectedNode.type === 'multipleChoice') && (
                     <div>
                       <p className="modal-section-title">{selectedNode.type === 'project' ? 'Project list &amp; redirection' : 'Options &amp; redirection'}</p>
-                      <p className="field-hint" style={{ marginBottom: '10px', marginTop: 0 }}>{selectedNode.type === 'project' ? 'Add the projects you want visitors to choose from. Each project can route to its own next step.' : 'Connect each option to a specific next step, or leave it sequential.'}</p>
+                      <p className="field-hint" style={{ marginBottom: '10px', marginTop: 0 }}>{selectedNode.type === 'project' ? 'Add as many projects as you need. Each project appears as its own list item and can route to a different next step or URL.' : 'Connect each option to a specific next step, or leave it sequential.'}</p>
 
                       <div>
                         {(selectedNode.data.choices as string[] || []).map((choice, i) => {
@@ -1645,7 +1645,9 @@ function BuilderContent() {
                         })}
                         <button
                           onClick={() => {
-                            const newChoices = [...(selectedNode.data.choices as string[] || []), `Option ${(selectedNode.data.choices as string[] || []).length + 1}`];
+                            const choiceCount = (selectedNode.data.choices as string[] || []).length;
+                            const newChoiceLabel = selectedNode.type === 'project' ? `Project ${choiceCount + 1}` : `Option ${choiceCount + 1}`;
+                            const newChoices = [...(selectedNode.data.choices as string[] || []), newChoiceLabel];
                             const updatedNode = {
                               ...selectedNode,
                               data: { ...selectedNode.data, choices: newChoices }
@@ -1656,7 +1658,7 @@ function BuilderContent() {
                           className="add-dashed"
                           style={{ marginTop: '8px' }}
                         >
-                          <Plus /> Add option
+                          <Plus /> {selectedNode.type === 'project' ? 'Add project' : 'Add option'}
                         </button>
                       </div>
                     </div>
