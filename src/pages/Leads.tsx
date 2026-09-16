@@ -140,6 +140,9 @@ export default function Leads() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [botNames, setBotNames] = useState<Record<string, string>>({});
+  // Project filter options come only from dedicated Project nodes in each flow.
+  // Normal Single Choice / Multiple Choice options are intentionally ignored.
+  const [flowProjectOptions, setFlowProjectOptions] = useState<Record<string, string[]>>({});
 
   const [selectedBotFilter, setSelectedBotFilter] = useState('ALL');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState('ALL');
@@ -492,16 +495,59 @@ export default function Leads() {
         try {
           const botSnapshot = await getDocs(collection(db, 'bot_configurations'));
 
-          userBotIds = botSnapshot.docs
-            .filter((botDoc) => {
-              const data = botDoc.data();
-              return (
-                data.createdBy === resolvedUserId ||
-                data.clientId === resolvedUserId ||
-                data.ownerId === resolvedUserId
-              );
-            })
-            .map((botDoc) => botDoc.id);
+          const allowedBotDocs = botSnapshot.docs.filter((botDoc) => {
+            if (isGlobalAdminView) return true;
+
+            const data = botDoc.data();
+            return (
+              data.createdBy === resolvedUserId ||
+              data.clientId === resolvedUserId ||
+              data.ownerId === resolvedUserId
+            );
+          });
+
+          userBotIds = allowedBotDocs.map((botDoc) => botDoc.id);
+
+          // IMPORTANT: Only the dedicated Project component contributes to the
+          // dashboard Project filter. A Multiple Choice / Single Choice node,
+          // even if its question happens to mention a project, must not add its
+          // options here.
+          const projectMap: Record<string, string[]> = {};
+
+          allowedBotDocs.forEach((botDoc) => {
+            const data = botDoc.data() || {};
+            const rawNodes = Array.isArray(data.nodes)
+              ? data.nodes
+              : (data.nodes && typeof data.nodes === 'object' ? Object.values(data.nodes) : []);
+
+            const projects: string[] = [];
+            rawNodes.forEach((node: any) => {
+              const type = String(node?.type || node?.data?.componentType || '').trim().toLowerCase();
+              const isDedicatedProjectNode =
+                type === 'project' ||
+                node?.data?.isProjectSelection === true ||
+                node?.data?.projectSelector === true ||
+                node?.data?.projectField === true;
+
+              if (!isDedicatedProjectNode) return;
+
+              const choices = Array.isArray(node?.data?.choices) ? node.data.choices : [];
+              choices.forEach((choice: any) => {
+                const value = typeof choice === 'string'
+                  ? choice.trim()
+                  : String(choice?.label || choice?.value || choice?.text || '').trim();
+
+                if (!value) return;
+                if (!projects.some((project) => project.toLowerCase() === value.toLowerCase())) {
+                  projects.push(value);
+                }
+              });
+            });
+
+            projectMap[botDoc.id] = projects.sort((a, b) => a.localeCompare(b));
+          });
+
+          setFlowProjectOptions(projectMap);
         } catch (error) {
           console.warn('[LEADS_PAGE] Bot configuration lookup warning:', error);
         }
@@ -877,9 +923,16 @@ export default function Leads() {
   };
 
   const projectOptions = useMemo(() => {
-    return Array.from(new Set(leads.map(getLeadProject).filter(Boolean) as string[]))
-      .sort((a, b) => String(a).localeCompare(String(b)));
-  }, [leads]);
+    const botIds = selectedBotFilter === 'ALL'
+      ? Object.keys(flowProjectOptions)
+      : [selectedBotFilter];
+
+    const projects = botIds.flatMap((botId) => flowProjectOptions[botId] || []);
+
+    return Array.from(
+      new Set(projects.filter(Boolean).map((project) => String(project).trim())),
+    ).sort((a, b) => a.localeCompare(b));
+  }, [flowProjectOptions, selectedBotFilter]);
 
   const clearLeadFilters = () => {
     setDateFrom('');
