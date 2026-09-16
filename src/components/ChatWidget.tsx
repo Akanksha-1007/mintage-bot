@@ -160,7 +160,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     const type = String(node.type || node.data?.componentType || '').trim().toLowerCase();
     const inputTypes = new Set([
       'name', 'phone', 'email',
-      'singlechoice', 'multiplechoice', 'textquestion',
+      'project', 'singlechoice', 'multiplechoice', 'textquestion',
       'file', 'location', 'appointment', 'datetime', 'datetime-local', 'bookvisit', 'book_a_visit', 'book-a-visit', 'date', 'time',
       'rating', 'range', 'numericinput', 'smartquestion',
       'question', 'input', 'userinput', 'textinput'
@@ -751,7 +751,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     const key = String(node.data?.key || node.data?.leadKey || node.data?.fieldKey || '').trim();
     const explicitFlag = node.data?.isProjectSelection === true || node.data?.projectSelector === true || node.data?.projectField === true;
     if (explicitFlag) return true;
-    if (!['singlechoice', 'multiplechoice', 'choice', 'select'].includes(type)) return false;
+    if (!['project', 'singlechoice', 'multiplechoice', 'choice', 'select'].includes(type)) return false;
     return /\b(project|property|community|development|residence|residential|which project|choose project|select project)\b/i.test(`${label} ${key}`);
   };
 
@@ -816,6 +816,9 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
         fieldLabel = 'Phone Number';
         fieldKey = 'phone';
         profileUpdate = { phone: cleanText };
+      } else if (isProjectSelectionNode(currentNode)) {
+        fieldLabel = 'Project';
+        fieldKey = 'project';
       } else {
         const currentType = String(currentNode.type || currentNode.data?.componentType || '').trim().toLowerCase();
         const currentLabel = String(currentNode.data?.label || currentNode.data?.text || currentNode.data?.question || '').trim();

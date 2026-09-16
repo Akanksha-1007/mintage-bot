@@ -25,6 +25,7 @@ const nodeTypes = {
   name: NameNode,
   phone: PhoneNode,
   email: EmailNode,
+  project: SingleChoiceNode,
   singleChoice: SingleChoiceNode,
   multipleChoice: MultipleChoiceNode,
   textQuestion: TextQuestionNode,
@@ -291,7 +292,7 @@ function BuilderContent() {
     const result: string[] = [];
     safeNodes.forEach((node: any) => {
       const type = String(node?.type || node?.data?.componentType || '').toLowerCase();
-      if (!['singlechoice', 'multiplechoice', 'choice', 'select'].includes(type)) return;
+      if (!['project', 'singlechoice', 'multiplechoice', 'choice', 'select'].includes(type)) return;
 
       const choices = Array.isArray(node?.data?.choices) ? node.data.choices : [];
       choices.forEach((choice: any) => {
@@ -686,23 +687,25 @@ function BuilderContent() {
       type,
       data: {
         label: type === 'message' ? 'Welcome! Thanks for showing interest! 🚀' :
-          type === 'singleChoice' || type === 'multipleChoice' ? 'Please select an option:' :
-            type === 'textQuestion' ? 'To start, could you share your full name with us? ✨' :
-              type === 'file' ? 'Please upload a file' :
-                type === 'location' ? 'Please share your location' :
-                  type === 'appointment' ? 'Please select an appointment' :
-                    type === 'dateTime' ? 'Please select a date and time' :
-                      type === 'rating' ? 'How would you rate your experience?' :
-                        type === 'range' ? 'Please select a value' :
-                          type === 'numericInput' ? 'Please enter a number' :
-                            type === 'smartQuestion' ? 'Please answer this question' :
-                              type === 'video' ? 'Watch this video' :
-                                type === 'webLink' ? 'Open this link' :
-                                  'New Node',
-        choices: (type === 'singleChoice' || type === 'multipleChoice') ? ['Option 1', 'Option 2'] : undefined,
+          type === 'project' ? 'Which project are you interested in?' :
+            type === 'singleChoice' || type === 'multipleChoice' ? 'Please select an option:' :
+              type === 'textQuestion' ? 'To start, could you share your full name with us? ✨' :
+                type === 'file' ? 'Please upload a file' :
+                  type === 'location' ? 'Please share your location' :
+                    type === 'appointment' ? 'Please select an appointment' :
+                      type === 'dateTime' ? 'Please select a date and time' :
+                        type === 'rating' ? 'How would you rate your experience?' :
+                          type === 'range' ? 'Please select a value' :
+                            type === 'numericInput' ? 'Please enter a number' :
+                              type === 'smartQuestion' ? 'Please answer this question' :
+                                type === 'video' ? 'Watch this video' :
+                                  type === 'webLink' ? 'Open this link' :
+                                    'New Node',
+        choices: type === 'project' ? ['DSR Altitudes', 'DSR Skymarq', 'DSR W'] : ((type === 'singleChoice' || type === 'multipleChoice') ? ['Option 1', 'Option 2'] : undefined),
         url: '',
         urlLabel: 'Open link',
         componentType: type,
+        ...(type === 'project' ? { leadKey: 'project', fieldKey: 'project', isProjectSelection: true, projectSelector: true, projectField: true } : {}),
       },
       position: { x: 400, y: 200 },
     };
@@ -1260,6 +1263,7 @@ function BuilderContent() {
                       <button onClick={() => addNode('name')} className="component-tile"><span className="icon-tile tone-green"><User /></span><span>Name</span></button>
                       <button onClick={() => addNode('phone')} className="component-tile"><span className="icon-tile tone-green"><Phone /></span><span>Phone Number</span></button>
                       <button onClick={() => addNode('email')} className="component-tile"><span className="icon-tile tone-blue"><Mail /></span><span>Email</span></button>
+                      <button onClick={() => addNode('project')} className="component-tile"><span className="icon-tile tone-green"><Layers /></span><span>Project</span></button>
                       <button onClick={() => addNode('singleChoice')} className="component-tile"><span className="icon-tile tone-purple"><CheckSquare /></span><span>Single Choice</span></button>
                       <button onClick={() => addNode('multipleChoice')} className="component-tile"><span className="icon-tile tone-purple"><List /></span><span>Multiple Choice</span></button>
                       <button onClick={() => addNode('textQuestion')} className="component-tile"><span className="icon-tile tone-orange"><HelpCircle /></span><span>Text Question</span></button>
@@ -1375,7 +1379,7 @@ function BuilderContent() {
                     )}
                   </div>
 
-                  {['name', 'email', 'phone', 'textQuestion', 'singleChoice', 'multipleChoice'].includes(selectedNode.type!) && (
+                  {['name', 'email', 'phone', 'project', 'textQuestion', 'singleChoice', 'multipleChoice'].includes(selectedNode.type!) && (
                     <div>
                       <label className="field-label">Lead data key</label>
                       <input
@@ -1484,10 +1488,10 @@ function BuilderContent() {
                     </select>
                   </div>
 
-                  {(selectedNode.type === 'singleChoice' || selectedNode.type === 'multipleChoice') && (
+                  {(selectedNode.type === 'project' || selectedNode.type === 'singleChoice' || selectedNode.type === 'multipleChoice') && (
                     <div>
-                      <p className="modal-section-title">Options &amp; redirection</p>
-                      <p className="field-hint" style={{ marginBottom: '10px', marginTop: 0 }}>Connect each option to a specific next step, or leave it sequential.</p>
+                      <p className="modal-section-title">{selectedNode.type === 'project' ? 'Project list &amp; redirection' : 'Options &amp; redirection'}</p>
+                      <p className="field-hint" style={{ marginBottom: '10px', marginTop: 0 }}>{selectedNode.type === 'project' ? 'Add the projects you want visitors to choose from. Each project can route to its own next step.' : 'Connect each option to a specific next step, or leave it sequential.'}</p>
 
                       <div>
                         {(selectedNode.data.choices as string[] || []).map((choice, i) => {
