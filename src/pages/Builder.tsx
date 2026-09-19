@@ -18,6 +18,7 @@ import { FileNode, LocationNode, AppointmentNode, DateTimeNode, RatingNode, Rang
 import { Check, Copy, Database, Share2, X } from 'lucide-react';
 import ClassicChatBuilder from '../components/ClassicChatBuilder';
 import { useAuth } from '../context/AuthContext';
+import { BotDesignConfig, getDefaultDesignConfig } from '../types/design';
 
 const nodeTypes = {
   image: ImageNode,
@@ -54,6 +55,7 @@ function BuilderContent() {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [botName, setBotName] = useState('My New Bot');
   const [clientLogo, setClientLogo] = useState('');
+  const [designConfig, setDesignConfig] = useState<BotDesignConfig>(() => getDefaultDesignConfig());
   const [botSpreadsheetId, setBotSpreadsheetId] = useState('');
   const [projectSheetMappings, setProjectSheetMappings] = useState<Array<{ project: string; spreadsheetId: string; worksheetName?: string }>>([]);
   const [isSaving, setIsSaving] = useState(false);
@@ -323,6 +325,7 @@ function BuilderContent() {
       // NEW BOT: never reuse the previous bot's in-memory flow.
       setBotName('My New Bot');
       setClientLogo('');
+      setDesignConfig(getDefaultDesignConfig());
       setBotSpreadsheetId('');
       setProjectSheetMappings([]);
       setNodes([]);
@@ -352,6 +355,7 @@ function BuilderContent() {
 
           setBotName(data.name || 'My New Bot');
           setClientLogo(data.clientLogo || data.logo || data.designConfig?.avatarUrl || data.design?.avatarUrl || '');
+          setDesignConfig({ ...getDefaultDesignConfig(), ...(data.designConfig || data.design || {}) });
           setBotSpreadsheetId(data.spreadsheetId || '');
           setProjectSheetMappings(Array.isArray(data.projectSheetMappings) ? data.projectSheetMappings : []);
           setNodes(nodesArr);
@@ -585,6 +589,7 @@ function BuilderContent() {
           id: savedId,
           name: botName || 'Unnamed Bot',
           clientLogo: clientLogo || '',
+          designConfig: JSON.parse(JSON.stringify(designConfig || getDefaultDesignConfig())),
           nodes: cleanNodes,
           edges: cleanEdges,
           spreadsheetId: cleanSpreadsheetId,
@@ -607,6 +612,7 @@ function BuilderContent() {
         id: savedId,
         name: botName || 'Unnamed Bot',
         clientLogo: clientLogo || '',
+        designConfig: JSON.parse(JSON.stringify(designConfig || getDefaultDesignConfig())),
         nodes: cleanNodes,
         edges: cleanEdges,
         spreadsheetId: cleanSpreadsheetId,
@@ -915,6 +921,8 @@ function BuilderContent() {
           setShowDeleteModal={setShowDeleteModal}
           botId={id}
           showToast={showToast}
+          designConfig={designConfig}
+          setDesignConfig={setDesignConfig}
         />
       ) : (
         <>
