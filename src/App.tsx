@@ -72,7 +72,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   if (loading) return <div className="centered-status"><p>Loading…</p></div>;
   if (!user && !isDemo && !impersonatedClient) return <Navigate to="/login" />;
 
-  return <Layout>{children}</Layout>;
+  return <div className="monochrome-ui"><Layout>{children}</Layout></div>;
 }
 
 function AdminRoute({ children }: { children: React.ReactNode }) {
@@ -82,7 +82,7 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   if (!user && !isDemo && !impersonatedClient) return <Navigate to="/login" />;
   if (!isAdmin) return <Navigate to="/dashboard" replace />;
 
-  return <Layout>{children}</Layout>;
+  return <div className="monochrome-ui"><Layout>{children}</Layout></div>;
 }
 
 export default function App() {
@@ -97,7 +97,7 @@ export default function App() {
         }
       >
         <Routes>
-          <Route path="/login" element={<Login />} />
+          <Route path="/login" element={<div className="monochrome-ui min-h-screen"><Login /></div>} />
           <Route path="/widget/:id" element={<Widget />} />
           <Route path="/auth/callback" element={<AuthCallback />} />
 

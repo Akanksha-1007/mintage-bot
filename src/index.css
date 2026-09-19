@@ -58,45 +58,45 @@
   --line-strong: #d8d8d3;
 
   /* Accent: Solid Monochrome Black / Neutral */
-  --accent: #5B3DF5;
-  --accent-hover: #4A2FE0;
-  --accent-active: #3D24C7;
-  --accent-soft: #F1EEFF;
-  --accent-ink: #4A2FE0;
-  --accent-ring: rgba(91, 61, 245, 0.18);
+  --accent: #000000;
+  --accent-hover: #222222;
+  --accent-active: #000000;
+  --accent-soft: #f2f2f2;
+  --accent-ink: #000000;
+  --accent-ring: rgba(0, 0, 0, 0.18);
 
   /* Tints — Restrained Luxury Neutral scale with soft status indicators */
   --tint-gray-bg: #f0f0ed;
   --tint-gray-fg: #52524e;
   --tint-gray-line: #e2e2dd;
 
-  --tint-blue-bg: #F1EEFF;
-  --tint-blue-fg: #5B3DF5;
-  --tint-blue-line: #DDD6FF;
+  --tint-blue-bg: #f2f2f2;
+  --tint-blue-fg: #111111;
+  --tint-blue-line: #d8d8d8;
 
-  --tint-green-bg: #f0fdf4;
-  --tint-green-fg: #166534;
-  --tint-green-line: #dcfce7;
+  --tint-green-bg: #f2f2f2;
+  --tint-green-fg: #222222;
+  --tint-green-line: #d8d8d8;
 
-  --tint-yellow-bg: #fefce8;
-  --tint-yellow-fg: #854d0e;
-  --tint-yellow-line: #fef08a;
+  --tint-yellow-bg: #f4f4f4;
+  --tint-yellow-fg: #333333;
+  --tint-yellow-line: #d6d6d6;
 
-  --tint-orange-bg: #fff7ed;
-  --tint-orange-fg: #9a3412;
-  --tint-orange-line: #ffedd5;
+  --tint-orange-bg: #f3f3f3;
+  --tint-orange-fg: #222222;
+  --tint-orange-line: #d8d8d8;
 
-  --tint-red-bg: #fef2f2;
-  --tint-red-fg: #991b1b;
-  --tint-red-line: #fee2e2;
+  --tint-red-bg: #f3f3f3;
+  --tint-red-fg: #111111;
+  --tint-red-line: #d4d4d4;
 
-  --tint-purple-bg: #F3EFFF;
-  --tint-purple-fg: #6D4AFF;
-  --tint-purple-line: #E1D9FF;
+  --tint-purple-bg: #f2f2f2;
+  --tint-purple-fg: #111111;
+  --tint-purple-line: #d8d8d8;
 
-  --tint-pink-bg: #FFF0F8;
-  --tint-pink-fg: #E83E9B;
-  --tint-pink-line: #FFD6EA;
+  --tint-pink-bg: #f2f2f2;
+  --tint-pink-fg: #111111;
+  --tint-pink-line: #d8d8d8;
 
   /* Radii — refined 10-16px */
   --r-xs: 4px;
@@ -150,44 +150,44 @@
   --line-soft: #202023;
   --line-strong: #3f3f46;
 
-  --accent: #8B74FF;
-  --accent-hover: #A89AFF;
-  --accent-active: #C0B6FF;
-  --accent-soft: #2A2250;
-  --accent-ink: #BDB4FF;
-  --accent-ring: rgba(139, 116, 255, 0.22);
+  --accent: #ffffff;
+  --accent-hover: #e5e5e5;
+  --accent-active: #ffffff;
+  --accent-soft: #2a2a2a;
+  --accent-ink: #ffffff;
+  --accent-ring: rgba(255, 255, 255, 0.22);
 
   --tint-gray-bg: #27272a;
   --tint-gray-fg: #a1a1aa;
   --tint-gray-line: #3f3f46;
 
-  --tint-blue-bg: #2A2250;
-  --tint-blue-fg: #BDB4FF;
-  --tint-blue-line: #4A3D7A;
+  --tint-blue-bg: #2a2a2a;
+  --tint-blue-fg: #ffffff;
+  --tint-blue-line: #444444;
 
-  --tint-green-bg: #052e16;
-  --tint-green-fg: #4ade80;
-  --tint-green-line: #14532d;
+  --tint-green-bg: #222222;
+  --tint-green-fg: #ffffff;
+  --tint-green-line: #444444;
 
-  --tint-yellow-bg: #422006;
-  --tint-yellow-fg: #fde047;
-  --tint-yellow-line: #713f12;
+  --tint-yellow-bg: #222222;
+  --tint-yellow-fg: #ffffff;
+  --tint-yellow-line: #444444;
 
-  --tint-orange-bg: #431407;
-  --tint-orange-fg: #fb923c;
-  --tint-orange-line: #7c2d12;
+  --tint-orange-bg: #222222;
+  --tint-orange-fg: #ffffff;
+  --tint-orange-line: #444444;
 
-  --tint-red-bg: #450a0a;
-  --tint-red-fg: #fca5a5;
-  --tint-red-line: #7f1d1d;
+  --tint-red-bg: #222222;
+  --tint-red-fg: #ffffff;
+  --tint-red-line: #444444;
 
-  --tint-purple-bg: #2E2554;
-  --tint-purple-fg: #C4BAFF;
-  --tint-purple-line: #51447F;
+  --tint-purple-bg: #2a2a2a;
+  --tint-purple-fg: #ffffff;
+  --tint-purple-line: #444444;
 
-  --tint-pink-bg: #4A203A;
-  --tint-pink-fg: #FF9DCC;
-  --tint-pink-line: #6D3155;
+  --tint-pink-bg: #2a2a2a;
+  --tint-pink-fg: #ffffff;
+  --tint-pink-line: #444444;
 
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.35);
@@ -4981,4 +4981,29 @@ kbd,
   .admin-secondary-stats {
     grid-template-columns: 1fr;
   }
+}
+
+/* ==========================================================================
+   Monochrome application UI
+   The admin/dashboard/builder/login interface is intentionally black, white,
+   and neutral grayscale only. The public widget route keeps its bot design
+   configuration unchanged.
+   ========================================================================== */
+.monochrome-ui {
+  filter: grayscale(1);
+  background: #ffffff;
+  color: #111111;
+  min-height: 100%;
+}
+
+.monochrome-ui input,
+.monochrome-ui textarea,
+.monochrome-ui select,
+.monochrome-ui button {
+  accent-color: #000000;
+}
+
+.monochrome-ui ::selection {
+  background: #111111;
+  color: #ffffff;
 }
