@@ -53,6 +53,7 @@ function BuilderContent() {
   const safeEdges = useMemo(() => Array.isArray(edges) ? edges : (edges && typeof edges === 'object' ? Object.values(edges) as Edge[] : []), [edges]);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [botName, setBotName] = useState('My New Bot');
+  const [clientLogo, setClientLogo] = useState('');
   const [botSpreadsheetId, setBotSpreadsheetId] = useState('');
   const [projectSheetMappings, setProjectSheetMappings] = useState<Array<{ project: string; spreadsheetId: string; worksheetName?: string }>>([]);
   const [isSaving, setIsSaving] = useState(false);
@@ -321,6 +322,7 @@ function BuilderContent() {
     if (!id) {
       // NEW BOT: never reuse the previous bot's in-memory flow.
       setBotName('My New Bot');
+      setClientLogo('');
       setBotSpreadsheetId('');
       setProjectSheetMappings([]);
       setNodes([]);
@@ -349,6 +351,7 @@ function BuilderContent() {
             : (rawEdges && typeof rawEdges === 'object' ? Object.values(rawEdges) : []);
 
           setBotName(data.name || 'My New Bot');
+          setClientLogo(data.clientLogo || data.logo || data.designConfig?.avatarUrl || data.design?.avatarUrl || '');
           setBotSpreadsheetId(data.spreadsheetId || '');
           setProjectSheetMappings(Array.isArray(data.projectSheetMappings) ? data.projectSheetMappings : []);
           setNodes(nodesArr);
@@ -523,6 +526,40 @@ function BuilderContent() {
     }
   };
 
+  const handleClientLogoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      showToast('Please select an image file for the client logo.', 'error');
+      event.target.value = '';
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      showToast('Logo image must be 2 MB or smaller.', 'error');
+      event.target.value = '';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const value = String(reader.result || '');
+      if (value) {
+        setClientLogo(value);
+        showToast('Client logo added. Publish to save it.');
+      }
+    };
+    reader.onerror = () => showToast('Could not read the logo image.', 'error');
+    reader.readAsDataURL(file);
+    event.target.value = '';
+  };
+
+  const clearClientLogo = () => {
+    setClientLogo('');
+    showToast('Client logo removed. Publish to save the change.');
+  };
+
   const onSave = async () => {
     const targetUserId = effectiveUserId || auth.currentUser?.uid || 'guest_user';
 
@@ -547,6 +584,7 @@ function BuilderContent() {
         await setDoc(doc(db, 'bot_configurations', savedId), {
           id: savedId,
           name: botName || 'Unnamed Bot',
+          clientLogo: clientLogo || '',
           nodes: cleanNodes,
           edges: cleanEdges,
           spreadsheetId: cleanSpreadsheetId,
@@ -568,6 +606,7 @@ function BuilderContent() {
       const newBotObj = {
         id: savedId,
         name: botName || 'Unnamed Bot',
+        clientLogo: clientLogo || '',
         nodes: cleanNodes,
         edges: cleanEdges,
         spreadsheetId: cleanSpreadsheetId,
@@ -893,6 +932,26 @@ function BuilderContent() {
               <p className="builder-subtitle">
                 {id ? 'Published' : 'Draft'} · Last saved {id ? 'just now' : 'never'}
               </p>
+              <div className="flex items-center gap-2 mt-2">
+                <div className="w-7 h-7 rounded-full border border-gray-200 bg-gray-50 overflow-hidden flex items-center justify-center shrink-0">
+                  {clientLogo ? (
+                    <img src={clientLogo} alt="Client logo" className="w-full h-full object-contain" />
+                  ) : (
+                    <span className="text-[9px] text-gray-400 font-semibold">LOGO</span>
+                  )}
+                </div>
+                <label className="button-secondary cursor-pointer" title="Add the client logo shown in the chatbot">
+                  <Upload />
+                  <span>{clientLogo ? 'Change logo' : 'Add client logo'}</span>
+                  <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={handleClientLogoUpload} className="hidden" />
+                </label>
+                {clientLogo && (
+                  <button type="button" onClick={clearClientLogo} className="button-ghost" title="Remove client logo">
+                    <X />
+                    Remove
+                  </button>
+                )}
+              </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button

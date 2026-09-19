@@ -1209,6 +1209,11 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
             >
+              {msg.sender === 'bot' && clientLogo && (
+                <div className="w-8 h-8 rounded-full overflow-hidden border border-gray-200 bg-white flex items-center justify-center shrink-0 mr-2 mt-1 shadow-sm">
+                  <img src={clientLogo} alt={design.botTitle || botTitle} className="w-full h-full object-contain" />
+                </div>
+              )}
               <div
                 className={`max-w-[82%] p-3 rounded-2xl text-sm shadow-sm transition-all ${msg.sender === 'user' ? 'rounded-tr-none' : 'rounded-tl-none border'}`}
                 style={msg.sender === 'user'
