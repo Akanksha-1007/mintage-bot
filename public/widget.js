@@ -1,349 +1,507 @@
 (function () {
   'use strict';
 
-  /*
-   * ============================================================
-   * MINTAGE BOTFLOW - WIDGET LAUNCHER
-   * ============================================================
-   *
-   * Supports:
-   * - Bot ID
-   * - Custom launcher color
-   * - Custom launcher logo
-   * - Launcher position
-   * - Launcher shape
-   * - Chat iframe
-   * - Bot designConfig from /api/bots/:id
-   * - Responsive mobile layout
-   * - External websites
-   *
-   * IMPORTANT:
-   * The API / iframe URL is built from the widget.js server,
-   * NOT from the website where the widget is embedded.
-   * ============================================================
-   */
+  // ============================================================
+  // PREVENT DOUBLE INITIALIZATION
+  // ============================================================
 
-  /* ------------------------------------------------------------
-   * 1. FIND THE SCRIPT
-   * ------------------------------------------------------------ */
+  if (window.BotFlowWidgetLoaded) {
+    return;
+  }
 
-  var script =
+  window.BotFlowWidgetLoaded = true;
+
+  // ============================================================
+  // FIND CURRENT SCRIPT
+  // ============================================================
+
+  var scriptTag =
     document.currentScript ||
-    document.querySelector('script[data-bot-id]');
+    (function () {
+      var scripts =
+        document.getElementsByTagName('script');
 
-  if (!script) {
+      for (var i = scripts.length - 1; i >= 0; i--) {
+        if (
+          scripts[i].src &&
+          scripts[i].src.indexOf('widget.js') !== -1
+        ) {
+          return scripts[i];
+        }
+      }
+
+      return scripts[scripts.length - 1];
+    })();
+
+  if (!scriptTag) {
     console.error(
-      '[BotFlow] Widget script was not found.'
+      'BotFlow Widget: widget.js script was not found.'
     );
     return;
   }
 
-  /* ------------------------------------------------------------
-   * 2. READ EMBED CONFIGURATION
-   * ------------------------------------------------------------ */
+  // ============================================================
+  // BASE URL
+  // ============================================================
 
-  var botId =
-    script.getAttribute('data-bot-id') || '';
+  var customHost =
+    scriptTag.getAttribute('data-host');
 
-  var embedColor =
-    script.getAttribute('data-color') || '';
+  var baseUrl =
+    customHost || '';
 
-  var embedPosition =
-    script.getAttribute('data-position') ||
-    'bottom-right';
+  if (
+    !baseUrl &&
+    scriptTag.src
+  ) {
+    try {
+      var urlObj =
+        new URL(scriptTag.src);
 
-  var embedLogo =
-    script.getAttribute('data-logo') || '';
+      if (
+        urlObj.origin &&
+        urlObj.origin.indexOf('file:') === -1
+      ) {
+        var scriptPath =
+          urlObj.pathname.replace(
+            /\/widget\.js$/,
+            ''
+          );
 
-  /* ------------------------------------------------------------
-   * 3. FIND WIDGET SERVER ORIGIN
-   * ------------------------------------------------------------
-   *
-   * Example:
-   *
-   * https://chatbot.mintagemarkcomm.com/widget.js
-   *
-   * becomes:
-   *
-   * https://chatbot.mintagemarkcomm.com
-   *
-   * We must use this origin for:
-   *
-   * /api/bots/:id
-   * /widget/:id
-   *
-   * instead of:
-   *
-   * window.location.origin
-   *
-   * because the widget can be embedded on another website.
-   * ------------------------------------------------------------ */
-
-  var widgetOrigin = '';
-
-  try {
-    var scriptSrc = script.src;
-
-    if (scriptSrc) {
-      widgetOrigin =
-        new URL(scriptSrc, window.location.href).origin;
+        baseUrl =
+          urlObj.origin +
+          scriptPath;
+      }
+    } catch (e) {
+      console.warn(
+        'BotFlow Widget: unable to determine script URL.'
+      );
     }
-  } catch (error) {
-    console.warn(
-      '[BotFlow] Could not determine widget origin.',
-      error
-    );
   }
 
-  if (!widgetOrigin) {
-    widgetOrigin =
+  // ============================================================
+  // ENVIRONMENT CORRECTION
+  // ============================================================
+
+  if (
+    baseUrl &&
+    baseUrl.indexOf('ais-dev-') !== -1
+  ) {
+    baseUrl =
+      baseUrl.replace(
+        'ais-dev-',
+        'ais-pre-'
+      );
+  }
+
+  // ============================================================
+  // GITHUB PAGES CORRECTION
+  // ============================================================
+
+  if (
+    baseUrl &&
+    baseUrl.indexOf(
+      'akanksha-1007.github.io'
+    ) !== -1 &&
+    baseUrl.indexOf(
+      '/mintage-bot'
+    ) === -1
+  ) {
+    baseUrl =
+      baseUrl.replace(
+        /\/$/,
+        ''
+      ) +
+      '/mintage-bot';
+  }
+
+  // ============================================================
+  // FALLBACK
+  // ============================================================
+
+  if (
+    !baseUrl ||
+    baseUrl.indexOf('file:') !== -1
+  ) {
+    baseUrl =
       window.location.origin;
   }
 
-  /* ------------------------------------------------------------
-   * 4. DECODE EMBED VALUES
-   * ------------------------------------------------------------ */
+  // Remove trailing slash
+  baseUrl =
+    baseUrl.replace(/\/$/, '');
 
-  function decodeValue(value) {
-    if (!value) return '';
+  // ============================================================
+  // BOT ID
+  // ============================================================
 
+  var botId =
+    scriptTag.getAttribute(
+      'data-bot-id'
+    ) ||
+    scriptTag.getAttribute(
+      'data-id'
+    ) ||
+    '';
+
+  botId =
+    String(botId).trim();
+
+  // ============================================================
+  // POSITION
+  // ============================================================
+
+  var position =
+    scriptTag.getAttribute(
+      'data-position'
+    ) || 'right';
+
+  // ============================================================
+  // EMBED COLOR
+  // ============================================================
+
+  var rawColor =
+    scriptTag.getAttribute(
+      'data-color'
+    ) || '#5B3DF5';
+
+  var initialColor =
+    rawColor;
+
+  try {
+    initialColor =
+      decodeURIComponent(
+        rawColor
+      );
+  } catch (e) { }
+
+  // ============================================================
+  // EXISTING ICON
+  // ============================================================
+
+  var rawIcon =
+    scriptTag.getAttribute(
+      'data-icon'
+    ) ||
+    scriptTag.getAttribute(
+      'data-launcher-icon'
+    ) ||
+    null;
+
+  // ============================================================
+  // NEW: LAUNCHER LOGO
+  // ============================================================
+
+  var rawLogo =
+    scriptTag.getAttribute(
+      'data-logo'
+    ) || '';
+
+  var launcherLogoUrl =
+    rawLogo;
+
+  if (
+    launcherLogoUrl
+  ) {
     try {
-      return decodeURIComponent(value);
-    } catch (error) {
-      return value;
-    }
+      launcherLogoUrl =
+        decodeURIComponent(
+          launcherLogoUrl
+        );
+    } catch (e) { }
   }
 
-  embedColor =
-    decodeValue(embedColor);
+  // ============================================================
+  // MODE
+  // ============================================================
 
-  embedLogo =
-    decodeValue(embedLogo);
+  var mode =
+    scriptTag.getAttribute(
+      'data-mode'
+    ) || 'iframe';
 
-  /* ------------------------------------------------------------
-   * 5. VALIDATE BOT ID
-   * ------------------------------------------------------------ */
+  // ============================================================
+  // DEBUG INFORMATION
+  // ============================================================
 
-  if (!botId) {
+  console.log(
+    '[BotFlow] Bot ID:',
+    botId
+  );
+
+  console.log(
+    '[BotFlow] Base URL:',
+    baseUrl
+  );
+
+  console.log(
+    '[BotFlow] Initial launcher color:',
+    initialColor
+  );
+
+  console.log(
+    '[BotFlow] Launcher logo:',
+    launcherLogoUrl
+      ? 'Loaded'
+      : 'None'
+  );
+
+  // ============================================================
+  // STOP IF BOT ID IS MISSING
+  // ============================================================
+
+  if (
+    !botId ||
+    botId === 'SAVE_FIRST' ||
+    botId === 'default'
+  ) {
     console.error(
-      '[BotFlow] data-bot-id is missing.'
+      '[BotFlow] Missing or invalid bot ID.'
     );
+
     return;
   }
 
-  /* ------------------------------------------------------------
-   * 6. DEFAULT DESIGN VALUES
-   * ------------------------------------------------------------ */
+  // ============================================================
+  // TARGET WIDGET URL
+  // ============================================================
 
-  var designConfig = {};
+  var iconParam =
+    rawIcon
+      ? '&icon=' +
+      encodeURIComponent(
+        rawIcon
+      )
+      : '';
 
-  var launcherColor =
-    embedColor ||
-    '#5B3DF5';
+  var targetUrl =
+    baseUrl +
+    '/widget/' +
+    encodeURIComponent(
+      botId
+    ) +
+    '?color=' +
+    encodeURIComponent(
+      initialColor
+    ) +
+    iconParam;
 
-  var launcherLogo =
-    embedLogo ||
-    '';
+  console.log(
+    '[BotFlow] Widget URL:',
+    targetUrl
+  );
 
-  var launcherPosition =
-    embedPosition ||
-    'bottom-right';
+  // ============================================================
+  // ICONS
+  // ============================================================
 
-  var launcherShape =
-    'circle';
+  var icons = {
 
-  var launcherIcon =
-    'chat';
+    chat:
+      '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>' +
+      '</svg>',
 
-  var launcherText =
+    bot:
+      '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<rect x="3" y="11" width="18" height="10" rx="2"></rect>' +
+      '<circle cx="12" cy="5" r="2"></circle>' +
+      '<path d="M12 7v4"></path>' +
+      '<line x1="8" y1="16" x2="8.01" y2="16"></line>' +
+      '<line x1="16" y1="16" x2="16.01" y2="16"></line>' +
+      '</svg>',
+
+    sparkles:
+      '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3z"></path>' +
+      '</svg>',
+
+    message:
+      '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<rect width="20" height="16" x="2" y="4" rx="2"></rect>' +
+      '<path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path>' +
+      '</svg>',
+
+    help:
+      '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<circle cx="12" cy="12" r="10"></circle>' +
+      '<path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>' +
+      '<path d="M12 17h.01"></path>' +
+      '</svg>',
+
+    close:
+      '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">' +
+      '<line x1="18" y1="6" x2="6" y2="18"></line>' +
+      '<line x1="6" y1="6" x2="18" y2="18"></line>' +
+      '</svg>'
+  };
+
+  var currentIcon =
+    rawIcon &&
+      icons[rawIcon]
+      ? icons[rawIcon]
+      : icons.chat;
+
+  // ============================================================
+  // CONTAINER
+  // ============================================================
+
+  var container =
+    document.createElement(
+      'div'
+    );
+
+  container.id =
+    'botflow-widget-container';
+
+  container.style.cssText =
+    'position:fixed;' +
+    'bottom:20px;' +
+    (
+      position === 'left'
+        ? 'left:20px;'
+        : 'right:20px;'
+    ) +
+    'z-index:2147483647;' +
+    'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;' +
+    'display:flex;' +
+    'flex-direction:column;' +
+    'align-items:' +
+    (
+      position === 'left'
+        ? 'flex-start'
+        : 'flex-end'
+    ) +
+    ';' +
+    'gap:10px;';
+
+  // ============================================================
+  // TEASER
+  // ============================================================
+
+  var teaser =
+    document.createElement(
+      'div'
+    );
+
+  teaser.id =
+    'botflow-widget-teaser';
+
+  teaser.style.cssText =
+    'display:none;' +
+    'background:white;' +
+    'color:#1e293b;' +
+    'padding:8px 14px;' +
+    'border-radius:14px;' +
+    'box-shadow:0 8px 24px rgba(0,0,0,0.15);' +
+    'font-size:13px;' +
+    'font-weight:600;' +
+    'cursor:pointer;' +
+    'border:1px solid rgba(0,0,0,0.08);' +
+    'white-space:nowrap;';
+
+  teaser.innerHTML =
     'Chat with us! 👋';
 
-  var showTeaser =
-    false;
+  container.appendChild(
+    teaser
+  );
 
-  /* ------------------------------------------------------------
-   * 7. CREATE MAIN LAUNCHER
-   * ------------------------------------------------------------ */
+  // ============================================================
+  // LAUNCHER BUTTON
+  // ============================================================
 
-  var launcher =
-    document.createElement('button');
+  var button =
+    document.createElement(
+      'button'
+    );
 
-  launcher.type =
+  button.type =
     'button';
 
-  launcher.setAttribute(
+  button.id =
+    'botflow-widget-button';
+
+  button.setAttribute(
     'aria-label',
     'Open chat'
   );
 
-  launcher.setAttribute(
-    'aria-expanded',
-    'false'
-  );
+  button.style.cssText =
+    'width:56px;' +
+    'height:56px;' +
+    'border-radius:28px;' +
+    'background:' +
+    initialColor +
+    ';' +
+    'border:none;' +
+    'color:white;' +
+    'cursor:pointer;' +
+    'box-shadow:0 6px 20px rgba(0,0,0,0.25);' +
+    'transition:transform .2s,background-color .2s,border-radius .2s;' +
+    'display:flex;' +
+    'align-items:center;' +
+    'justify-content:center;' +
+    'padding:0;' +
+    'margin:0;' +
+    'outline:none;' +
+    'overflow:hidden;' +
+    '-webkit-tap-highlight-color:transparent;';
 
-  launcher.style.position =
-    'fixed';
+  // ============================================================
+  // OPEN STATE
+  // ============================================================
 
-  launcher.style.width =
-    '60px';
+  var isOpen =
+    false;
 
-  launcher.style.height =
-    '60px';
-
-  launcher.style.border =
-    'none';
-
-  launcher.style.padding =
-    '0';
-
-  launcher.style.margin =
-    '0';
-
-  launcher.style.cursor =
-    'pointer';
-
-  launcher.style.zIndex =
-    '2147483647';
-
-  launcher.style.display =
-    'flex';
-
-  launcher.style.alignItems =
-    'center';
-
-  launcher.style.justifyContent =
-    'center';
-
-  launcher.style.boxSizing =
-    'border-box';
-
-  launcher.style.overflow =
-    'hidden';
-
-  launcher.style.backgroundColor =
-    launcherColor;
-
-  launcher.style.boxShadow =
-    '0 4px 18px rgba(0,0,0,0.25)';
-
-  launcher.style.transition =
-    'transform 0.2s ease, box-shadow 0.2s ease';
-
-  /* ------------------------------------------------------------
-   * 8. CREATE TEASER
-   * ------------------------------------------------------------ */
-
-  var teaser =
-    document.createElement('div');
-
-  teaser.style.position =
-    'fixed';
-
-  teaser.style.zIndex =
-    '2147483646';
-
-  teaser.style.padding =
-    '10px 16px';
-
-  teaser.style.background =
-    '#ffffff';
-
-  teaser.style.color =
-    '#222222';
-
-  teaser.style.borderRadius =
-    '12px';
-
-  teaser.style.fontFamily =
-    'Arial, sans-serif';
-
-  teaser.style.fontSize =
-    '14px';
-
-  teaser.style.fontWeight =
-    '500';
-
-  teaser.style.boxShadow =
-    '0 4px 18px rgba(0,0,0,0.15)';
-
-  teaser.style.whiteSpace =
-    'nowrap';
-
-  teaser.style.display =
-    'none';
-
-  teaser.textContent =
-    launcherText;
-
-  document.body.appendChild(
-    teaser
-  );
-
-  /* ------------------------------------------------------------
-   * 9. LAUNCHER ICON
-   * ------------------------------------------------------------ */
-
-  function getFallbackIcon() {
-
-    if (launcherIcon === 'robot') {
-      return '🤖';
-    }
-
-    if (launcherIcon === 'sparkles') {
-      return '✨';
-    }
-
-    if (launcherIcon === 'message') {
-      return '✉';
-    }
-
-    if (launcherIcon === 'help') {
-      return '❔';
-    }
-
-    return '💬';
-  }
-
-  /* ------------------------------------------------------------
-   * 10. RENDER LAUNCHER CONTENT
-   * ------------------------------------------------------------ */
+  // ============================================================
+  // RENDER LAUNCHER
+  // ============================================================
 
   function renderLauncher() {
 
-    launcher.innerHTML = '';
+    button.innerHTML =
+      '';
 
-    /*
-     * ----------------------------------------------------------
-     * CUSTOM LOGO
-     * ----------------------------------------------------------
-     */
+    if (isOpen) {
+
+      button.innerHTML =
+        icons.close;
+
+      button.setAttribute(
+        'aria-label',
+        'Close chat'
+      );
+
+      return;
+    }
+
+    // ----------------------------------------------------------
+    // CUSTOM LOGO
+    // ----------------------------------------------------------
 
     if (
-      launcherLogo &&
-      typeof launcherLogo === 'string' &&
-      launcherLogo.trim() !== ''
+      launcherLogoUrl &&
+      launcherLogoUrl.trim() !== ''
     ) {
 
       var logoImage =
-        document.createElement('img');
+        document.createElement(
+          'img'
+        );
 
       logoImage.src =
-        launcherLogo;
+        launcherLogoUrl;
 
       logoImage.alt =
         'Chat';
 
       logoImage.style.width =
-        '38px';
+        '36px';
 
       logoImage.style.height =
-        '38px';
-
-      logoImage.style.maxWidth =
-        '70%';
-
-      logoImage.style.maxHeight =
-        '70%';
+        '36px';
 
       logoImage.style.objectFit =
         'contain';
@@ -361,961 +519,647 @@
             '[BotFlow] Launcher logo could not be loaded.'
           );
 
-          launcherLogo = '';
+          launcherLogoUrl =
+            '';
 
           renderLauncher();
         };
 
-      launcher.appendChild(
+      button.appendChild(
         logoImage
       );
 
-      return;
+    } else {
+
+      // --------------------------------------------------------
+      // FALLBACK ICON
+      // --------------------------------------------------------
+
+      button.innerHTML =
+        currentIcon;
     }
 
-    /*
-     * ----------------------------------------------------------
-     * DEFAULT ICON
-     * ----------------------------------------------------------
-     */
-
-    var icon =
-      document.createElement('span');
-
-    icon.textContent =
-      getFallbackIcon();
-
-    icon.style.fontSize =
-      '28px';
-
-    icon.style.lineHeight =
-      '1';
-
-    icon.style.display =
-      'flex';
-
-    icon.style.alignItems =
-      'center';
-
-    icon.style.justifyContent =
-      'center';
-
-    icon.style.pointerEvents =
-      'none';
-
-    launcher.appendChild(
-      icon
+    button.setAttribute(
+      'aria-label',
+      'Open chat'
     );
   }
 
-  /* ------------------------------------------------------------
-   * 11. APPLY POSITION
-   * ------------------------------------------------------------ */
-
-  function applyPosition() {
-
-    /*
-     * Clear previous position
-     */
-
-    launcher.style.left =
-      'auto';
-
-    launcher.style.right =
-      'auto';
-
-    launcher.style.top =
-      'auto';
-
-    launcher.style.bottom =
-      'auto';
-
-    teaser.style.left =
-      'auto';
-
-    teaser.style.right =
-      'auto';
-
-    teaser.style.top =
-      'auto';
-
-    teaser.style.bottom =
-      'auto';
-
-    /*
-     * Bottom Left
-     */
-
-    if (
-      launcherPosition ===
-      'bottom-left'
-    ) {
-
-      launcher.style.left =
-        '20px';
-
-      launcher.style.bottom =
-        '20px';
-
-      teaser.style.left =
-        '20px';
-
-      teaser.style.bottom =
-        '90px';
-
-      teaser.style.transform =
-        'none';
-
-      return;
-    }
-
-    /*
-     * Top Right
-     */
-
-    if (
-      launcherPosition ===
-      'top-right'
-    ) {
-
-      launcher.style.right =
-        '20px';
-
-      launcher.style.top =
-        '20px';
-
-      teaser.style.right =
-        '20px';
-
-      teaser.style.top =
-        '90px';
-
-      return;
-    }
-
-    /*
-     * Top Left
-     */
-
-    if (
-      launcherPosition ===
-      'top-left'
-    ) {
-
-      launcher.style.left =
-        '20px';
-
-      launcher.style.top =
-        '20px';
-
-      teaser.style.left =
-        '20px';
-
-      teaser.style.top =
-        '90px';
-
-      return;
-    }
-
-    /*
-     * Default Bottom Right
-     */
-
-    launcher.style.right =
-      '20px';
-
-    launcher.style.bottom =
-      '20px';
-
-    teaser.style.right =
-      '20px';
-
-    teaser.style.bottom =
-      '90px';
-  }
-
-  /* ------------------------------------------------------------
-   * 12. APPLY SHAPE
-   * ------------------------------------------------------------ */
-
-  function applyShape() {
-
-    if (
-      launcherShape ===
-      'pill'
-    ) {
-
-      launcher.style.width =
-        '70px';
-
-      launcher.style.borderRadius =
-        '30px';
-
-    } else if (
-      launcherShape ===
-      'square'
-    ) {
-
-      launcher.style.borderRadius =
-        '14px';
-
-    } else if (
-      launcherShape ===
-      'rounded'
-    ) {
-
-      launcher.style.borderRadius =
-        '16px';
-
-    } else {
-
-      /*
-       * Circle
-       */
-
-      launcher.style.width =
-        '60px';
-
-      launcher.style.height =
-        '60px';
-
-      launcher.style.borderRadius =
-        '50%';
-    }
-  }
-
-  /* ------------------------------------------------------------
-   * 13. CREATE CHAT IFRAME
-   * ------------------------------------------------------------ */
-
-  var iframe =
-    document.createElement('iframe');
-
-  /*
-   * VERY IMPORTANT:
-   *
-   * Do NOT use:
-   *
-   * window.location.origin
-   *
-   * Use widgetOrigin.
-   */
-
-  iframe.src =
-    widgetOrigin +
-    '/widget/' +
-    encodeURIComponent(botId);
-
-  iframe.title =
-    'Chatbot';
-
-  iframe.setAttribute(
-    'allow',
-    'clipboard-write'
-  );
-
-  iframe.style.position =
-    'fixed';
-
-  iframe.style.width =
-    '380px';
-
-  iframe.style.height =
-    '650px';
-
-  iframe.style.maxWidth =
-    'calc(100vw - 30px)';
-
-  iframe.style.maxHeight =
-    'calc(100vh - 100px)';
-
-  iframe.style.border =
-    'none';
-
-  iframe.style.borderRadius =
-    '16px';
-
-  iframe.style.background =
-    '#ffffff';
-
-  iframe.style.boxShadow =
-    '0 10px 40px rgba(0,0,0,0.20)';
-
-  iframe.style.zIndex =
-    '2147483646';
-
-  iframe.style.display =
-    'none';
-
-  iframe.style.opacity =
-    '0';
-
-  iframe.style.transition =
-    'opacity 0.2s ease';
-
-  /* ------------------------------------------------------------
-   * 14. APPLY IFRAME POSITION
-   * ------------------------------------------------------------ */
-
-  function applyIframePosition() {
-
-    iframe.style.left =
-      'auto';
-
-    iframe.style.right =
-      'auto';
-
-    iframe.style.top =
-      'auto';
-
-    iframe.style.bottom =
-      'auto';
-
-    if (
-      launcherPosition ===
-      'bottom-left'
-    ) {
-
-      iframe.style.left =
-        '20px';
-
-      iframe.style.bottom =
-        '90px';
-
-    } else if (
-      launcherPosition ===
-      'top-right'
-    ) {
-
-      iframe.style.right =
-        '20px';
-
-      iframe.style.top =
-        '90px';
-
-    } else if (
-      launcherPosition ===
-      'top-left'
-    ) {
-
-      iframe.style.left =
-        '20px';
-
-      iframe.style.top =
-        '90px';
-
-    } else {
-
-      iframe.style.right =
-        '20px';
-
-      iframe.style.bottom =
-        '90px';
-    }
-  }
-
-  /* ------------------------------------------------------------
-   * 15. MOBILE STYLES
-   * ------------------------------------------------------------ */
-
-  function updateMobileStyles() {
-
-    if (
-      window.innerWidth <=
-      600
-    ) {
-
-      /*
-       * Launcher
-       */
-
-      launcher.style.width =
-        '56px';
-
-      launcher.style.height =
-        '56px';
-
-      /*
-       * Iframe
-       */
-
-      iframe.style.width =
-        'calc(100vw - 20px)';
-
-      iframe.style.height =
-        'calc(100vh - 90px)';
-
-      iframe.style.maxWidth =
-        'none';
-
-      iframe.style.maxHeight =
-        'none';
-
-      /*
-       * Position
-       */
-
-      if (
-        launcherPosition ===
-        'bottom-left'
-      ) {
-
-        launcher.style.left =
-          '10px';
-
-        launcher.style.bottom =
-          '10px';
-
-        iframe.style.left =
-          '10px';
-
-        iframe.style.bottom =
-          '76px';
-
-      } else if (
-        launcherPosition ===
-        'top-left'
-      ) {
-
-        launcher.style.left =
-          '10px';
-
-        launcher.style.top =
-          '10px';
-
-        iframe.style.left =
-          '10px';
-
-        iframe.style.top =
-          '76px';
-
-      } else if (
-        launcherPosition ===
-        'top-right'
-      ) {
-
-        launcher.style.right =
-          '10px';
-
-        launcher.style.top =
-          '10px';
-
-        iframe.style.right =
-          '10px';
-
-        iframe.style.top =
-          '76px';
-
-      } else {
-
-        launcher.style.right =
-          '10px';
-
-        launcher.style.bottom =
-          '10px';
-
-        iframe.style.right =
-          '10px';
-
-        iframe.style.bottom =
-          '76px';
-      }
-
-      /*
-       * Teaser
-       */
-
-      teaser.style.maxWidth =
-        'calc(100vw - 100px)';
-
-      teaser.style.whiteSpace =
-        'normal';
-
-    } else {
-
-      /*
-       * Desktop
-       */
-
-      launcher.style.width =
-        launcherShape === 'pill'
-          ? '70px'
-          : '60px';
-
-      launcher.style.height =
-        '60px';
-
-      iframe.style.width =
-        '380px';
-
-      iframe.style.height =
-        '650px';
-
-      iframe.style.maxWidth =
-        'calc(100vw - 30px)';
-
-      iframe.style.maxHeight =
-        'calc(100vh - 100px)';
-    }
-  }
-
-  /* ------------------------------------------------------------
-   * 16. APPLY DESIGN CONFIG
-   * ------------------------------------------------------------ */
-
-  function applyDesignConfig(cfg) {
+  renderLauncher();
+
+  // ============================================================
+  // HOVER
+  // ============================================================
+
+  button.onmouseover =
+    function () {
+      button.style.transform =
+        'scale(1.08)';
+    };
+
+  button.onmouseout =
+    function () {
+      button.style.transform =
+        'scale(1)';
+    };
+
+  // ============================================================
+  // APPLY DESIGN CONFIG
+  // ============================================================
+
+  function applyDesignConfig(
+    cfg
+  ) {
 
     if (!cfg) {
       return;
     }
 
-    designConfig =
-      cfg || {};
+    console.log(
+      '[BotFlow] Applying design configuration:',
+      cfg
+    );
 
-    /*
-     * ----------------------------------------------------------
-     * COLOR
-     * ----------------------------------------------------------
-     */
+    // ----------------------------------------------------------
+    // LAUNCHER COLOR
+    // ----------------------------------------------------------
 
     if (
-      cfg.accentColor &&
-      typeof cfg.accentColor === 'string'
+      cfg.accentColor
     ) {
 
-      launcherColor =
+      button.style.backgroundColor =
         cfg.accentColor;
+
+      console.log(
+        '[BotFlow] Launcher color:',
+        cfg.accentColor
+      );
     }
 
-    /*
-     * ----------------------------------------------------------
-     * LOGO
-     * ----------------------------------------------------------
-     *
-     * THIS IS THE IMPORTANT PART.
-     */
+    // ----------------------------------------------------------
+    // LAUNCHER ICON
+    // ----------------------------------------------------------
+
+    if (
+      cfg.launcherIcon &&
+      icons[cfg.launcherIcon]
+    ) {
+
+      currentIcon =
+        icons[
+        cfg.launcherIcon
+        ];
+    }
+
+    // ----------------------------------------------------------
+    // LAUNCHER LOGO
+    // ----------------------------------------------------------
 
     if (
       typeof cfg.launcherLogoUrl ===
       'string'
     ) {
 
-      launcherLogo =
+      launcherLogoUrl =
         cfg.launcherLogoUrl.trim();
+
+      console.log(
+        '[BotFlow] Launcher logo:',
+        launcherLogoUrl
+          ? 'Available'
+          : 'None'
+      );
     }
 
-    /*
-     * ----------------------------------------------------------
-     * POSITION
-     * ----------------------------------------------------------
-     */
+    // ----------------------------------------------------------
+    // SHAPE
+    // ----------------------------------------------------------
+
+    if (
+      cfg.launcherShape ===
+      'pill'
+    ) {
+
+      button.style.borderRadius =
+        '18px';
+
+      button.style.width =
+        '70px';
+
+    } else if (
+      cfg.launcherShape ===
+      'rounded'
+    ) {
+
+      button.style.borderRadius =
+        '16px';
+
+      button.style.width =
+        '56px';
+
+    } else {
+
+      button.style.borderRadius =
+        '50%';
+
+      button.style.width =
+        '56px';
+    }
+
+    // ----------------------------------------------------------
+    // POSITION
+    // ----------------------------------------------------------
 
     if (
       cfg.launcherPosition
     ) {
 
-      launcherPosition =
-        cfg.launcherPosition;
+      var isLeft =
+        cfg.launcherPosition ===
+        'bottom-left';
+
+      container.style.left =
+        isLeft
+          ? '20px'
+          : 'auto';
+
+      container.style.right =
+        isLeft
+          ? 'auto'
+          : '20px';
+
+      container.style.alignItems =
+        isLeft
+          ? 'flex-start'
+          : 'flex-end';
     }
 
-    /*
-     * ----------------------------------------------------------
-     * SHAPE
-     * ----------------------------------------------------------
-     */
+    // ----------------------------------------------------------
+    // TEASER
+    // ----------------------------------------------------------
 
     if (
-      cfg.launcherShape
+      cfg.showTeaser &&
+      cfg.launcherText
     ) {
 
-      launcherShape =
-        cfg.launcherShape;
-    }
-
-    /*
-     * ----------------------------------------------------------
-     * ICON
-     * ----------------------------------------------------------
-     */
-
-    if (
-      cfg.launcherIcon
-    ) {
-
-      launcherIcon =
-        cfg.launcherIcon;
-    }
-
-    /*
-     * ----------------------------------------------------------
-     * TEASER
-     * ----------------------------------------------------------
-     */
-
-    if (
-      typeof cfg.showTeaser ===
-      'boolean'
-    ) {
-
-      showTeaser =
-        cfg.showTeaser;
-    }
-
-    if (
-      typeof cfg.launcherText ===
-      'string'
-    ) {
-
-      launcherText =
+      teaser.innerHTML =
         cfg.launcherText;
 
-      teaser.textContent =
-        launcherText;
-    }
-
-    /*
-     * ----------------------------------------------------------
-     * APPLY EVERYTHING
-     * ----------------------------------------------------------
-     */
-
-    launcher.style.backgroundColor =
-      launcherColor;
-
-    applyShape();
-
-    applyPosition();
-
-    applyIframePosition();
-
-    renderLauncher();
-
-    updateMobileStyles();
-
-    /*
-     * Teaser visibility
-     */
-
-    if (
-      showTeaser &&
-      !isOpen
-    ) {
-
       teaser.style.display =
-        'block';
+        isOpen
+          ? 'none'
+          : 'block';
 
     } else {
 
       teaser.style.display =
         'none';
     }
+
+    // ----------------------------------------------------------
+    // RENDER UPDATED LOGO / ICON
+    // ----------------------------------------------------------
+
+    if (!isOpen) {
+      renderLauncher();
+    }
   }
 
-  /* ------------------------------------------------------------
-   * 17. LOAD BOT DESIGN FROM SERVER
-   * ------------------------------------------------------------ */
+  // ============================================================
+  // LOAD DESIGN CONFIGURATION FROM SERVER
+  // ============================================================
 
-  function loadBotConfiguration() {
-
-    var apiUrl =
-      widgetOrigin +
-      '/api/bots/' +
-      encodeURIComponent(botId);
-
-    fetch(apiUrl, {
-      method: 'GET',
-      credentials: 'omit',
-      cache: 'no-store'
-    })
-      .then(function (response) {
-
-        if (!response.ok) {
-          throw new Error(
-            'HTTP ' +
-            response.status
-          );
-        }
-
-        return response.json();
-      })
-      .then(function (data) {
-
-        if (
-          !data ||
-          !data.success
-        ) {
-
-          console.warn(
-            '[BotFlow] Bot configuration was not returned.'
-          );
-
-          return;
-        }
-
-        var bot =
-          data.bot || {};
-
-        /*
-         * Read designConfig saved by Builder
-         */
-
-        var cfg =
-          bot.designConfig ||
-          {};
-
-        /*
-         * Apply the saved custom design
-         */
-
-        applyDesignConfig(cfg);
-
-        console.log(
-          '[BotFlow] Design loaded.',
-          {
-            botId: botId,
-            color: launcherColor,
-            logo: launcherLogo
-              ? 'custom logo'
-              : 'default icon',
-            position: launcherPosition
-          }
-        );
-      })
-      .catch(function (error) {
-
-        console.warn(
-          '[BotFlow] Could not load bot design configuration.',
-          error
-        );
-
-        /*
-         * Even if API fails, use values supplied
-         * directly in the embed code.
-         */
-
-        applyDesignConfig({
-          accentColor:
-            embedColor ||
-            '#5B3DF5',
-
-          launcherLogoUrl:
-            embedLogo || '',
-
-          launcherPosition:
-            embedPosition ||
-            'bottom-right'
-        });
-      });
-  }
-
-  /* ------------------------------------------------------------
-   * 18. OPEN / CLOSE CHAT
-   * ------------------------------------------------------------ */
-
-  var isOpen =
-    false;
-
-  function openChat() {
-
-    isOpen =
-      true;
-
-    iframe.style.display =
-      'block';
-
-    /*
-     * Force browser to recognize display change
-     * before opacity transition.
-     */
-
-    setTimeout(function () {
-
-      iframe.style.opacity =
-        '1';
-
-    }, 10);
-
-    launcher.setAttribute(
-      'aria-label',
-      'Close chat'
-    );
-
-    launcher.setAttribute(
-      'aria-expanded',
-      'true'
-    );
-
-    teaser.style.display =
-      'none';
-  }
-
-  function closeChat() {
-
-    isOpen =
-      false;
-
-    iframe.style.opacity =
-      '0';
-
-    setTimeout(function () {
-
-      if (!isOpen) {
-
-        iframe.style.display =
-          'none';
-      }
-
-    }, 200);
-
-    launcher.setAttribute(
-      'aria-label',
-      'Open chat'
-    );
-
-    launcher.setAttribute(
-      'aria-expanded',
-      'false'
-    );
+  function loadDesignConfig() {
 
     if (
-      showTeaser
+      !botId ||
+      botId === 'default' ||
+      botId === 'SAVE_FIRST'
     ) {
-
-      teaser.style.display =
-        'block';
+      return;
     }
+
+    var apiUrl =
+      baseUrl +
+      '/api/bots/' +
+      encodeURIComponent(
+        botId
+      );
+
+    console.log(
+      '[BotFlow] Loading design:',
+      apiUrl
+    );
+
+    fetch(
+      apiUrl,
+      {
+        method: 'GET',
+        credentials: 'include',
+        cache: 'no-store'
+      }
+    )
+      .then(
+        function (response) {
+
+          if (!response.ok) {
+            throw new Error(
+              'HTTP ' +
+              response.status
+            );
+          }
+
+          return response.json();
+        }
+      )
+      .then(
+        function (data) {
+
+          console.log(
+            '[BotFlow] Design API response:',
+            data
+          );
+
+          if (
+            data &&
+            data.success &&
+            data.bot &&
+            data.bot.designConfig
+          ) {
+
+            applyDesignConfig(
+              data.bot.designConfig
+            );
+
+          } else {
+
+            console.warn(
+              '[BotFlow] No designConfig returned for bot:',
+              botId
+            );
+          }
+        }
+      )
+      .catch(
+        function (error) {
+
+          console.error(
+            '[BotFlow] Failed to load design configuration:',
+            error
+          );
+        }
+      );
   }
 
-  launcher.addEventListener(
-    'click',
-    function () {
+  // ============================================================
+  // REAL-TIME DESIGN UPDATE
+  // ============================================================
 
-      if (isOpen) {
-
-        closeChat();
-
-      } else {
-
-        openChat();
-      }
-    }
-  );
-
-  /* ------------------------------------------------------------
-   * 19. HOVER EFFECT
-   * ------------------------------------------------------------ */
-
-  launcher.addEventListener(
-    'mouseenter',
-    function () {
-
-      launcher.style.transform =
-        'scale(1.05)';
-
-      launcher.style.boxShadow =
-        '0 6px 22px rgba(0,0,0,0.30)';
-    }
-  );
-
-  launcher.addEventListener(
-    'mouseleave',
-    function () {
-
-      launcher.style.transform =
-        'scale(1)';
-
-      launcher.style.boxShadow =
-        '0 4px 18px rgba(0,0,0,0.25)';
-    }
-  );
-
-  /* ------------------------------------------------------------
-   * 20. ESCAPE KEY
-   * ------------------------------------------------------------ */
-
-  document.addEventListener(
-    'keydown',
+  window.addEventListener(
+    'message',
     function (event) {
 
       if (
-        event.key ===
-        'Escape' &&
-        isOpen
+        !event.data
+      ) {
+        return;
+      }
+
+      if (
+        event.data.type ===
+        'MINTAGE_BOT_DESIGN_UPDATE'
       ) {
 
-        closeChat();
+        applyDesignConfig(
+          event.data.designConfig
+        );
       }
     }
   );
 
-  /* ------------------------------------------------------------
-   * 21. ADD ELEMENTS TO PAGE
-   * ------------------------------------------------------------ */
+  // ============================================================
+  // IFRAME
+  // ============================================================
 
-  document.body.appendChild(
-    launcher
+  var wrapper =
+    document.createElement(
+      'div'
+    );
+
+  wrapper.id =
+    'botflow-widget-wrapper';
+
+  wrapper.style.cssText =
+    'display:none;' +
+    'position:absolute;' +
+    'bottom:72px;' +
+    (
+      position === 'left'
+        ? 'left:0;'
+        : 'right:0;'
+    ) +
+    'width:380px;' +
+    'height:620px;' +
+    'max-width:calc(100vw - 32px);' +
+    'max-height:calc(100vh - 96px);' +
+    'border-radius:18px;' +
+    'box-shadow:0 12px 40px rgba(0,0,0,.22);' +
+    'background:#fff;' +
+    'overflow:hidden;' +
+    'opacity:0;' +
+    'transform:translateY(12px);' +
+    'transition:opacity .25s ease,transform .25s ease;' +
+    'z-index:2147483647;';
+
+  var iframe =
+    document.createElement(
+      'iframe'
+    );
+
+  iframe.id =
+    'botflow-widget-iframe';
+
+  iframe.src =
+    targetUrl;
+
+  iframe.title =
+    'Chatbot';
+
+  iframe.setAttribute(
+    'allow',
+    'autoplay; camera; microphone'
   );
 
-  document.body.appendChild(
+  iframe.style.cssText =
+    'width:100%;' +
+    'height:100%;' +
+    'border:none;' +
+    'background:#fff;' +
+    'color-scheme:normal;';
+
+  wrapper.appendChild(
     iframe
   );
 
-  /* ------------------------------------------------------------
-   * 22. INITIAL DESIGN
-   * ------------------------------------------------------------ */
+  // ============================================================
+  // TOGGLE CHAT
+  // ============================================================
 
-  launcher.style.backgroundColor =
-    launcherColor;
+  function toggleChat(
+    event
+  ) {
 
-  renderLauncher();
+    if (event) {
+      event.preventDefault();
+    }
 
-  applyShape();
+    isOpen =
+      !isOpen;
 
-  applyPosition();
+    if (isOpen) {
 
-  applyIframePosition();
+      wrapper.style.display =
+        'block';
 
-  updateMobileStyles();
+      teaser.style.display =
+        'none';
 
-  /* ------------------------------------------------------------
-   * 23. WINDOW RESIZE
-   * ------------------------------------------------------------ */
+      setTimeout(
+        function () {
+
+          wrapper.style.opacity =
+            '1';
+
+          wrapper.style.transform =
+            'translateY(0)';
+        },
+        10
+      );
+
+      renderLauncher();
+
+    } else {
+
+      wrapper.style.opacity =
+        '0';
+
+      wrapper.style.transform =
+        'translateY(12px)';
+
+      setTimeout(
+        function () {
+
+          wrapper.style.display =
+            'none';
+
+        },
+        250
+      );
+
+      renderLauncher();
+    }
+  }
+
+  button.onclick =
+    toggleChat;
+
+  teaser.onclick =
+    toggleChat;
+
+  // ============================================================
+  // POPUP MODE
+  // ============================================================
+
+  if (
+    mode === 'popup'
+  ) {
+
+    button.onclick =
+      function (event) {
+
+        if (event) {
+          event.preventDefault();
+        }
+
+        var left =
+          Math.max(
+            0,
+            (
+              window.screen.width ||
+              1200
+            ) - 440
+          );
+
+        window.open(
+          targetUrl,
+          'BotFlowChat_' +
+          botId,
+          'width=420,height=680,left=' +
+          left +
+          ',top=100,resizable=yes,scrollbars=yes'
+        );
+      };
+
+    container.appendChild(
+      button
+    );
+
+  } else {
+
+    container.appendChild(
+      wrapper
+    );
+
+    container.appendChild(
+      button
+    );
+  }
+
+  // ============================================================
+  // MOBILE RESPONSIVE
+  // ============================================================
+
+  function updateMobile() {
+
+    if (
+      window.innerWidth <=
+      600
+    ) {
+
+      wrapper.style.width =
+        'calc(100vw - 20px)';
+
+      wrapper.style.height =
+        'calc(100vh - 90px)';
+
+      wrapper.style.maxWidth =
+        'none';
+
+      wrapper.style.maxHeight =
+        'none';
+
+      container.style.bottom =
+        '10px';
+
+      if (
+        position ===
+        'left'
+      ) {
+
+        container.style.left =
+          '10px';
+
+        container.style.right =
+          'auto';
+
+      } else {
+
+        container.style.right =
+          '10px';
+
+        container.style.left =
+          'auto';
+      }
+
+      button.style.width =
+        '56px';
+
+      button.style.height =
+        '56px';
+
+    } else {
+
+      wrapper.style.width =
+        '380px';
+
+      wrapper.style.height =
+        '620px';
+
+      wrapper.style.maxWidth =
+        'calc(100vw - 32px)';
+
+      wrapper.style.maxHeight =
+        'calc(100vh - 96px)';
+
+      container.style.bottom =
+        '20px';
+
+      if (
+        position ===
+        'left'
+      ) {
+
+        container.style.left =
+          '20px';
+
+        container.style.right =
+          'auto';
+
+      } else {
+
+        container.style.right =
+          '20px';
+
+        container.style.left =
+          'auto';
+      }
+    }
+  }
+
+  updateMobile();
 
   window.addEventListener(
     'resize',
-    function () {
-
-      applyPosition();
-
-      applyIframePosition();
-
-      updateMobileStyles();
-    }
+    updateMobile
   );
 
-  /* ------------------------------------------------------------
-   * 24. LOAD SAVED BOT DESIGN
-   * ------------------------------------------------------------ */
+  // ============================================================
+  // MOUNT
+  // ============================================================
 
-  loadBotConfiguration();
+  function mountWidget() {
 
-  /* ------------------------------------------------------------
-   * 25. DEBUG INFORMATION
-   * ------------------------------------------------------------ */
+    if (
+      document.body &&
+      !document.getElementById(
+        'botflow-widget-container'
+      )
+    ) {
 
-  console.log(
-    '[BotFlow] Widget initialized.',
-    {
-      botId: botId,
-      widgetOrigin: widgetOrigin,
-      embedColor: embedColor,
-      embedLogo:
-        embedLogo
-          ? 'provided'
-          : 'not provided',
-      position:
-        embedPosition
+      document.body.appendChild(
+        container
+      );
     }
-  );
+  }
+
+  if (
+    document.readyState ===
+    'interactive' ||
+    document.readyState ===
+    'complete'
+  ) {
+
+    mountWidget();
+
+  } else {
+
+    document.addEventListener(
+      'DOMContentLoaded',
+      mountWidget
+    );
+
+    window.addEventListener(
+      'load',
+      mountWidget
+    );
+  }
+
+  // ============================================================
+  // LOAD SAVED DESIGN
+  // ============================================================
+
+  loadDesignConfig();
 
 })();
