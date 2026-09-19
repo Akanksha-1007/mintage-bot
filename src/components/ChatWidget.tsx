@@ -993,6 +993,21 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
     if (leadSubmitInFlightRef.current || isSubmitting) return;
     if (leadSubmissionKeyRef.current === submissionKey && leadSubmissionFingerprintRef.current === fingerprint) return;
 
+    // Survive component remounts / duplicate widget mounts in the same browser
+    // session. The server also enforces idempotency, but this prevents needless
+    // duplicate network requests from the client.
+    const browserDedupKey = `mintage_lead_submitted_${botId}_${stableConversationId || chatUserId}`;
+    try {
+      const previousFingerprint = sessionStorage.getItem(browserDedupKey);
+      if (previousFingerprint === fingerprint) {
+        leadSubmittedRef.current = true;
+        return;
+      }
+      sessionStorage.setItem(browserDedupKey, fingerprint);
+    } catch {
+      // Continue with the in-memory/server guards when sessionStorage is unavailable.
+    }
+
     leadSubmissionKeyRef.current = submissionKey;
     leadSubmissionFingerprintRef.current = fingerprint;
     leadSubmitInFlightRef.current = true;
@@ -1014,7 +1029,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       const match = normalizedFieldEntries.find(f => matcher(f) && f.value);
       return match?.value || '';
     };
-    const topLevelName = findFieldValue(f => f.fieldKey.toLowerCase() === 'name' || /\bname\b/i.test(f.label) || f.type.toLowerCase() === 'name');
+    const topLevelName = findFieldValue(f => /^(name|full_name|fullname)$/i.test(f.fieldKey) || /\b(full\s*name|your\s+name|name)\b/i.test(f.label) || f.type.toLowerCase() === 'name');
     const topLevelPhone = findFieldValue(f => /^(phone|phone_number|mobile|mobile_number)$/i.test(f.fieldKey) || /\b(phone|mobile)\b/i.test(f.label) || f.type.toLowerCase() === 'phone');
     const topLevelEmail = findFieldValue(f => /^(email|email_address)$/i.test(f.fieldKey) || /\bemail\b/i.test(f.label) || f.type.toLowerCase() === 'email');
     const topLevelBookVisit = findFieldValue(f =>
@@ -1031,7 +1046,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       chatUserId,
       conversationId: stableConversationId,
       fields: normalizedFieldEntries,
-      name: topLevelName || data?.name || data?.full_name || '',
+      name: topLevelName || data?.name || data?.full_name || data?.fullname || '',
       phone: topLevelPhone || data?.phone || data?.phone_number || '',
       email: topLevelEmail || data?.email || data?.email_address || '',
       bookVisit: topLevelBookVisit || data?.book_a_visit || data?.bookVisit || data?.['Book a Visit'] || '',
