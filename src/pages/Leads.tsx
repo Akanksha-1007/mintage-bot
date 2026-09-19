@@ -48,6 +48,8 @@ interface Lead {
   flowName?: string;
   clientName?: string;
   name?: string;
+  phone?: string;
+  email?: string;
   project?: string;
   selectedProject?: string;
   projectName?: string;
@@ -883,15 +885,15 @@ export default function Leads() {
     )).trim();
 
   const getLeadPhone = (lead: Lead): string =>
-    getLeadFieldValue(lead, (label, key) =>
+    String(lead.phone || getLeadFieldValue(lead, (label, key) =>
       /^(phone|phone_number|mobile|mobile_number|contact_number)$/i.test(key) ||
       /\b(phone|mobile|contact\s*(number|no\.?)?)\b/i.test(label),
-    );
+    )).trim();
 
   const getLeadEmail = (lead: Lead): string =>
-    getLeadFieldValue(lead, (label, key) =>
+    String(lead.email || getLeadFieldValue(lead, (label, key) =>
       /^(email|email_address)$/i.test(key) || /\bemail\b/i.test(label),
-    );
+    )).trim();
 
   const getLeadBookVisit = (lead: Lead): string => {
     const direct = (lead.data && typeof lead.data === 'object'
@@ -1177,8 +1179,8 @@ export default function Leads() {
 
           <h2>Leads</h2>
           <p>
-            Every captured submission, its source page, and its Google Sheets
-            sync state.
+            Lead details shown here match the fields stored in Google Sheets.
+            Additional chatbot details are available from the Details button.
           </p>
         </div>
 
@@ -1364,21 +1366,12 @@ export default function Leads() {
                     onClick={(event) => event.stopPropagation()}
                   />
                 </th>
-                <th>Submitted</th>
-                <th>Chatbot</th>
+                <th>Date &amp; Time</th>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Phone Number</th>
                 <th>Project</th>
-
-                {dynamicColumnLabels.length > 0 ? (
-                  dynamicColumnLabels.map((label) => (
-                    <th key={label}>{label}</th>
-                  ))
-                ) : (
-                  <th>Captured fields</th>
-                )}
-
-                <th>Source page</th>
-                <th>Status</th>
-                <th>Sheet sync</th>
+                <th>Book a Site Visit</th>
                 <th className="cell-right">Action</th>
               </tr>
             </thead>
@@ -1386,7 +1379,7 @@ export default function Leads() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={dynamicColumnLabels.length + 8}>
+                  <td colSpan={8}>
                     <div className="loading-state is-inline">
                       <Loader2 className="animate-spin" />
                       <span>Loading leads…</span>
@@ -1395,7 +1388,7 @@ export default function Leads() {
                 </tr>
               ) : filteredLeads.length === 0 ? (
                 <tr>
-                  <td colSpan={dynamicColumnLabels.length + 8}>
+                  <td colSpan={8}>
                     <div className="loading-state is-inline">
                       <span>No leads match your current filters.</span>
                     </div>
@@ -1403,33 +1396,15 @@ export default function Leads() {
                 </tr>
               ) : (
                 filteredLeads.map((lead) => {
-                  const botId = lead.botId || lead.flowId || '';
-                  const botName =
-                    botNames[botId] ||
-                    lead.botName ||
-                    lead.flowName ||
-                    lead.clientName ||
-                    'Chatbot';
-
-                  const fieldEntries = getLeadFieldEntries(lead);
-                  const fieldMap = new Map(
-                    fieldEntries.map((field) => [
-                      field.label,
-                      field.value,
-                    ]),
-                  );
-
-                  const syncStatus =
-                    lead.googleSheetSyncStatus || 'synced';
-                  const currentStatus = lead.status || 'New';
                   const date = getLeadDate(lead);
+                  const name = getLeadName(lead);
+                  const email = getLeadEmail(lead);
+                  const phone = getLeadPhone(lead);
+                  const project = getLeadProject(lead);
+                  const bookVisit = getLeadBookVisit(lead);
 
                   return (
-                    <tr
-                      key={lead.id}
-                      onClick={() => setSelectedLead(lead)}
-                      style={{ cursor: 'pointer' }}
-                    >
+                    <tr key={lead.id}>
                       <td onClick={(event) => event.stopPropagation()}>
                         <input
                           type="checkbox"
@@ -1441,118 +1416,36 @@ export default function Leads() {
 
                       <td>
                         <span className="cell-title block whitespace-nowrap">
-                          {date ? format(date, 'MMM d, yyyy') : 'Recently'}
+                          {date ? format(date, 'dd/MM/yyyy') : '—'}
                         </span>
                         <span className="cell-sub">
-                          {date ? format(date, 'HH:mm') : ''}
+                          {date ? format(date, 'HH:mm:ss') : ''}
                         </span>
                       </td>
 
-                      <td>
-                        <span className="tag">
-                          <Bot />
-                          {botName}
-                        </span>
+                      <td className="max-w-[180px] truncate">
+                        {name || <span className="cell-empty">—</span>}
+                      </td>
+
+                      <td className="max-w-[220px] truncate">
+                        {email || <span className="cell-empty">—</span>}
+                      </td>
+
+                      <td className="whitespace-nowrap">
+                        {phone || <span className="cell-empty">—</span>}
                       </td>
 
                       <td className="max-w-[190px] truncate">
-                        {getLeadProject(lead) || <span className="cell-empty">—</span>}
+                        {project || <span className="cell-empty">—</span>}
                       </td>
 
-                      {dynamicColumnLabels.length > 0 ? (
-                        dynamicColumnLabels.map((label) => {
-                          const value = String(fieldMap.get(label) ?? '');
-
-                          return (
-                            <td
-                              key={label}
-                              className="max-w-[200px] truncate"
-                            >
-                              {value || (
-                                <span className="cell-empty">—</span>
-                              )}
-                            </td>
-                          );
-                        })
-                      ) : (
-                        <td>
-                          <div className="flex flex-wrap gap-1.5">
-                            {fieldEntries.slice(0, 3).map((field, index) => (
-                              <span
-                                key={`${field.label}-${index}`}
-                                className="tag"
-                              >
-                                {field.label}: {field.value}
-                              </span>
-                            ))}
-                            {fieldEntries.length === 0 && (
-                              <span className="cell-empty">No fields</span>
-                            )}
-                          </div>
-                        </td>
-                      )}
-
-                      <td className="max-w-[190px] truncate">
-                        {lead.sourceUrl ? (
-                          <a
-                            href={lead.sourceUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(event) => event.stopPropagation()}
-                            className="text-accent inline-flex items-center gap-1"
-                          >
-                            <span className="truncate">
-                              {(() => {
-                                try {
-                                  return new URL(lead.sourceUrl).hostname;
-                                } catch {
-                                  return lead.sourceUrl;
-                                }
-                              })()}
-                            </span>
-                            <ExternalLink className="h-3 w-3" />
-                          </a>
-                        ) : (
-                          <span className="cell-empty">Direct embed</span>
-                        )}
-                      </td>
-
-                      <td onClick={(event) => event.stopPropagation()}>
-                        <select
-                          value={currentStatus}
-                          onChange={(event) =>
-                            void handleUpdateStatus(
-                              lead.id,
-                              event.target.value,
-                            )
-                          }
-                          className="input"
-                          aria-label={`Update status for ${lead.id}`}
-                        >
-                          <option value="New">New</option>
-                          <option value="Contacted">Contacted</option>
-                          <option value="Qualified">Qualified</option>
-                          <option value="Converted">Converted</option>
-                          <option value="Lost">Lost</option>
-                        </select>
-                      </td>
-
-                      <td>
-                        {syncStatus === 'synced' ? (
-                          <span className="status-pill tone-green">
-                            <CheckCircle2 />
-                            Synced
-                          </span>
-                        ) : syncStatus === 'failed' ? (
-                          <span className="status-pill tone-red">
-                            <AlertCircle />
-                            Failed
+                      <td className="max-w-[220px]">
+                        {bookVisit ? (
+                          <span title={bookVisit} className="block truncate">
+                            {bookVisit}
                           </span>
                         ) : (
-                          <span className="status-pill tone-yellow">
-                            <Clock />
-                            Pending
-                          </span>
+                          <span className="cell-empty">—</span>
                         )}
                       </td>
 

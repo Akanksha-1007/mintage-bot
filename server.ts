@@ -644,15 +644,15 @@ async function startServer() {
 
     const leadKey = String(lead.id || `anonymous_${Date.now()}`);
 
-    // Serialize BOTH by lead and by worksheet. The lead lock is important here:
-    // multiple /api/leads requests for the same conversation/lead can arrive at
-    // nearly the same time. Returning the first in-flight promise prevents the
-    // same lead from being appended multiple times to Google Sheets.
+    // Serialize the same logical lead first, then serialize the worksheet.
+    // This makes the sync idempotent even when several /api/leads requests
+    // arrive at the same time for the same conversation.
     return withGoogleSheetLeadLock(spreadsheetId, leadKey, async () => {
       return withGoogleSheetWorksheetLock(spreadsheetId, 'Lead Data', async () => {
         const auth = createOAuth2Client(tokens);
         const sheets = google.sheets({ version: 'v4', auth });
         const requiredHeaders = ['Date', 'Project', 'Name', 'Phone Number', 'Email', 'Book a Visit'];
+        const metadataHeader = '_Lead ID';
         let targetWorksheet = 'Lead Data';
         let targetSheetId: number | null = null;
 
@@ -701,7 +701,7 @@ async function startServer() {
         // legacy data keys. This makes Book a Visit resilient to older widget payloads.
         const selectedFields = {
           project: String(lead?.selectedProject ?? lead?.project ?? lead?.projectName ?? lead?.data?.selectedProject ?? lead?.data?.project ?? lead?.data?.projectName ?? lead?.data?.['Selected Project'] ?? lead?.data?.['Project'] ?? '').trim(),
-          name: String(lead?.name ?? lead?.data?.name ?? lead?.data?.full_name ?? lead?.data?.Name ?? '').trim(),
+          name: String(lead?.name ?? lead?.data?.name ?? lead?.data?.Name ?? '').trim(),
           phone: String(lead?.phone ?? lead?.data?.phone ?? lead?.data?.Phone ?? lead?.data?.['Phone Number'] ?? '').trim(),
           email: String(lead?.email ?? lead?.data?.email ?? lead?.data?.Email ?? '').trim(),
           bookVisit: normalizeBookVisitValue(
@@ -768,7 +768,7 @@ async function startServer() {
         // Legacy payload fallbacks.
         const legacyData = lead?.data && typeof lead.data === 'object' ? lead.data : {};
         if (!selectedFields.project) selectedFields.project = String(legacyData.selectedProject ?? legacyData.project ?? legacyData.projectName ?? legacyData['Selected Project'] ?? legacyData['Project'] ?? '').trim();
-        if (!selectedFields.name) selectedFields.name = String(legacyData.name ?? legacyData.full_name ?? legacyData.fullName ?? legacyData.Name ?? '').trim();
+        if (!selectedFields.name) selectedFields.name = String(legacyData.name ?? legacyData.Name ?? '').trim();
         if (!selectedFields.phone) selectedFields.phone = String(legacyData.phone ?? legacyData.Phone ?? legacyData['Phone Number'] ?? '').trim();
         if (!selectedFields.email) selectedFields.email = String(legacyData.email ?? legacyData.Email ?? '').trim();
         if (!selectedFields.bookVisit) {
@@ -914,12 +914,98 @@ async function startServer() {
           bookVisitSerial ?? selectedFields.bookVisit
         ];
 
-        // Protect against repeated HTTP submissions of the same lead. The client
-        // has its own guard, but the API must be idempotent too because duplicate
-        // requests can come from remounts, retries, multiple widgets, or a slow
-        // browser. We only dedupe rows with the same contact identity/project
-        // inside a short window, so a genuine later enquiry can still create a
-        // new row.
+        // The visible Lead Data columns remain A:F. Column G stores a hidden
+        // internal lead ID so the same logical lead can never be appended twice,
+        // even if the browser submits /api/leads more than once or Render restarts.
+        // This is deliberately metadata only and is hidden from the client view.
+        const leadKeyForSheet = String(lead?.id || '').trim();
+        if (!leadKeyForSheet) {
+          throw new Error('Missing stable lead ID; refusing to append an untracked lead.');
+        }
+
+        // Ensure the hidden metadata header exists. Do not expose it in the
+        // user-facing six-column layout.
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: `'${targetWorksheet}'!G1`,
+          valueInputOption: 'RAW',
+          requestBody: { values: [[metadataHeader]] }
+        });
+
+        if (targetSheetId !== null) {
+          try {
+            await sheets.spreadsheets.batchUpdate({
+              spreadsheetId,
+              requestBody: {
+                requests: [{
+                  updateDimensionProperties: {
+                    range: {
+                      sheetId: targetSheetId,
+                      dimension: 'COLUMNS',
+                      startIndex: 6,
+                      endIndex: 7
+                    },
+                    properties: { hiddenByUser: true },
+                    fields: 'hiddenByUser'
+                  }
+                }]
+              }
+            });
+          } catch (hideErr) {
+            console.warn('[GOOGLE_SHEET_METADATA_HIDE_WARNING]', hideErr);
+          }
+        }
+
+        // Re-read G after migrations/metadata setup. Because the entire function
+        // is protected by the per-lead lock, a second request for the same lead
+        // sees the row created by the first request.
+        let latestRows: any[][] = [];
+        try {
+          const latestResponse = await sheets.spreadsheets.values.get({
+            spreadsheetId,
+            range: `'${targetWorksheet}'!A1:G1000`
+          });
+          latestRows = latestResponse.data.values || [];
+        } catch (err: any) {
+          console.warn('[GOOGLE_SHEET_METADATA_READ_WARNING]', err?.message || err);
+          latestRows = existingRows;
+        }
+
+        const existingLeadRowIndex = latestRows.slice(1).findIndex((row: any[]) =>
+          String(row?.[6] ?? '').trim() === leadKeyForSheet
+        );
+
+        if (existingLeadRowIndex >= 0) {
+          const rowNumber = existingLeadRowIndex + 2;
+          const updatedRange = `'${targetWorksheet}'!A${rowNumber}:G${rowNumber}`;
+          await sheets.spreadsheets.values.update({
+            spreadsheetId,
+            range: updatedRange,
+            valueInputOption: 'RAW',
+            requestBody: { values: [[...rowValues, leadKeyForSheet]] }
+          });
+
+          console.log('[GOOGLE_SHEET_SYNC_UPDATED_EXISTING]', {
+            leadId: leadKeyForSheet,
+            spreadsheetId,
+            worksheet: targetWorksheet,
+            rowNumber
+          });
+
+          return {
+            success: true,
+            action: 'updated_existing',
+            updatedRange,
+            rowNumber,
+            spreadsheetId,
+            worksheetName: targetWorksheet,
+            fields: requiredHeaders.filter((_, i) => rowValues[i] !== '')
+          };
+        }
+
+        // Compatibility fallback for rows created by the older implementation
+        // before column G existed. Only treat an extremely close match as the same
+        // submission; this does not block a genuine later enquiry.
         const leadSubmittedMs = lead?.submittedAt ? new Date(lead.submittedAt).getTime() : Date.now();
         const normalizedProject = String(selectedFields.project || '').replace(/\s+/g, ' ').trim().toLowerCase();
         const normalizedName = normalizeLeadName(selectedFields.name);
@@ -931,7 +1017,8 @@ async function startServer() {
           if (!Number.isFinite(numeric) || numeric < 1) return null;
           return (numeric - 25569) * 86400000;
         };
-        const duplicateRowIndex = existingRows.slice(1).findIndex((row: any[]) => {
+        const duplicateRowIndex = latestRows.slice(1).findIndex((row: any[]) => {
+          if (String(row?.[6] ?? '').trim()) return false;
           const rowMs = sheetSerialToMs(row?.[0]);
           if (rowMs === null || Math.abs(rowMs - leadSubmittedMs) > DUPLICATE_WINDOW_MS) return false;
           const rowProject = String(row?.[1] ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -947,11 +1034,17 @@ async function startServer() {
 
         if (duplicateRowIndex >= 0) {
           const rowNumber = duplicateRowIndex + 2;
-          const updatedRange = `'${targetWorksheet}'!A${rowNumber}:F${rowNumber}`;
-          console.log('[GOOGLE_SHEET_SYNC_DEDUPLICATED]', { leadId: lead.id, spreadsheetId, worksheet: targetWorksheet, rowNumber });
+          const updatedRange = `'${targetWorksheet}'!A${rowNumber}:G${rowNumber}`;
+          await sheets.spreadsheets.values.update({
+            spreadsheetId,
+            range: updatedRange,
+            valueInputOption: 'RAW',
+            requestBody: { values: [[...rowValues, leadKeyForSheet]] }
+          });
+          console.log('[GOOGLE_SHEET_SYNC_LEGACY_DEDUP]', { leadId: leadKeyForSheet, rowNumber });
           return {
             success: true,
-            action: 'deduplicated',
+            action: 'deduplicated_legacy_row',
             updatedRange,
             rowNumber,
             spreadsheetId,
@@ -966,10 +1059,10 @@ async function startServer() {
 
         const appendRes = await sheets.spreadsheets.values.append({
           spreadsheetId,
-          range: `'${targetWorksheet}'!A:F`,
+          range: `'${targetWorksheet}'!A:G`,
           valueInputOption: 'RAW',
           insertDataOption: 'INSERT_ROWS',
-          requestBody: { values: [rowValues] }
+          requestBody: { values: [[...rowValues, leadKeyForSheet]] }
         });
 
         updatedRange = appendRes.data.updates?.updatedRange || null;
@@ -1996,10 +2089,9 @@ async function startServer() {
       }
     });
 
-    // A visitor's name is also captured by the chatbot user/profile tracker.
-    // Use that value as a fallback when an older/custom flow did not serialize
-    // the name field into the lead payload. Never use the generic
-    // "Anonymous Visitor" placeholder as an actual lead name.
+    // Some flows update the chatbot profile with the visitor's name but do not
+    // include that name in the lead payload. Use the stored profile as a fallback.
+    // Never persist the generic placeholder as the customer's name.
     const isAnonymousVisitorName = (value: any) => /^anonymous\s+visitor$/i.test(String(value ?? '').trim());
     if (isAnonymousVisitorName(extractedName)) extractedName = '';
     if (!extractedName && userId) {
@@ -2009,7 +2101,7 @@ async function startServer() {
         const profileName = String(profile?.name ?? '').replace(/\s+/g, ' ').trim();
         if (profileName && !isAnonymousVisitorName(profileName)) extractedName = profileName;
       } catch {
-        // Lead capture must continue even if the optional profile lookup fails.
+        // Optional fallback; lead capture should continue if profile lookup fails.
       }
     }
 
