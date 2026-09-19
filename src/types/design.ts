@@ -18,6 +18,7 @@ export interface BotDesignConfig {
 
   // Widget Launcher Button
   launcherIcon: 'chat' | 'bot' | 'sparkles' | 'message' | 'help';
+  launcherLogoUrl: string;
   launcherText: string;
   showTeaser: boolean;
   launcherPosition: 'bottom-right' | 'bottom-left';
@@ -127,6 +128,7 @@ export function getDefaultDesignConfig(overrides?: Partial<BotDesignConfig>): Bo
     widgetBgColor: '#F8F7FF',
 
     launcherIcon: 'chat',
+    launcherLogoUrl: '',
     launcherText: 'Chat with us! 👋',
     showTeaser: true,
     launcherPosition: 'bottom-right',

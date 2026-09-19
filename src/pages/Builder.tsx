@@ -670,8 +670,12 @@ function BuilderContent() {
   const activeOrigin = getAppBaseUrl();
   const launcherColor = (designConfig && designConfig.accentColor) || '#5B3DF5';
   const launcherPosition = (designConfig && designConfig.launcherPosition) === 'bottom-left' ? 'left' : 'right';
+  const launcherLogoUrl = (designConfig && designConfig.launcherLogoUrl) || '';
+  const launcherLogoHtml = launcherLogoUrl
+    ? `<img src="${launcherLogoUrl}" alt="Chat" style="width:32px;height:32px;object-fit:contain;border-radius:8px;background:rgba(255,255,255,0.96);padding:4px;display:block;">`
+    : '💬';
 
-  const embedScriptTag = `<script src="${activeOrigin}/widget.js" data-bot-id="${id || 'SAVE_FIRST'}" data-color="${encodeURIComponent(launcherColor)}" data-position="${launcherPosition}" async></script>`;
+  const embedScriptTag = `<script src="${activeOrigin}/widget.js" data-bot-id="${id || 'SAVE_FIRST'}" data-color="${encodeURIComponent(launcherColor)}" data-position="${launcherPosition}" data-logo="${encodeURIComponent(launcherLogoUrl)}" async></script>`;
   const embedIframeTag = `<iframe src="${activeOrigin}/widget/${id || 'SAVE_FIRST'}" width="380" height="600" style="border:none; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,0.15);"></iframe>`;
 
   const bubbleScript = `<script>
@@ -683,7 +687,7 @@ function BuilderContent() {
 
     var button = document.createElement('button');
     button.id = 'botflow-widget-button';
-    button.innerHTML = '💬';
+    button.innerHTML = '${launcherLogoHtml}';
     button.style.cssText = 'width:60px; height:60px; border-radius:30px; background:${launcherColor}; border:none; color:white; font-size:24px; cursor:pointer; box-shadow:0 4px 15px rgba(0,0,0,0.18); transition:transform 0.2s; display:flex; align-items:center; justify-content:center; padding:0; margin:0; outline:none;';
     button.onmouseover = function() { this.style.transform = 'scale(1.1)'; };
     button.onmouseout = function() { this.style.transform = 'scale(1)'; };
@@ -711,7 +715,7 @@ function BuilderContent() {
       } else {
         iframe.style.opacity = '0';
         setTimeout(function() { iframe.style.display = 'none'; }, 300);
-        button.innerHTML = '💬';
+        button.innerHTML = '${launcherLogoHtml}';
       }
     };
 
