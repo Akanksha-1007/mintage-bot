@@ -1,181 +1,302 @@
 (function () {
-  if (window.BotFlowWidgetLoaded) return;
+  'use strict';
+
+  // ============================================================
+  // PREVENT DOUBLE INITIALIZATION
+  // ============================================================
+
+  if (window.BotFlowWidgetLoaded) {
+    return;
+  }
+
   window.BotFlowWidgetLoaded = true;
 
-  // Locate current script element
-  var scriptTag = document.currentScript || (function () {
-    var scripts = document.getElementsByTagName('script');
+  // ============================================================
+  // FIND CURRENT SCRIPT
+  // ============================================================
 
-    for (var i = scripts.length - 1; i >= 0; i--) {
-      if (scripts[i].src && scripts[i].src.indexOf('widget.js') !== -1) {
-        return scripts[i];
+  var scriptTag =
+    document.currentScript ||
+    (function () {
+      var scripts =
+        document.getElementsByTagName('script');
+
+      for (var i = scripts.length - 1; i >= 0; i--) {
+        if (
+          scripts[i].src &&
+          scripts[i].src.indexOf('widget.js') !== -1
+        ) {
+          return scripts[i];
+        }
       }
-    }
 
-    return scripts[scripts.length - 1];
-  })();
+      return scripts[scripts.length - 1];
+    })();
 
-  var customHost = scriptTag
-    ? scriptTag.getAttribute('data-host')
-    : null;
+  if (!scriptTag) {
+    console.error(
+      'BotFlow Widget: widget.js script was not found.'
+    );
+    return;
+  }
 
-  var baseUrl = customHost || '';
+  // ============================================================
+  // BASE URL
+  // ============================================================
 
-  if (!baseUrl && scriptTag && scriptTag.src) {
+  var customHost =
+    scriptTag.getAttribute('data-host');
+
+  var baseUrl =
+    customHost || '';
+
+  if (
+    !baseUrl &&
+    scriptTag.src
+  ) {
     try {
-      var urlObj = new URL(scriptTag.src);
+      var urlObj =
+        new URL(scriptTag.src);
 
       if (
         urlObj.origin &&
         urlObj.origin.indexOf('file:') === -1
       ) {
-        var scriptPath = urlObj.pathname.replace(
-          /\/widget\.js$/,
-          ''
-        );
+        var scriptPath =
+          urlObj.pathname.replace(
+            /\/widget\.js$/,
+            ''
+          );
 
-        baseUrl = urlObj.origin + scriptPath;
+        baseUrl =
+          urlObj.origin +
+          scriptPath;
       }
-    } catch (e) { }
+    } catch (e) {
+      console.warn(
+        'BotFlow Widget: unable to determine script URL.'
+      );
+    }
   }
 
-  // Ensure iframe loads from public shared app domain
+  // ============================================================
+  // ENVIRONMENT CORRECTION
+  // ============================================================
+
   if (
     baseUrl &&
     baseUrl.indexOf('ais-dev-') !== -1
   ) {
-    baseUrl = baseUrl.replace(
-      'ais-dev-',
-      'ais-pre-'
-    );
+    baseUrl =
+      baseUrl.replace(
+        'ais-dev-',
+        'ais-pre-'
+      );
   }
 
-  // GitHub Pages subpath auto-correction
+  // ============================================================
+  // GITHUB PAGES CORRECTION
+  // ============================================================
+
   if (
     baseUrl &&
-    baseUrl.indexOf('akanksha-1007.github.io') !== -1 &&
-    baseUrl.indexOf('/mintage-bot') === -1
+    baseUrl.indexOf(
+      'akanksha-1007.github.io'
+    ) !== -1 &&
+    baseUrl.indexOf(
+      '/mintage-bot'
+    ) === -1
   ) {
     baseUrl =
-      baseUrl.replace(/\/$/, '') +
+      baseUrl.replace(
+        /\/$/,
+        ''
+      ) +
       '/mintage-bot';
   }
 
-  // Fallback to live app URL
-  var fallbackUrl = window.location.origin;
+  // ============================================================
+  // FALLBACK
+  // ============================================================
 
   if (
     !baseUrl ||
     baseUrl.indexOf('file:') !== -1
   ) {
-    baseUrl = fallbackUrl;
+    baseUrl =
+      window.location.origin;
   }
 
-  // --------------------------------------------------
-  // Embed configuration
-  // --------------------------------------------------
+  // Remove trailing slash
+  baseUrl =
+    baseUrl.replace(/\/$/, '');
+
+  // ============================================================
+  // BOT ID
+  // ============================================================
 
   var botId =
-    (
-      scriptTag &&
-      (
-        scriptTag.getAttribute('data-bot-id') ||
-        scriptTag.getAttribute('data-id')
-      )
-    ) || 'default';
+    scriptTag.getAttribute(
+      'data-bot-id'
+    ) ||
+    scriptTag.getAttribute(
+      'data-id'
+    ) ||
+    '';
+
+  botId =
+    String(botId).trim();
+
+  // ============================================================
+  // POSITION
+  // ============================================================
 
   var position =
-    (
-      scriptTag &&
-      scriptTag.getAttribute('data-position')
+    scriptTag.getAttribute(
+      'data-position'
     ) || 'right';
 
+  // ============================================================
+  // EMBED COLOR
+  // ============================================================
+
   var rawColor =
-    (
-      scriptTag &&
-      scriptTag.getAttribute('data-color')
-    ) || '#4f46e5';
+    scriptTag.getAttribute(
+      'data-color'
+    ) || '#5B3DF5';
 
-  var initialColor = rawColor;
+  var initialColor =
+    rawColor;
 
-  if (
-    initialColor &&
-    initialColor.indexOf('%') !== -1
-  ) {
-    try {
-      initialColor = decodeURIComponent(
-        initialColor
+  try {
+    initialColor =
+      decodeURIComponent(
+        rawColor
       );
-    } catch (e) { }
-  }
+  } catch (e) { }
 
-  // Existing launcher icon support
+  // ============================================================
+  // EXISTING ICON
+  // ============================================================
+
   var rawIcon =
-    (
-      scriptTag &&
-      (
-        scriptTag.getAttribute('data-icon') ||
-        scriptTag.getAttribute('data-launcher-icon')
-      )
-    ) || null;
+    scriptTag.getAttribute(
+      'data-icon'
+    ) ||
+    scriptTag.getAttribute(
+      'data-launcher-icon'
+    ) ||
+    null;
 
-  // NEW: launcher logo support
+  // ============================================================
+  // NEW: LAUNCHER LOGO
+  // ============================================================
+
   var rawLogo =
-    (
-      scriptTag &&
-      scriptTag.getAttribute('data-logo')
-    ) || null;
+    scriptTag.getAttribute(
+      'data-logo'
+    ) || '';
 
-  // Decode launcher logo
-  var launcherLogoUrl = rawLogo;
+  var launcherLogoUrl =
+    rawLogo;
 
   if (
-    launcherLogoUrl &&
-    launcherLogoUrl.indexOf('%') !== -1
+    launcherLogoUrl
   ) {
     try {
-      launcherLogoUrl = decodeURIComponent(
-        launcherLogoUrl
-      );
+      launcherLogoUrl =
+        decodeURIComponent(
+          launcherLogoUrl
+        );
     } catch (e) { }
   }
+
+  // ============================================================
+  // MODE
+  // ============================================================
 
   var mode =
-    (
-      scriptTag &&
-      scriptTag.getAttribute('data-mode')
+    scriptTag.getAttribute(
+      'data-mode'
     ) || 'iframe';
 
-  // --------------------------------------------------
-  // Widget URL
-  // --------------------------------------------------
+  // ============================================================
+  // DEBUG INFORMATION
+  // ============================================================
 
-  var iconParam = rawIcon
-    ? '&icon=' + encodeURIComponent(rawIcon)
-    : '';
+  console.log(
+    '[BotFlow] Bot ID:',
+    botId
+  );
 
-  var colorParam = initialColor
-    ? '?color=' +
-    encodeURIComponent(initialColor) +
-    iconParam
-    : (
-      rawIcon
-        ? '?icon=' +
-        encodeURIComponent(rawIcon)
-        : ''
+  console.log(
+    '[BotFlow] Base URL:',
+    baseUrl
+  );
+
+  console.log(
+    '[BotFlow] Initial launcher color:',
+    initialColor
+  );
+
+  console.log(
+    '[BotFlow] Launcher logo:',
+    launcherLogoUrl
+      ? 'Loaded'
+      : 'None'
+  );
+
+  // ============================================================
+  // STOP IF BOT ID IS MISSING
+  // ============================================================
+
+  if (
+    !botId ||
+    botId === 'SAVE_FIRST' ||
+    botId === 'default'
+  ) {
+    console.error(
+      '[BotFlow] Missing or invalid bot ID.'
     );
+
+    return;
+  }
+
+  // ============================================================
+  // TARGET WIDGET URL
+  // ============================================================
+
+  var iconParam =
+    rawIcon
+      ? '&icon=' +
+      encodeURIComponent(
+        rawIcon
+      )
+      : '';
 
   var targetUrl =
     baseUrl +
     '/widget/' +
-    encodeURIComponent(botId) +
-    colorParam;
+    encodeURIComponent(
+      botId
+    ) +
+    '?color=' +
+    encodeURIComponent(
+      initialColor
+    ) +
+    iconParam;
 
-  // --------------------------------------------------
-  // SVG Icons
-  // --------------------------------------------------
+  console.log(
+    '[BotFlow] Widget URL:',
+    targetUrl
+  );
+
+  // ============================================================
+  // ICONS
+  // ============================================================
 
   var icons = {
+
     chat:
       '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
       '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>' +
@@ -216,108 +337,159 @@
   };
 
   var currentIcon =
-    (
-      rawIcon &&
+    rawIcon &&
       icons[rawIcon]
-    )
       ? icons[rawIcon]
       : icons.chat;
 
-  // --------------------------------------------------
-  // Container
-  // --------------------------------------------------
+  // ============================================================
+  // CONTAINER
+  // ============================================================
 
   var container =
-    document.createElement('div');
+    document.createElement(
+      'div'
+    );
 
   container.id =
     'botflow-widget-container';
 
-  var sidePos =
-    position === 'left'
-      ? 'left:20px;'
-      : 'right:20px;';
-
   container.style.cssText =
-    'position:fixed; bottom:20px; ' +
-    sidePos +
-    ' z-index:2147483647; ' +
-    'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; ' +
-    'display:flex; flex-direction:column; ' +
+    'position:fixed;' +
+    'bottom:20px;' +
+    (
+      position === 'left'
+        ? 'left:20px;'
+        : 'right:20px;'
+    ) +
+    'z-index:2147483647;' +
+    'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;' +
+    'display:flex;' +
+    'flex-direction:column;' +
     'align-items:' +
     (
       position === 'left'
         ? 'flex-start'
         : 'flex-end'
     ) +
-    '; gap:10px;';
+    ';' +
+    'gap:10px;';
 
-  // --------------------------------------------------
-  // Teaser Callout Bubble
-  // --------------------------------------------------
+  // ============================================================
+  // TEASER
+  // ============================================================
 
   var teaser =
-    document.createElement('div');
+    document.createElement(
+      'div'
+    );
 
   teaser.id =
     'botflow-widget-teaser';
 
   teaser.style.cssText =
-    'display:none; background:white; color:#1e293b; ' +
-    'padding:8px 14px; border-radius:14px; ' +
-    'box-shadow:0 8px 24px rgba(0,0,0,0.15); ' +
-    'font-size:13px; font-weight:600; cursor:pointer; ' +
-    'border:1px solid rgba(0,0,0,0.08); ' +
-    'transition:opacity 0.2s; white-space:nowrap;';
+    'display:none;' +
+    'background:white;' +
+    'color:#1e293b;' +
+    'padding:8px 14px;' +
+    'border-radius:14px;' +
+    'box-shadow:0 8px 24px rgba(0,0,0,0.15);' +
+    'font-size:13px;' +
+    'font-weight:600;' +
+    'cursor:pointer;' +
+    'border:1px solid rgba(0,0,0,0.08);' +
+    'white-space:nowrap;';
 
   teaser.innerHTML =
     'Chat with us! 👋';
 
-  container.appendChild(teaser);
+  container.appendChild(
+    teaser
+  );
 
-  // --------------------------------------------------
-  // Floating Toggle Button
-  // --------------------------------------------------
+  // ============================================================
+  // LAUNCHER BUTTON
+  // ============================================================
 
   var button =
-    document.createElement('button');
+    document.createElement(
+      'button'
+    );
+
+  button.type =
+    'button';
 
   button.id =
     'botflow-widget-button';
 
   button.setAttribute(
     'aria-label',
-    'Toggle Chat'
+    'Open chat'
   );
 
   button.style.cssText =
-    'width:56px; height:56px; ' +
-    'border-radius:28px; ' +
+    'width:56px;' +
+    'height:56px;' +
+    'border-radius:28px;' +
     'background:' +
     initialColor +
-    '; border:none; color:white; cursor:pointer; ' +
-    'box-shadow:0 6px 20px rgba(0,0,0,0.25); ' +
-    'transition:transform 0.2s, background-color 0.2s, border-radius 0.2s; ' +
-    'display:flex; align-items:center; justify-content:center; ' +
-    'padding:0; margin:0; outline:none; ' +
-    '-webkit-tap-highlight-color:transparent; ' +
-    'overflow:hidden;';
+    ';' +
+    'border:none;' +
+    'color:white;' +
+    'cursor:pointer;' +
+    'box-shadow:0 6px 20px rgba(0,0,0,0.25);' +
+    'transition:transform .2s,background-color .2s,border-radius .2s;' +
+    'display:flex;' +
+    'align-items:center;' +
+    'justify-content:center;' +
+    'padding:0;' +
+    'margin:0;' +
+    'outline:none;' +
+    'overflow:hidden;' +
+    '-webkit-tap-highlight-color:transparent;';
 
-  // --------------------------------------------------
-  // Launcher Logo / Icon Renderer
-  // --------------------------------------------------
+  // ============================================================
+  // OPEN STATE
+  // ============================================================
 
-  function renderLauncherContent() {
+  var isOpen =
+    false;
+
+  // ============================================================
+  // RENDER LAUNCHER
+  // ============================================================
+
+  function renderLauncher() {
+
+    button.innerHTML =
+      '';
+
     if (isOpen) {
-      button.innerHTML = icons.close;
+
+      button.innerHTML =
+        icons.close;
+
+      button.setAttribute(
+        'aria-label',
+        'Close chat'
+      );
+
       return;
     }
 
-    if (launcherLogoUrl) {
-      button.innerHTML = '';
+    // ----------------------------------------------------------
+    // CUSTOM LOGO
+    // ----------------------------------------------------------
+
+    if (
+      launcherLogoUrl &&
+      launcherLogoUrl.trim() !== ''
+    ) {
 
       var logoImage =
-        document.createElement('img');
+        document.createElement(
+          'img'
+        );
 
       logoImage.src =
         launcherLogoUrl;
@@ -326,10 +498,10 @@
         'Chat';
 
       logoImage.style.width =
-        '34px';
+        '36px';
 
       logoImage.style.height =
-        '34px';
+        '36px';
 
       logoImage.style.objectFit =
         'contain';
@@ -342,26 +514,42 @@
 
       logoImage.onerror =
         function () {
-          launcherLogoUrl = null;
-          button.innerHTML =
-            currentIcon;
+
+          console.warn(
+            '[BotFlow] Launcher logo could not be loaded.'
+          );
+
+          launcherLogoUrl =
+            '';
+
+          renderLauncher();
         };
 
       button.appendChild(
         logoImage
       );
 
-      return;
+    } else {
+
+      // --------------------------------------------------------
+      // FALLBACK ICON
+      // --------------------------------------------------------
+
+      button.innerHTML =
+        currentIcon;
     }
 
-    button.innerHTML =
-      currentIcon;
+    button.setAttribute(
+      'aria-label',
+      'Open chat'
+    );
   }
 
-  // Render initial launcher
-  var isOpen = false;
+  renderLauncher();
 
-  renderLauncherContent();
+  // ============================================================
+  // HOVER
+  // ============================================================
 
   button.onmouseover =
     function () {
@@ -375,46 +563,84 @@
         'scale(1)';
     };
 
-  // --------------------------------------------------
-  // Apply Design Configuration
-  // --------------------------------------------------
+  // ============================================================
+  // APPLY DESIGN CONFIG
+  // ============================================================
 
-  function applyDesignConfig(cfg) {
-    if (!cfg) return;
+  function applyDesignConfig(
+    cfg
+  ) {
 
-    var bg =
-      cfg.accentColor ||
-      cfg.headerBgColor ||
-      initialColor;
+    if (!cfg) {
+      return;
+    }
 
-    button.style.backgroundColor =
-      bg;
+    console.log(
+      '[BotFlow] Applying design configuration:',
+      cfg
+    );
 
-    // Existing launcher icon support
+    // ----------------------------------------------------------
+    // LAUNCHER COLOR
+    // ----------------------------------------------------------
+
+    if (
+      cfg.accentColor
+    ) {
+
+      button.style.backgroundColor =
+        cfg.accentColor;
+
+      console.log(
+        '[BotFlow] Launcher color:',
+        cfg.accentColor
+      );
+    }
+
+    // ----------------------------------------------------------
+    // LAUNCHER ICON
+    // ----------------------------------------------------------
+
     if (
       cfg.launcherIcon &&
       icons[cfg.launcherIcon]
     ) {
+
       currentIcon =
-        icons[cfg.launcherIcon];
+        icons[
+        cfg.launcherIcon
+        ];
     }
 
-    // NEW: launcher logo from saved design config
+    // ----------------------------------------------------------
+    // LAUNCHER LOGO
+    // ----------------------------------------------------------
+
     if (
-      typeof cfg.launcherLogoUrl === 'string'
+      typeof cfg.launcherLogoUrl ===
+      'string'
     ) {
+
       launcherLogoUrl =
-        cfg.launcherLogoUrl.trim() || null;
+        cfg.launcherLogoUrl.trim();
+
+      console.log(
+        '[BotFlow] Launcher logo:',
+        launcherLogoUrl
+          ? 'Available'
+          : 'None'
+      );
     }
 
-    if (!isOpen) {
-      renderLauncherContent();
-    }
+    // ----------------------------------------------------------
+    // SHAPE
+    // ----------------------------------------------------------
 
-    // Launcher shape
     if (
-      cfg.launcherShape === 'pill'
+      cfg.launcherShape ===
+      'pill'
     ) {
+
       button.style.borderRadius =
         '18px';
 
@@ -422,8 +648,10 @@
         '70px';
 
     } else if (
-      cfg.launcherShape === 'rounded'
+      cfg.launcherShape ===
+      'rounded'
     ) {
+
       button.style.borderRadius =
         '16px';
 
@@ -431,15 +659,22 @@
         '56px';
 
     } else {
+
       button.style.borderRadius =
-        '28px';
+        '50%';
 
       button.style.width =
         '56px';
     }
 
-    // Launcher position
-    if (cfg.launcherPosition) {
+    // ----------------------------------------------------------
+    // POSITION
+    // ----------------------------------------------------------
+
+    if (
+      cfg.launcherPosition
+    ) {
+
       var isLeft =
         cfg.launcherPosition ===
         'bottom-left';
@@ -458,25 +693,17 @@
         isLeft
           ? 'flex-start'
           : 'flex-end';
-
-      if (wrapper) {
-        wrapper.style.left =
-          isLeft
-            ? '0'
-            : 'auto';
-
-        wrapper.style.right =
-          isLeft
-            ? 'auto'
-            : '0';
-      }
     }
 
-    // Teaser
+    // ----------------------------------------------------------
+    // TEASER
+    // ----------------------------------------------------------
+
     if (
       cfg.showTeaser &&
       cfg.launcherText
     ) {
+
       teaser.innerHTML =
         cfg.launcherText;
 
@@ -486,57 +713,125 @@
           : 'block';
 
     } else {
+
       teaser.style.display =
         'none';
     }
+
+    // ----------------------------------------------------------
+    // RENDER UPDATED LOGO / ICON
+    // ----------------------------------------------------------
+
+    if (!isOpen) {
+      renderLauncher();
+    }
   }
 
-  // --------------------------------------------------
-  // Fetch Bot Design Configuration
-  // --------------------------------------------------
+  // ============================================================
+  // LOAD DESIGN CONFIGURATION FROM SERVER
+  // ============================================================
 
-  if (
-    botId &&
-    botId !== 'default' &&
-    botId !== 'SAVE_FIRST'
-  ) {
-    try {
-      fetch(
-        baseUrl +
-        '/api/bots/' +
-        encodeURIComponent(botId)
+  function loadDesignConfig() {
+
+    if (
+      !botId ||
+      botId === 'default' ||
+      botId === 'SAVE_FIRST'
+    ) {
+      return;
+    }
+
+    var apiUrl =
+      baseUrl +
+      '/api/bots/' +
+      encodeURIComponent(
+        botId
+      );
+
+    console.log(
+      '[BotFlow] Loading design:',
+      apiUrl
+    );
+
+    fetch(
+      apiUrl,
+      {
+        method: 'GET',
+        credentials: 'include',
+        cache: 'no-store'
+      }
+    )
+      .then(
+        function (response) {
+
+          if (!response.ok) {
+            throw new Error(
+              'HTTP ' +
+              response.status
+            );
+          }
+
+          return response.json();
+        }
       )
-        .then(function (res) {
-          return res.json();
-        })
-        .then(function (data) {
+      .then(
+        function (data) {
+
+          console.log(
+            '[BotFlow] Design API response:',
+            data
+          );
+
           if (
             data &&
             data.success &&
             data.bot &&
             data.bot.designConfig
           ) {
+
             applyDesignConfig(
               data.bot.designConfig
             );
+
+          } else {
+
+            console.warn(
+              '[BotFlow] No designConfig returned for bot:',
+              botId
+            );
           }
-        })
-        .catch(function () { });
-    } catch (e) { }
+        }
+      )
+      .catch(
+        function (error) {
+
+          console.error(
+            '[BotFlow] Failed to load design configuration:',
+            error
+          );
+        }
+      );
   }
 
-  // --------------------------------------------------
-  // Real-time Design Updates
-  // --------------------------------------------------
+  // ============================================================
+  // REAL-TIME DESIGN UPDATE
+  // ============================================================
 
   window.addEventListener(
     'message',
     function (event) {
+
       if (
-        event.data &&
+        !event.data
+      ) {
+        return;
+      }
+
+      if (
         event.data.type ===
         'MINTAGE_BOT_DESIGN_UPDATE'
       ) {
+
         applyDesignConfig(
           event.data.designConfig
         );
@@ -544,32 +839,166 @@
     }
   );
 
-  // --------------------------------------------------
-  // Popup Mode
-  // --------------------------------------------------
+  // ============================================================
+  // IFRAME
+  // ============================================================
 
-  if (mode === 'popup') {
+  var wrapper =
+    document.createElement(
+      'div'
+    );
+
+  wrapper.id =
+    'botflow-widget-wrapper';
+
+  wrapper.style.cssText =
+    'display:none;' +
+    'position:absolute;' +
+    'bottom:72px;' +
+    (
+      position === 'left'
+        ? 'left:0;'
+        : 'right:0;'
+    ) +
+    'width:380px;' +
+    'height:620px;' +
+    'max-width:calc(100vw - 32px);' +
+    'max-height:calc(100vh - 96px);' +
+    'border-radius:18px;' +
+    'box-shadow:0 12px 40px rgba(0,0,0,.22);' +
+    'background:#fff;' +
+    'overflow:hidden;' +
+    'opacity:0;' +
+    'transform:translateY(12px);' +
+    'transition:opacity .25s ease,transform .25s ease;' +
+    'z-index:2147483647;';
+
+  var iframe =
+    document.createElement(
+      'iframe'
+    );
+
+  iframe.id =
+    'botflow-widget-iframe';
+
+  iframe.src =
+    targetUrl;
+
+  iframe.title =
+    'Chatbot';
+
+  iframe.setAttribute(
+    'allow',
+    'autoplay; camera; microphone'
+  );
+
+  iframe.style.cssText =
+    'width:100%;' +
+    'height:100%;' +
+    'border:none;' +
+    'background:#fff;' +
+    'color-scheme:normal;';
+
+  wrapper.appendChild(
+    iframe
+  );
+
+  // ============================================================
+  // TOGGLE CHAT
+  // ============================================================
+
+  function toggleChat(
+    event
+  ) {
+
+    if (event) {
+      event.preventDefault();
+    }
+
+    isOpen =
+      !isOpen;
+
+    if (isOpen) {
+
+      wrapper.style.display =
+        'block';
+
+      teaser.style.display =
+        'none';
+
+      setTimeout(
+        function () {
+
+          wrapper.style.opacity =
+            '1';
+
+          wrapper.style.transform =
+            'translateY(0)';
+        },
+        10
+      );
+
+      renderLauncher();
+
+    } else {
+
+      wrapper.style.opacity =
+        '0';
+
+      wrapper.style.transform =
+        'translateY(12px)';
+
+      setTimeout(
+        function () {
+
+          wrapper.style.display =
+            'none';
+
+        },
+        250
+      );
+
+      renderLauncher();
+    }
+  }
+
+  button.onclick =
+    toggleChat;
+
+  teaser.onclick =
+    toggleChat;
+
+  // ============================================================
+  // POPUP MODE
+  // ============================================================
+
+  if (
+    mode === 'popup'
+  ) {
+
     button.onclick =
-      function (e) {
-        if (e) e.preventDefault();
+      function (event) {
+
+        if (event) {
+          event.preventDefault();
+        }
 
         var left =
           Math.max(
             0,
-            (window.screen.width || 1200) -
-            440
+            (
+              window.screen.width ||
+              1200
+            ) - 440
           );
-
-        var top = 100;
 
         window.open(
           targetUrl,
-          'BotFlowChat_' + botId,
+          'BotFlowChat_' +
+          botId,
           'width=420,height=680,left=' +
           left +
-          ',top=' +
-          top +
-          ',resizable=yes,scrollbars=yes'
+          ',top=100,resizable=yes,scrollbars=yes'
         );
       };
 
@@ -578,118 +1007,6 @@
     );
 
   } else {
-
-    // --------------------------------------------------
-    // Wrapper for Iframe
-    // --------------------------------------------------
-
-    var wrapper =
-      document.createElement('div');
-
-    wrapper.id =
-      'botflow-widget-wrapper';
-
-    var iframeSide =
-      position === 'left'
-        ? 'left:0;'
-        : 'right:0;';
-
-    wrapper.style.cssText =
-      'display:none; position:absolute; bottom:72px; ' +
-      iframeSide +
-      ' width:380px; height:620px; ' +
-      'max-width:calc(100vw - 32px); ' +
-      'max-height:calc(100vh - 96px); ' +
-      'border-radius:18px; ' +
-      'box-shadow:0 12px 40px rgba(0,0,0,0.22); ' +
-      'background:white; overflow:hidden; ' +
-      'transition:opacity 0.25s ease, transform 0.25s ease; ' +
-      'opacity:0; transform:translateY(12px); ' +
-      'z-index:2147483647;';
-
-    // --------------------------------------------------
-    // Iframe
-    // --------------------------------------------------
-
-    var iframe =
-      document.createElement('iframe');
-
-    iframe.id =
-      'botflow-widget-iframe';
-
-    iframe.src =
-      targetUrl;
-
-    iframe.title =
-      'Chatbot';
-
-    iframe.setAttribute(
-      'allow',
-      'autoplay; camera; microphone'
-    );
-
-    iframe.style.cssText =
-      'width:100%; height:100%; border:none; ' +
-      'background:white; color-scheme:normal;';
-
-    wrapper.appendChild(
-      iframe
-    );
-
-    // --------------------------------------------------
-    // Toggle Chat
-    // --------------------------------------------------
-
-    var toggleChat =
-      function (e) {
-        if (e) e.preventDefault();
-
-        isOpen = !isOpen;
-
-        if (isOpen) {
-          wrapper.style.display =
-            'block';
-
-          teaser.style.display =
-            'none';
-
-          setTimeout(
-            function () {
-              wrapper.style.opacity =
-                '1';
-
-              wrapper.style.transform =
-                'translateY(0)';
-            },
-            10
-          );
-
-          renderLauncherContent();
-
-        } else {
-          wrapper.style.opacity =
-            '0';
-
-          wrapper.style.transform =
-            'translateY(12px)';
-
-          setTimeout(
-            function () {
-              wrapper.style.display =
-                'none';
-            },
-            250
-          );
-
-          renderLauncherContent();
-        }
-      };
-
-    button.onclick =
-      toggleChat;
-
-    teaser.onclick =
-      toggleChat;
 
     container.appendChild(
       wrapper
@@ -700,17 +1017,117 @@
     );
   }
 
-  // --------------------------------------------------
-  // Mount Widget
-  // --------------------------------------------------
+  // ============================================================
+  // MOBILE RESPONSIVE
+  // ============================================================
+
+  function updateMobile() {
+
+    if (
+      window.innerWidth <=
+      600
+    ) {
+
+      wrapper.style.width =
+        'calc(100vw - 20px)';
+
+      wrapper.style.height =
+        'calc(100vh - 90px)';
+
+      wrapper.style.maxWidth =
+        'none';
+
+      wrapper.style.maxHeight =
+        'none';
+
+      container.style.bottom =
+        '10px';
+
+      if (
+        position ===
+        'left'
+      ) {
+
+        container.style.left =
+          '10px';
+
+        container.style.right =
+          'auto';
+
+      } else {
+
+        container.style.right =
+          '10px';
+
+        container.style.left =
+          'auto';
+      }
+
+      button.style.width =
+        '56px';
+
+      button.style.height =
+        '56px';
+
+    } else {
+
+      wrapper.style.width =
+        '380px';
+
+      wrapper.style.height =
+        '620px';
+
+      wrapper.style.maxWidth =
+        'calc(100vw - 32px)';
+
+      wrapper.style.maxHeight =
+        'calc(100vh - 96px)';
+
+      container.style.bottom =
+        '20px';
+
+      if (
+        position ===
+        'left'
+      ) {
+
+        container.style.left =
+          '20px';
+
+        container.style.right =
+          'auto';
+
+      } else {
+
+        container.style.right =
+          '20px';
+
+        container.style.left =
+          'auto';
+      }
+    }
+  }
+
+  updateMobile();
+
+  window.addEventListener(
+    'resize',
+    updateMobile
+  );
+
+  // ============================================================
+  // MOUNT
+  // ============================================================
 
   function mountWidget() {
+
     if (
       document.body &&
       !document.getElementById(
         'botflow-widget-container'
       )
     ) {
+
       document.body.appendChild(
         container
       );
@@ -719,14 +1136,16 @@
 
   if (
     document.readyState ===
-    'complete' ||
+    'interactive' ||
     document.readyState ===
-    'interactive'
+    'complete'
   ) {
+
     mountWidget();
 
   } else {
-    window.addEventListener(
+
+    document.addEventListener(
       'DOMContentLoaded',
       mountWidget
     );
@@ -736,4 +1155,11 @@
       mountWidget
     );
   }
+
+  // ============================================================
+  // LOAD SAVED DESIGN
+  // ============================================================
+
+  loadDesignConfig();
+
 })();
