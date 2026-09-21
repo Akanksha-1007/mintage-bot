@@ -590,100 +590,367 @@ function BuilderContent() {
   };
 
   const onSave = async () => {
-    const targetUserId = effectiveUserId || auth.currentUser?.uid || 'guest_user';
+    /*
+     * ============================================================
+     * CLIENT / TENANT ID
+     * ============================================================
+     *
+     * For a normal client:
+     *   effectiveUserId = Firebase Auth UID
+     *
+     * For an admin impersonating a client:
+     *   effectiveUserId = selected client's Firebase UID
+     *
+     * Never fall back to guest_user because that would make
+     * the bot impossible to associate with a client.
+     */
 
+    const firebaseUid =
+      auth.currentUser?.uid || '';
+
+    const targetUserId =
+      effectiveUserId ||
+      firebaseUid;
+
+    if (!targetUserId) {
+      showToast(
+        'Unable to determine the client account. Please login again.',
+        'error'
+      );
+
+      return;
+    }
 
     setIsSaving(true);
+
     try {
-      let cleanSpreadsheetId = botSpreadsheetId.trim();
-      if (cleanSpreadsheetId.includes('/d/')) {
-        const match = cleanSpreadsheetId.match(/\/d\/([\w-_]+)/);
-        if (match && match[1]) cleanSpreadsheetId = match[1];
+      /*
+       * ==========================================================
+       * GOOGLE SHEET ID
+       * ==========================================================
+       */
+
+      let cleanSpreadsheetId =
+        botSpreadsheetId.trim();
+
+      if (
+        cleanSpreadsheetId.includes('/d/')
+      ) {
+        const match =
+          cleanSpreadsheetId.match(
+            /\/d\/([\w-_]+)/
+          );
+
+        if (
+          match &&
+          match[1]
+        ) {
+          cleanSpreadsheetId =
+            match[1];
+        }
       }
 
-      // Clean data to prevent "Unsupported field value: undefined" errors
-      const cleanNodes = JSON.parse(JSON.stringify(safeNodes));
-      const cleanEdges = JSON.parse(JSON.stringify(safeEdges));
+      /*
+       * ==========================================================
+       * CLEAN REACT FLOW DATA
+       * ==========================================================
+       */
 
-      let savedId = id || ('bot_' + Date.now());
-      let firestoreSuccess = false;
+      const cleanNodes =
+        JSON.parse(
+          JSON.stringify(
+            safeNodes
+          )
+        );
 
-      // 1. Try saving to Firestore with explicit document ID matching savedId
+      const cleanEdges =
+        JSON.parse(
+          JSON.stringify(
+            safeEdges
+          )
+        );
+
+      /*
+       * ==========================================================
+       * BOT ID
+       * ==========================================================
+       */
+
+      let savedId =
+        id ||
+        `bot_${Date.now()}`;
+
+      /*
+       * ==========================================================
+       * SAVE TO FIRESTORE
+       * ==========================================================
+       */
+
       try {
-        await setDoc(doc(db, 'bot_configurations', savedId), {
-          id: savedId,
-          name: botName || 'Unnamed Bot',
-          clientLogo: clientLogo || '',
-          designConfig: JSON.parse(JSON.stringify(designConfig || getDefaultDesignConfig())),
-          nodes: cleanNodes,
-          edges: cleanEdges,
-          spreadsheetId: cleanSpreadsheetId,
-          projectSheetMappings,
-          createdBy: targetUserId,
-          clientId: targetUserId,
-          ownerId: targetUserId,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        }, { merge: true });
-        firestoreSuccess = true;
-      } catch (fsErr) {
-        console.warn('Firestore save flow warning, falling back to local/server cache:', fsErr);
+        await setDoc(
+          doc(
+            db,
+            'bot_configurations',
+            savedId
+          ),
+          {
+            id: savedId,
+
+            name:
+              botName ||
+              'Unnamed Bot',
+
+            nodes:
+              cleanNodes,
+
+            edges:
+              cleanEdges,
+
+            spreadsheetId:
+              cleanSpreadsheetId,
+
+            /*
+             * IMPORTANT:
+             *
+             * Store the Firebase UID in ALL tenant fields.
+             *
+             * This guarantees that the bot can be found by
+             * the client's dashboard.
+             */
+
+            createdBy:
+              targetUserId,
+
+            ownerId:
+              targetUserId,
+
+            clientId:
+              targetUserId,
+
+            createdAt:
+              serverTimestamp(),
+
+            updatedAt:
+              serverTimestamp(),
+          },
+          {
+            merge: true,
+          }
+        );
+
+      } catch (firestoreError) {
+        console.warn(
+          'Firestore bot save warning:',
+          firestoreError
+        );
+
+        /*
+         * Do not stop the save completely.
+         * The server/local cache will still be updated.
+         */
       }
 
-      // 2. Always sync to LocalStorage and Express Server API
-      if (!savedId) {
-        savedId = 'bot_' + Date.now();
-      }
+      /*
+       * ==========================================================
+       * BOT OBJECT FOR SERVER + LOCAL CACHE
+       * ==========================================================
+       */
 
       const newBotObj = {
         id: savedId,
-        name: botName || 'Unnamed Bot',
-        clientLogo: clientLogo || '',
-        designConfig: JSON.parse(JSON.stringify(designConfig || getDefaultDesignConfig())),
-        nodes: cleanNodes,
-        edges: cleanEdges,
-        spreadsheetId: cleanSpreadsheetId,
-        projectSheetMappings,
-        createdBy: targetUserId,
-        clientId: targetUserId,
-        ownerId: targetUserId,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+
+        name:
+          botName ||
+          'Unnamed Bot',
+
+        nodes:
+          cleanNodes,
+
+        edges:
+          cleanEdges,
+
+        spreadsheetId:
+          cleanSpreadsheetId,
+
+        /*
+         * Tenant ownership
+         */
+
+        createdBy:
+          targetUserId,
+
+        ownerId:
+          targetUserId,
+
+        clientId:
+          targetUserId,
+
+        createdAt:
+          new Date().toISOString(),
+
+        updatedAt:
+          new Date().toISOString(),
       };
 
-      // Sync to Express Server
+      /*
+       * ==========================================================
+       * SAVE TO SERVER
+       * ==========================================================
+       */
+
       try {
-        await authorizedFetch('/api/bots/save', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(newBotObj)
-        });
-      } catch (apiErr) {
-        console.warn('Server bot sync error:', apiErr);
+        const response =
+          await fetch(
+            '/api/bots/save',
+            {
+              method: 'POST',
+
+              headers: {
+                'Content-Type':
+                  'application/json',
+              },
+
+              body:
+                JSON.stringify(
+                  newBotObj
+                ),
+            }
+          );
+
+        if (!response.ok) {
+          console.warn(
+            'Server bot save returned:',
+            response.status
+          );
+        }
+
+      } catch (serverError) {
+        console.warn(
+          'Server bot sync error:',
+          serverError
+        );
       }
 
-      const existingBotsRaw = localStorage.getItem('mintage_bots');
-      let existingBots: any[] = [];
+      /*
+       * ==========================================================
+       * LOCAL STORAGE
+       * ==========================================================
+       */
+
+      const existingBotsRaw =
+        localStorage.getItem(
+          'mintage_bots'
+        );
+
+      let existingBots:
+        any[] = [];
+
       if (existingBotsRaw) {
-        try { existingBots = JSON.parse(existingBotsRaw); } catch { }
+        try {
+          const parsed =
+            JSON.parse(
+              existingBotsRaw
+            );
+
+          if (
+            Array.isArray(
+              parsed
+            )
+          ) {
+            existingBots =
+              parsed;
+          }
+        } catch {
+          existingBots = [];
+        }
       }
 
-      const existingIdx = existingBots.findIndex(b => b.id === savedId);
-      if (existingIdx >= 0) {
-        existingBots[existingIdx] = newBotObj;
+      /*
+       * Update existing bot or add new bot.
+       */
+
+      const existingIndex =
+        existingBots.findIndex(
+          (bot) =>
+            bot &&
+            bot.id === savedId
+        );
+
+      if (
+        existingIndex >= 0
+      ) {
+        existingBots[
+          existingIndex
+        ] = newBotObj;
       } else {
-        existingBots.unshift(newBotObj);
-      }
-      localStorage.setItem('mintage_bots', JSON.stringify(existingBots));
-
-      if (!id && savedId) {
-        navigate(`/builder/${savedId}`, { replace: true });
+        existingBots.unshift(
+          newBotObj
+        );
       }
 
-      showToast('Bot configurations saved successfully!');
+      localStorage.setItem(
+        'mintage_bots',
+        JSON.stringify(
+          existingBots
+        )
+      );
+
+      /*
+       * ==========================================================
+       * NOTIFY BOTS PAGE
+       * ==========================================================
+       */
+
+      window.dispatchEvent(
+        new CustomEvent(
+          'mintage_bot_saved',
+          {
+            detail: {
+              id: savedId,
+
+              ownerId:
+                targetUserId,
+
+              clientId:
+                targetUserId,
+            },
+          }
+        )
+      );
+
+      /*
+       * ==========================================================
+       * NAVIGATE TO SAVED BOT
+       * ==========================================================
+       */
+
+      if (
+        !id &&
+        savedId
+      ) {
+        navigate(
+          `/builder/${savedId}`,
+          {
+            replace: true,
+          }
+        );
+      }
+
+      showToast(
+        'Bot configurations saved successfully!'
+      );
+
     } catch (error) {
-      console.error('Error saving flow:', error);
-      showToast('Saved to local session.', 'success');
+      console.error(
+        'Error saving flow:',
+        error
+      );
+
+      showToast(
+        'Failed to save bot configuration.',
+        'error'
+      );
+
     } finally {
       setIsSaving(false);
     }
