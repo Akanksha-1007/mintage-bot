@@ -3,7 +3,7 @@ import { db } from '../lib/firebase';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { createUserWithEmailAndPassword, getAuth, signOut } from 'firebase/auth';
-import { collection, query, getDocs, doc, setDoc, deleteDoc, serverTimestamp, where, onSnapshot } from 'firebase/firestore';
+import { collection, query, getDocs, doc, setDoc, deleteDoc, updateDoc, serverTimestamp, where, onSnapshot, writeBatch } from 'firebase/firestore';
 import { useAuth, ImpersonatedClient } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -38,6 +38,17 @@ import UserDetailModal from '../components/UserDetailModal';
 import ConversationViewModal from '../components/ConversationViewModal';
 import Leads from './Leads';
 
+interface AdminBotRecord {
+  id: string;
+  name: string;
+  createdBy?: string;
+  ownerId?: string;
+  clientId?: string;
+  spreadsheetId?: string;
+  createdAt?: any;
+  updatedAt?: any;
+}
+
 interface ClientRecord {
   id: string;
   name: string;
@@ -62,6 +73,13 @@ export default function AdminDashboard() {
   const [createdCredentialsCard, setCreatedCredentialsCard] = useState<ClientRecord | null>(null);
   const [clientToDelete, setClientToDelete] = useState<ClientRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showTransferBotModal, setShowTransferBotModal] = useState(false);
+  const [adminBots, setAdminBots] = useState<AdminBotRecord[]>([]);
+  const [selectedBotToTransfer, setSelectedBotToTransfer] = useState<AdminBotRecord | null>(null);
+  const [targetClientForBot, setTargetClientForBot] = useState('');
+  const [botTransferSearch, setBotTransferSearch] = useState('');
+  const [isTransferringBot, setIsTransferringBot] = useState(false);
+  const [loadingAdminBots, setLoadingAdminBots] = useState(false);
 
   // Chatbot Users & Conversations Detail Modals
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
@@ -116,6 +134,33 @@ export default function AdminDashboard() {
       pass += chars.charAt(Math.floor(Math.random() * chars.length));
     }
     setClientPassword(pass);
+  };
+
+  const loadAdminBots = async () => {
+    setLoadingAdminBots(true);
+    try {
+      const snap = await getDocs(collection(db, 'bot_configurations'));
+      setAdminBots(snap.docs.map(d => { const x = d.data(); return { id: d.id, name: x.name || 'Unnamed Bot', createdBy: x.createdBy || '', ownerId: x.ownerId || '', clientId: x.clientId || '', spreadsheetId: x.spreadsheetId || '', createdAt: x.createdAt, updatedAt: x.updatedAt }; }));
+    } catch (error) { console.error('Unable to load admin bots:', error); setAdminBots([]); } finally { setLoadingAdminBots(false); }
+  };
+
+  const transferBotToClient = async () => {
+    if (!selectedBotToTransfer || !targetClientForBot) return;
+    const targetClient = clients.find(c => c.id === targetClientForBot);
+    if (!targetClient) { alert('Please select a valid client.'); return; }
+    const bot = selectedBotToTransfer;
+    if (bot.createdBy === targetClient.id || bot.ownerId === targetClient.id || bot.clientId === targetClient.id) { alert('This bot already belongs to this client.'); return; }
+    setIsTransferringBot(true);
+    try {
+      await updateDoc(doc(db, 'bot_configurations', bot.id), { createdBy: targetClient.id, ownerId: targetClient.id, clientId: targetClient.id, updatedAt: serverTimestamp(), transferredAt: serverTimestamp(), transferredFrom: bot.createdBy || bot.ownerId || bot.clientId || '' });
+      const leadMap = new Map<string, any>();
+      const [flowSnap, botSnap] = await Promise.all([getDocs(query(collection(db, 'leads'), where('flowId', '==', bot.id))), getDocs(query(collection(db, 'leads'), where('botId', '==', bot.id)))]);
+      flowSnap.docs.forEach(d => leadMap.set(d.id, d)); botSnap.docs.forEach(d => leadMap.set(d.id, d));
+      const leads = Array.from(leadMap.values());
+      for (let i = 0; i < leads.length; i += 400) { const batch = writeBatch(db); leads.slice(i, i + 400).forEach(d => batch.update(doc(db, 'leads', d.id), { ownerId: targetClient.id, clientId: targetClient.id, createdBy: targetClient.id, updatedAt: serverTimestamp() })); await batch.commit(); }
+      setSelectedBotToTransfer(null); setTargetClientForBot(''); setBotTransferSearch(''); setShowTransferBotModal(false); await loadClientsAndStats(); await loadAdminBots();
+      alert(`"${bot.name}" has been moved to ${targetClient.name}.`);
+    } catch (error: any) { console.error('Bot transfer failed:', error); alert(error?.message || 'Unable to transfer the bot.'); } finally { setIsTransferringBot(false); }
   };
 
   const loadClientsAndStats = async () => {
@@ -194,6 +239,7 @@ export default function AdminDashboard() {
   useEffect(() => {
     loadClientsAndStats();
     loadChatbotStats();
+    loadAdminBots();
 
     let unsubscribeClients: (() => void) | null = null;
     let unsubscribeBots: (() => void) | null = null;
@@ -221,6 +267,7 @@ export default function AdminDashboard() {
     const pollInterval = setInterval(() => {
       loadClientsAndStats();
       loadChatbotStats();
+      loadAdminBots();
     }, 5000);
 
     return () => {
@@ -733,6 +780,16 @@ export default function AdminDashboard() {
 
                               <button
                                 type="button"
+                                onClick={() => { setTargetClientForBot(client.id); setSelectedBotToTransfer(null); setBotTransferSearch(''); setShowTransferBotModal(true); loadAdminBots(); }}
+                                className="button-secondary compact"
+                                title={`Move a bot to ${client.name}`}
+                              >
+                                <Bot />
+                                <span>Shift bot</span>
+                              </button>
+
+                              <button
+                                type="button"
                                 onClick={() => setClientToDelete(client)}
                                 className="icon-button danger"
                                 title="Delete client credentials"
@@ -949,6 +1006,31 @@ export default function AdminDashboard() {
         </div>
       )
       }
+
+      {/* Modal: shift bot to client */}
+      {showTransferBotModal && (
+        <div className="modal-backdrop">
+          <div className="app-modal is-md" role="dialog" aria-modal="true">
+            <div className="modal-head">
+              <div className="modal-head-main"><span className="icon-tile tile-lg"><Bot /></span><div><h3>Shift bot to client</h3><p>Move an existing chatbot into this client's workspace.</p></div></div>
+              <button type="button" onClick={() => { if (!isTransferringBot) { setShowTransferBotModal(false); setSelectedBotToTransfer(null); setTargetClientForBot(''); } }} className="icon-button" disabled={isTransferringBot}><X /></button>
+            </div>
+            <div style={{ marginBottom: '16px' }}><label className="field-label">Move bot to</label><div style={{ padding: '12px', border: '1px solid var(--border-color)', borderRadius: '10px' }}>
+              {(() => { const c = clients.find(x => x.id === targetClientForBot); return c ? <div className="flex items-center gap-3"><span className="avatar-initial">{c.name.substring(0, 2).toUpperCase()}</span><div><strong>{c.name}</strong><div className="cell-sub">{c.email}</div></div></div> : <span className="text-faint">Select a client</span>; })()}
+            </div></div>
+            <label className="search-field" style={{ width: '100%', marginBottom: '14px' }}><Search /><input type="text" value={botTransferSearch} onChange={e => setBotTransferSearch(e.target.value)} placeholder="Search bots…" className="input" /></label>
+            <div style={{ maxHeight: '360px', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '12px' }}>
+              {loadingAdminBots ? <div className="loading-state is-inline" style={{ minHeight: '180px' }}><Loader2 className="animate-spin" /><span>Loading bots…</span></div> : (() => {
+                const filtered = adminBots.filter(bot => { const owned = bot.createdBy === targetClientForBot || bot.ownerId === targetClientForBot || bot.clientId === targetClientForBot; if (owned) return false; const q = botTransferSearch.trim().toLowerCase(); return !q || (bot.name || '').toLowerCase().includes(q) || bot.id.toLowerCase().includes(q); });
+                if (!filtered.length) return <div className="empty-state" style={{ minHeight: '180px' }}><div className="empty-icon"><Bot /></div><h4>No bots available</h4><p>There are no other bots available to move to this client.</p></div>;
+                return filtered.map(bot => { const owner = clients.find(c => c.id === bot.createdBy || c.id === bot.ownerId || c.id === bot.clientId); const selected = selectedBotToTransfer?.id === bot.id; return <button key={bot.id} type="button" onClick={() => setSelectedBotToTransfer(bot)} disabled={isTransferringBot} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 16px', border: 0, borderBottom: '1px solid var(--border-color)', background: selected ? 'var(--surface-secondary)' : 'transparent', cursor: 'pointer', textAlign: 'left' }}><span className="icon-tile"><Bot /></span><span style={{ minWidth: 0, flex: 1 }}><strong style={{ display: 'block' }}>{bot.name || 'Unnamed Bot'}</strong><small className="cell-sub">{owner ? `Currently with ${owner.name}` : 'Currently unassigned'}</small></span>{selected && <CheckCircle2 />}</button>; });
+              })()}
+            </div>
+            {selectedBotToTransfer && <div style={{ marginTop: '14px', padding: '12px 14px', borderRadius: '10px', background: 'var(--surface-secondary)' }}><div className="flex items-center gap-2"><CheckCircle2 /><span>Moving <strong>{selectedBotToTransfer.name}</strong></span></div></div>}
+            <div className="modal-actions is-end"><button type="button" onClick={() => { setShowTransferBotModal(false); setSelectedBotToTransfer(null); setTargetClientForBot(''); }} disabled={isTransferringBot} className="button-secondary">Cancel</button><button type="button" onClick={transferBotToClient} disabled={!selectedBotToTransfer || !targetClientForBot || isTransferringBot} className="button-primary">{isTransferringBot ? <Loader2 className="animate-spin" /> : <ArrowRight />}<span>{isTransferringBot ? 'Moving bot…' : 'Move bot'}</span></button></div>
+          </div>
+        </div>
+      )}
 
       {/* Modal 3: delete client */}
       {
