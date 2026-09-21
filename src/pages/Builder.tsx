@@ -81,8 +81,8 @@ function BuilderContent() {
     try {
       // 1. Delete from Server API
       try {
-        await fetch(`/api/bots/${encodeURIComponent(id)}`, { method: 'DELETE' });
-        await fetch('/api/bots/delete', {
+        await authorizedFetch(`/api/bots/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        await authorizedFetch('/api/bots/delete', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id })
@@ -141,7 +141,14 @@ function BuilderContent() {
     }, 4000);
   };
 
-  const { effectiveUserId } = useAuth();
+  const authorizedFetch = async (url: string, options: RequestInit = {}) => {
+    const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+    const headers = new Headers(options.headers || {});
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    return fetch(url, { ...options, headers });
+  };
+
+  const { effectiveUserId, isAdmin, impersonatedClient } = useAuth();
 
   const loadUserTokens = useCallback(async () => {
     // 1. Try local storage first for instant responsiveness
@@ -281,7 +288,7 @@ function BuilderContent() {
     } catch { }
 
     try {
-      await fetch('/api/bots/project-sheet-routing', {
+      await authorizedFetch('/api/bots/project-sheet-routing', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, projectSheetMappings: cleaned })
@@ -344,6 +351,16 @@ function BuilderContent() {
 
         if (docSnap && docSnap.exists()) {
           const data = docSnap.data();
+          const targetUserId = effectiveUserId || auth.currentUser?.uid || '';
+          const adminGlobal = isAdmin && !impersonatedClient;
+          const ownsBot = data.createdBy === targetUserId || data.clientId === targetUserId || data.ownerId === targetUserId;
+
+          if (!adminGlobal && !ownsBot) {
+            showToast('You do not have access to this chatbot.', 'error');
+            navigate('/bots', { replace: true });
+            return;
+          }
+
           const rawNodes = data.nodes;
           const nodesArr = Array.isArray(rawNodes)
             ? rawNodes
@@ -378,6 +395,14 @@ function BuilderContent() {
           const found = Array.isArray(localBots)
             ? localBots.find((b: any) => b && b.id === id)
             : null;
+
+          const localOwnerId = effectiveUserId || auth.currentUser?.uid || '';
+          const adminGlobal = isAdmin && !impersonatedClient;
+          if (found && !adminGlobal && found.createdBy && found.createdBy !== localOwnerId && found.clientId !== localOwnerId) {
+            showToast('You do not have access to this chatbot.', 'error');
+            navigate('/bots', { replace: true });
+            return;
+          }
 
           if (found && !cancelled) {
             const rawLocalNodes = found.nodes;
@@ -595,6 +620,8 @@ function BuilderContent() {
           spreadsheetId: cleanSpreadsheetId,
           projectSheetMappings,
           createdBy: targetUserId,
+          clientId: targetUserId,
+          ownerId: targetUserId,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         }, { merge: true });
@@ -618,13 +645,15 @@ function BuilderContent() {
         spreadsheetId: cleanSpreadsheetId,
         projectSheetMappings,
         createdBy: targetUserId,
+        clientId: targetUserId,
+        ownerId: targetUserId,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
 
       // Sync to Express Server
       try {
-        await fetch('/api/bots/save', {
+        await authorizedFetch('/api/bots/save', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(newBotObj)

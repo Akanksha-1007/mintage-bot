@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../lib/firebase';
+import { db, auth } from '../lib/firebase';
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { X, MessageSquare, Bot, User, Clock, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
@@ -31,7 +31,10 @@ export default function ConversationViewModal({ conversationId, onClose, userNam
 
     const fetchMessages = async () => {
       try {
-        const res = await fetch(`/api/chatbot/conversations/${encodeURIComponent(conversationId)}`);
+        const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+        const res = await fetch(`/api/chatbot/conversations/${encodeURIComponent(conversationId)}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined
+        });
         if (res.ok) {
           const data = await res.json();
           if (data.success && Array.isArray(data.messages)) {
@@ -65,8 +68,8 @@ export default function ConversationViewModal({ conversationId, onClose, userNam
           });
           setLoading(false);
         }
-      }, () => {});
-    } catch (e) {}
+      }, () => { });
+    } catch (e) { }
 
     return () => {
       if (unsubscribe) unsubscribe();

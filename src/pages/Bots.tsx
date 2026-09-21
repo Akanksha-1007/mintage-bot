@@ -41,6 +41,13 @@ export default function Bots() {
   const [isDeleting, setIsDeleting] = useState(false);
   const navigate = useNavigate();
 
+  const authorizedFetch = async (url: string, options: RequestInit = {}) => {
+    const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+    const headers = new Headers(options.headers || {});
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    return fetch(url, { ...options, headers });
+  };
+
   useEffect(() => {
     const targetUserId = effectiveUserId || auth.currentUser?.uid;
 
@@ -99,57 +106,19 @@ export default function Bots() {
           }),
         );
 
-        // Fetch bots from the server API as well.
+        // Only the global admin view may use the unscoped server cache.
+        // Client workspaces use the Firestore tenant query exclusively.
         let serverBots: BotConfig[] = [];
-
-        try {
-          const response = await fetch('/api/bots');
-
-          if (response.ok) {
-            const data = await response.json();
-
-            if (data.success && Array.isArray(data.bots)) {
-              serverBots = data.bots as BotConfig[];
+        if (isGlobalAdminView) {
+          try {
+            const response = await authorizedFetch('/api/bots');
+            if (response.ok) {
+              const data = await response.json();
+              if (data.success && Array.isArray(data.bots)) serverBots = data.bots as BotConfig[];
             }
+          } catch {
+            // Firestore remains the source of truth.
           }
-        } catch {
-          // Firestore/local storage can still provide the bot list.
-        }
-
-        // Restrict server bots when the current user is not in the global
-        // administrator view.
-        if (!isGlobalAdminView && targetUserId) {
-          serverBots = serverBots.filter((bot) => {
-            if (
-              !bot.createdBy ||
-              bot.createdBy === 'demo_user' ||
-              bot.createdBy === 'guest_user'
-            ) {
-              const botName = (bot.name || '').toLowerCase();
-              const botId = (bot.id || '').toLowerCase();
-              const userId = targetUserId.toLowerCase();
-
-              // Preserve the existing compatibility behavior for legacy
-              // seeded/demo records.
-              if (userId.includes('risinia')) {
-                return (
-                  botName.includes('risinia') ||
-                  botId.includes('risinia')
-                );
-              }
-
-              if (userId.includes('river')) {
-                return (
-                  botName.includes('river') ||
-                  botId.includes('river')
-                );
-              }
-
-              return true;
-            }
-
-            return bot.createdBy === targetUserId;
-          });
         }
 
         // Read deleted bot IDs so deleted bots do not reappear from another
@@ -173,56 +142,25 @@ export default function Bots() {
           }
         }
 
-        // Merge locally cached bots as a third source.
-        const localBotsRaw =
-          localStorage.getItem('mintage_bots') ||
-          localStorage.getItem('botflow_local_bots');
-
         let localBots: BotConfig[] = [];
-
-        if (localBotsRaw) {
-          try {
-            const parsed = JSON.parse(localBotsRaw);
-
-            if (Array.isArray(parsed)) {
-              localBots = parsed.filter(
-                (bot): bot is BotConfig =>
-                  Boolean(bot && typeof bot === 'object' && bot.id),
-              );
-
-              if (!isGlobalAdminView && targetUserId) {
-                localBots = localBots.filter(
-                  (bot) =>
-                    bot.createdBy === targetUserId || !bot.createdBy,
-                );
+        if (isGlobalAdminView) {
+          const localBotsRaw = localStorage.getItem('mintage_bots') || localStorage.getItem('botflow_local_bots');
+          if (localBotsRaw) {
+            try {
+              const parsed = JSON.parse(localBotsRaw);
+              if (Array.isArray(parsed)) {
+                localBots = parsed.filter((bot): bot is BotConfig => Boolean(bot && typeof bot === 'object' && bot.id));
               }
+            } catch {
+              localBots = [];
             }
-          } catch {
-            localBots = [];
           }
         }
 
-        // Merge all sources by bot ID. Later sources take precedence.
         const botMap = new Map<string, BotConfig>();
-
-        localBots.forEach((bot) => {
-          if (bot.id && !deletedIds.includes(bot.id)) {
-            botMap.set(bot.id, bot);
-          }
-        });
-
-        serverBots.forEach((bot) => {
-          if (bot.id && !deletedIds.includes(bot.id)) {
-            botMap.set(bot.id, bot);
-          }
-        });
-
-        firestoreBots.forEach((bot) => {
-          if (bot.id && !deletedIds.includes(bot.id)) {
-            botMap.set(bot.id, bot);
-          }
-        });
-
+        localBots.forEach((bot) => { if (bot.id && !deletedIds.includes(bot.id)) botMap.set(bot.id, bot); });
+        serverBots.forEach((bot) => { if (bot.id && !deletedIds.includes(bot.id)) botMap.set(bot.id, bot); });
+        firestoreBots.forEach((bot) => { if (bot.id && !deletedIds.includes(bot.id)) botMap.set(bot.id, bot); });
         const mergedBots = Array.from(botMap.values());
 
         mergedBots.sort((a, b) => {
@@ -240,9 +178,9 @@ export default function Bots() {
           error,
         );
 
-        const localBotsRaw =
-          localStorage.getItem('mintage_bots') ||
-          localStorage.getItem('botflow_local_bots');
+        const localBotsRaw = isGlobalAdminView
+          ? (localStorage.getItem('mintage_bots') || localStorage.getItem('botflow_local_bots'))
+          : null;
 
         if (localBotsRaw) {
           try {
@@ -300,15 +238,25 @@ export default function Bots() {
 
     setIsDeleting(true);
     const targetId = deletingBot.id;
+    const targetUserId = effectiveUserId || auth.currentUser?.uid || '';
+    const isAdminView = isAdmin && !impersonatedClient;
 
     try {
+      const existingSnap = await getDocs(query(collection(db, 'bot_configurations'), where('__name__', '==', targetId)));
+      const existing = existingSnap.docs[0];
+      if (!existing) throw new Error('Bot not found or access denied.');
+      const existingData = existing.data();
+      if (!isAdminView && existingData.createdBy !== targetUserId && existingData.clientId !== targetUserId) {
+        throw new Error('You do not have permission to delete this bot.');
+      }
+
       // 1. Delete from the server API.
       try {
-        await fetch(`/api/bots/${encodeURIComponent(targetId)}`, {
+        await authorizedFetch(`/api/bots/${encodeURIComponent(targetId)}`, {
           method: 'DELETE',
         });
 
-        await fetch('/api/bots/delete', {
+        await authorizedFetch('/api/bots/delete', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -494,8 +442,8 @@ export default function Bots() {
 
                 <span
                   className={`status-pill ${bot.leadsCount && bot.leadsCount > 0
-                      ? 'status-live'
-                      : ''
+                    ? 'status-live'
+                    : ''
                     }`}
                 >
                   <span />

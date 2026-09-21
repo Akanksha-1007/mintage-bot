@@ -18,7 +18,7 @@ interface BotInfo {
 }
 
 export default function Integrations() {
-  const { effectiveUserId, isAdmin } = useAuth();
+  const { effectiveUserId, isAdmin, impersonatedClient } = useAuth();
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [globalSpreadsheetId, setGlobalSpreadsheetId] = useState('');
@@ -100,9 +100,10 @@ export default function Integrations() {
       let resolvedTokens: any = null;
       let resolvedSpreadsheetId: string = '';
 
-      if (auth.currentUser) {
+      const workspaceUserId = effectiveUserId || auth.currentUser?.uid || '';
+      if (workspaceUserId) {
         try {
-          const userDocRef = doc(db, 'users', auth.currentUser.uid);
+          const userDocRef = doc(db, 'users', workspaceUserId);
           const docSnap = await getDoc(userDocRef);
           if (docSnap.exists()) {
             const data = docSnap.data();
@@ -142,11 +143,11 @@ export default function Integrations() {
       // Fetch user's bots from Firestore
       const fetchedBotMap = new Map<string, BotInfo>();
 
-      if (auth.currentUser) {
+      if (workspaceUserId) {
         try {
           const botsQ = query(
             collection(db, 'bot_configurations'),
-            where('createdBy', '==', auth.currentUser.uid)
+            where('createdBy', '==', workspaceUserId)
           );
           const botsSnap = await getDocs(botsQ);
           botsSnap.docs.forEach(d => {
@@ -250,9 +251,11 @@ export default function Integrations() {
     // Realtime Firestore Snapshot Listener
     let unsubscribeBots: (() => void) | null = null;
     try {
-      unsubscribeBots = onSnapshot(collection(db, 'bot_configurations'), () => {
-        loadData();
-      }, () => { });
+      const workspaceUserId = effectiveUserId || auth.currentUser?.uid || '';
+      if (workspaceUserId) {
+        const botsQuery = query(collection(db, 'bot_configurations'), where('createdBy', '==', workspaceUserId));
+        unsubscribeBots = onSnapshot(botsQuery, () => { loadData(); }, () => { });
+      }
     } catch { }
 
     // SSE Listener from backend

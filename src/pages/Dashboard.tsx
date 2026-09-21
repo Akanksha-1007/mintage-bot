@@ -22,7 +22,7 @@ import {
   Users,
 } from 'lucide-react';
 
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 interface RecentLead {
@@ -45,6 +45,7 @@ const getRecentLeadProject = (lead: RecentLead): string => {
 
 export default function Dashboard() {
   const { effectiveUserId, impersonatedClient, clientUser, isAdmin } = useAuth();
+  const navigate = useNavigate();
 
   const [stats, setStats] = useState({
     bots: 0,
@@ -55,7 +56,19 @@ export default function Dashboard() {
   const [recentLeads, setRecentLeads] = useState<RecentLead[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const authorizedFetch = async (url: string, options: RequestInit = {}) => {
+    const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+    const headers = new Headers(options.headers || {});
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    return fetch(url, { ...options, headers });
+  };
+
   useEffect(() => {
+    if (isAdmin && !impersonatedClient) {
+      navigate('/admin', { replace: true });
+      return;
+    }
+
     const targetUserId = effectiveUserId || auth.currentUser?.uid;
     const isGlobalAdminView = isAdmin && !impersonatedClient;
 
@@ -141,7 +154,7 @@ export default function Dashboard() {
             targetUserId || 'demo_user'
           )}`;
 
-        const response = await fetch(url);
+        const response = await authorizedFetch(url);
 
         if (response.ok) {
           const apiData = await response.json();

@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
+import firebaseConfig from '../../firebase-applet-config.json';
+import { initializeApp, deleteApp } from 'firebase/app';
+import { createUserWithEmailAndPassword, getAuth, signOut } from 'firebase/auth';
 import { collection, query, getDocs, doc, setDoc, deleteDoc, serverTimestamp, where, onSnapshot } from 'firebase/firestore';
 import { useAuth, ImpersonatedClient } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -123,7 +126,10 @@ export default function AdminDashboard() {
     const localClientsRaw = localStorage.getItem('mintage_clients_cache');
     let localClients: ClientRecord[] = [];
     if (localClientsRaw) {
-      try { localClients = JSON.parse(localClientsRaw); } catch (e) { localClients = []; }
+      try {
+        const parsed = JSON.parse(localClientsRaw);
+        localClients = Array.isArray(parsed) ? parsed.map(({ password: _password, ...client }: ClientRecord) => client) : [];
+      } catch (e) { localClients = []; }
     }
 
     try {
@@ -162,7 +168,7 @@ export default function AdminDashboard() {
             name: data.name || 'Unnamed Client',
             company: data.company || '',
             email: data.email || '',
-            password: data.password || '',
+            password: undefined,
             notes: data.notes || '',
             createdAt: data.createdAt,
             botsCount,
@@ -179,7 +185,7 @@ export default function AdminDashboard() {
     localClients.forEach(c => clientMap.set(c.id, c));
     fetchedClients.forEach(c => clientMap.set(c.id, c));
 
-    const finalClients = Array.from(clientMap.values());
+    const finalClients = Array.from(clientMap.values()).map(({ password: _password, ...client }) => client);
     setClients(finalClients);
     localStorage.setItem('mintage_clients_cache', JSON.stringify(finalClients));
     setLoading(false);
@@ -229,76 +235,80 @@ export default function AdminDashboard() {
 
   const handleCreateClient = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!clientName || !clientEmail) return;
+    if (!clientName.trim() || !clientEmail.trim()) return;
 
     setIsSubmitting(true);
-    const clientId = `client_${Date.now()}`;
     const pass = clientPassword || 'Client123!';
     const cleanEmail = clientEmail.toLowerCase().trim();
 
-    const clientData = {
-      name: clientName,
-      company: clientCompany,
-      email: cleanEmail,
-      password: pass,
-      notes: clientNotes,
-      role: 'user',
-      createdAt: serverTimestamp(),
-    };
-
-    const newRecord: ClientRecord = {
-      id: clientId,
-      name: clientName,
-      company: clientCompany,
-      email: cleanEmail,
-      password: pass,
-      notes: clientNotes,
-      botsCount: 0,
-      leadsCount: 0,
-    };
-
-    // Save to local cache immediately
-    const currentLocalRaw = localStorage.getItem('mintage_clients_cache');
-    let currentLocal: ClientRecord[] = [];
-    if (currentLocalRaw) {
-      try { currentLocal = JSON.parse(currentLocalRaw); } catch { }
-    }
-    const updatedLocal = [newRecord, ...currentLocal.filter(c => c.id !== clientId)];
-    localStorage.setItem('mintage_clients_cache', JSON.stringify(updatedLocal));
+    let provisionedUid = '';
 
     try {
-      // Save to 'clients' collection
-      await setDoc(doc(db, 'clients', clientId), clientData).catch(err => {
-        console.warn('Firestore setDoc clients error:', err?.message || err);
-      });
+      // Create the client's Firebase Authentication account in a SECONDARY
+      // Firebase app so the current admin session is never replaced.
+      const secondaryApp = initializeApp(firebaseConfig as any, `client-provision-${Date.now()}`);
+      const secondaryAuth = getAuth(secondaryApp);
 
-      // Also create/sync user record in 'users'
-      await setDoc(doc(db, 'users', clientId), {
+      try {
+        const credential = await createUserWithEmailAndPassword(secondaryAuth, cleanEmail, pass);
+        provisionedUid = credential.user.uid;
+      } finally {
+        await signOut(secondaryAuth).catch(() => undefined);
+        await deleteApp(secondaryApp).catch(() => undefined);
+      }
+
+      const clientData = {
+        name: clientName.trim(),
+        company: clientCompany.trim(),
         email: cleanEmail,
-        displayName: clientName,
-        password: pass,
-        company: clientCompany,
-        role: 'user',
+        notes: clientNotes.trim(),
+        role: 'client',
+        clientId: provisionedUid,
         createdAt: serverTimestamp(),
-      }, { merge: true }).catch(err => {
-        console.warn('Firestore setDoc users error:', err?.message || err);
-      });
-    } catch (error) {
-      console.warn('Client created locally, Firestore save warning:', error);
+      };
+
+      await setDoc(doc(db, 'clients', provisionedUid), clientData);
+      await setDoc(doc(db, 'users', provisionedUid), {
+        email: cleanEmail,
+        displayName: clientName.trim(),
+        company: clientCompany.trim(),
+        role: 'client',
+        clientId: provisionedUid,
+        createdAt: serverTimestamp(),
+      }, { merge: true });
+
+      const newRecord: ClientRecord = {
+        id: provisionedUid,
+        name: clientName.trim(),
+        company: clientCompany.trim(),
+        email: cleanEmail,
+        password: pass,
+        notes: clientNotes.trim(),
+        botsCount: 0,
+        leadsCount: 0,
+      };
+
+      // Credentials are kept only in the admin UI confirmation card. Do not
+      // persist the password in localStorage or Firestore.
+      setCreatedCredentialsCard(newRecord);
+      setShowCreateModal(false);
+
+      setClientName('');
+      setClientCompany('');
+      setClientEmail('');
+      setClientPassword('');
+      setClientNotes('');
+
+      await loadClientsAndStats();
+    } catch (error: any) {
+      console.error('Client provisioning failed:', error);
+      const message = error?.code === 'auth/email-already-in-use'
+        ? 'That email already has a Firebase account. Use a different email or provision the existing account manually.'
+        : error?.message || 'Could not create the client account.';
+      alert(message);
+    } finally {
+      setIsSubmitting(false);
     }
-
-    setCreatedCredentialsCard(newRecord);
-    setShowCreateModal(false);
-
-    // Reset form
-    setClientName('');
-    setClientCompany('');
-    setClientEmail('');
-    setClientPassword('');
-    setClientNotes('');
-
-    loadClientsAndStats();
-    setIsSubmitting(false);
   };
 
   const confirmDeleteClient = async () => {
@@ -340,7 +350,6 @@ export default function AdminDashboard() {
       name: client.name,
       email: client.email,
       company: client.company,
-      password: client.password,
     };
     setImpersonatedClient(impersonationData);
     navigate('/dashboard');

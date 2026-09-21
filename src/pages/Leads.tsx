@@ -7,6 +7,8 @@ import {
   getDoc,
   getDocs,
   onSnapshot,
+  query,
+  where,
 } from 'firebase/firestore';
 import { format } from 'date-fns';
 import {
@@ -48,8 +50,6 @@ interface Lead {
   flowName?: string;
   clientName?: string;
   name?: string;
-  phone?: string;
-  email?: string;
   project?: string;
   selectedProject?: string;
   projectName?: string;
@@ -147,6 +147,8 @@ export default function Leads() {
   const [flowProjectOptions, setFlowProjectOptions] = useState<Record<string, string[]>>({});
 
   const [selectedBotFilter, setSelectedBotFilter] = useState('ALL');
+  const [selectedClientFilter, setSelectedClientFilter] = useState('ALL');
+  const [clientOptions, setClientOptions] = useState<Array<{ id: string; name: string; company?: string }>>([]);
   const [selectedStatusFilter, setSelectedStatusFilter] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -180,6 +182,39 @@ export default function Leads() {
     window.setTimeout(() => setToast(null), 3500);
   };
 
+  const authorizedFetch = async (url: string, options: RequestInit = {}) => {
+    const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+    const headers = new Headers(options.headers || {});
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    return fetch(url, { ...options, headers });
+  };
+
+  useEffect(() => {
+    if (!isAdmin || impersonatedClient) {
+      setClientOptions([]);
+      setSelectedClientFilter('ALL');
+      return;
+    }
+
+    let cancelled = false;
+    getDocs(collection(db, 'clients')).then((snapshot) => {
+      if (cancelled) return;
+      const options = snapshot.docs.map((clientDoc) => {
+        const data = clientDoc.data();
+        return {
+          id: clientDoc.id,
+          name: String(data.name || data.company || data.email || clientDoc.id),
+          company: String(data.company || ''),
+        };
+      }).sort((a, b) => a.name.localeCompare(b.name));
+      setClientOptions(options);
+    }).catch((error) => {
+      console.warn('[LEADS_PAGE] Client filter load warning:', error);
+    });
+
+    return () => { cancelled = true; };
+  }, [isAdmin, impersonatedClient]);
+
   const getDeletedLeadIds = (): string[] => {
     try {
       const raw = localStorage.getItem('mintage_deleted_lead_ids');
@@ -209,7 +244,7 @@ export default function Leads() {
         ? '/api/leads'
         : `/api/leads?ownerId=${encodeURIComponent(targetUserId)}`;
 
-      const response = await fetch(url);
+      const response = await authorizedFetch(url);
 
       if (!response.ok) return [];
 
@@ -314,7 +349,7 @@ export default function Leads() {
 
     setIsDeletingBulk(true);
     try {
-      const response = await fetch('/api/leads/bulk-delete', {
+      const response = await authorizedFetch('/api/leads/bulk-delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids: targetIds }),
@@ -373,11 +408,11 @@ export default function Leads() {
       // Delete from the server APIs. Failure here is tolerated because Firestore
       // and the local blacklist are also updated below.
       try {
-        await fetch(`/api/leads/${encodeURIComponent(targetId)}`, {
+        await authorizedFetch(`/api/leads/${encodeURIComponent(targetId)}`, {
           method: 'DELETE',
         });
 
-        await fetch('/api/leads/delete', {
+        await authorizedFetch('/api/leads/delete', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: targetId }),
@@ -482,8 +517,15 @@ export default function Leads() {
       });
     };
 
+    // Clients query only their own tenant. Admins may query all tenants.
+    // This query shape is important because Firestore security rules reject an
+    // unscoped collection query for a client even if the UI later filters it.
+    const leadsQuery = isGlobalAdminView
+      ? query(collection(db, 'leads'))
+      : query(collection(db, 'leads'), where('ownerId', '==', resolvedUserId));
+
     const unsubscribe = onSnapshot(
-      collection(db, 'leads'),
+      leadsQuery,
       async (snapshot) => {
         if (cancelled) return;
 
@@ -555,31 +597,20 @@ export default function Leads() {
         }
 
         if (!isGlobalAdminView) {
-          firestoreLeads = firestoreLeads.filter((lead) => {
-            return (
-              lead.clientId === resolvedUserId ||
-              lead.ownerId === resolvedUserId ||
-              userBotIds.includes(lead.botId || '') ||
-              userBotIds.includes(lead.flowId || '') ||
-              lead.clientId === 'demo_user' ||
-              lead.ownerId === 'demo_user' ||
-              resolvedUserId === 'demo_user'
-            );
-          });
+          // The Firestore query is already tenant-scoped. Keep this defensive
+          // check so a malformed legacy document cannot appear in a client UI.
+          firestoreLeads = firestoreLeads.filter((lead) => lead.ownerId === resolvedUserId);
         }
 
-        const serverLeads = await getServerLeads(
-          resolvedUserId,
-          isGlobalAdminView,
-        );
+        const serverLeads = isGlobalAdminView
+          ? await getServerLeads(resolvedUserId, true)
+          : [];
 
         if (cancelled) return;
 
-        const mergedLeads = mergeLeads(
-          getLocalLeads(),
-          serverLeads,
-          firestoreLeads,
-        );
+        const mergedLeads = isGlobalAdminView
+          ? mergeLeads(getLocalLeads(), serverLeads, firestoreLeads)
+          : firestoreLeads;
 
         setLeads(mergedLeads);
         setLoading(false);
@@ -590,10 +621,9 @@ export default function Leads() {
       async (error) => {
         console.error('[LEADS_PAGE] Firestore snapshot error:', error);
 
-        const serverLeads = await getServerLeads(
-          resolvedUserId,
-          isGlobalAdminView,
-        );
+        const serverLeads = isGlobalAdminView
+          ? await getServerLeads(resolvedUserId, true)
+          : [];
 
         if (cancelled) return;
 
@@ -721,7 +751,7 @@ export default function Leads() {
 
   const handleUpdateStatus = async (leadId: string, newStatus: string) => {
     try {
-      const response = await fetch('/api/leads/status', {
+      const response = await authorizedFetch('/api/leads/status', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -763,7 +793,7 @@ export default function Leads() {
     setIsRetryingSync(true);
 
     try {
-      const response = await fetch('/api/leads/retry-sync', {
+      const response = await authorizedFetch('/api/leads/retry-sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ leadId: lead.id }),
@@ -828,7 +858,7 @@ export default function Leads() {
       effectiveUserId || auth.currentUser?.uid || 'demo_user';
 
     try {
-      const response = await fetch('/api/leads/sync-all', {
+      const response = await authorizedFetch('/api/leads/sync-all', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clientId: targetUserId }),
@@ -885,15 +915,15 @@ export default function Leads() {
     )).trim();
 
   const getLeadPhone = (lead: Lead): string =>
-    String(lead.phone || getLeadFieldValue(lead, (label, key) =>
+    getLeadFieldValue(lead, (label, key) =>
       /^(phone|phone_number|mobile|mobile_number|contact_number)$/i.test(key) ||
       /\b(phone|mobile|contact\s*(number|no\.?)?)\b/i.test(label),
-    )).trim();
+    );
 
   const getLeadEmail = (lead: Lead): string =>
-    String(lead.email || getLeadFieldValue(lead, (label, key) =>
+    getLeadFieldValue(lead, (label, key) =>
       /^(email|email_address)$/i.test(key) || /\bemail\b/i.test(label),
-    )).trim();
+    );
 
   const getLeadBookVisit = (lead: Lead): string => {
     const direct = (lead.data && typeof lead.data === 'object'
@@ -950,6 +980,7 @@ export default function Leads() {
     setSelectedSyncFilter('ALL');
     setSearchQuery('');
     setSelectedBotFilter('ALL');
+    setSelectedClientFilter('ALL');
     setSelectedStatusFilter('ALL');
   };
 
@@ -972,6 +1003,11 @@ export default function Leads() {
     const normalizedEmail = emailFilter.trim().toLowerCase();
 
     return leads.filter((lead) => {
+      if (isAdmin && !impersonatedClient && selectedClientFilter !== 'ALL') {
+        const clientId = String(lead.clientId || lead.ownerId || '');
+        if (clientId !== selectedClientFilter) return false;
+      }
+
       const botId = lead.botId || lead.flowId || '';
       const currentStatus = lead.status || 'New';
       const syncStatus = lead.googleSheetSyncStatus || 'pending';
@@ -1052,6 +1088,9 @@ export default function Leads() {
     leads,
     searchQuery,
     selectedBotFilter,
+    selectedClientFilter,
+    isAdmin,
+    impersonatedClient,
     selectedStatusFilter,
     selectedProjectFilter,
     selectedSyncFilter,
@@ -1179,8 +1218,8 @@ export default function Leads() {
 
           <h2>Leads</h2>
           <p>
-            Lead details shown here match the fields stored in Google Sheets.
-            Additional chatbot details are available from the Details button.
+            Every captured submission, its source page, and its Google Sheets
+            sync state.
           </p>
         </div>
 
@@ -1207,6 +1246,18 @@ export default function Leads() {
       </header>
 
       <div className="leads-control-bar" style={{ alignItems: 'stretch', flexWrap: 'wrap', gap: '10px' }}>
+        {isAdmin && !impersonatedClient && (
+          <label className="inline-select">
+            <Filter />
+            <select value={selectedClientFilter} onChange={(event) => setSelectedClientFilter(event.target.value)} aria-label="Filter by client">
+              <option value="ALL">All clients ({leads.length})</option>
+              {clientOptions.map((client) => (
+                <option key={client.id} value={client.id}>{client.name}{client.company ? ` — ${client.company}` : ''}</option>
+              ))}
+            </select>
+          </label>
+        )}
+
         <label className="inline-select">
           <Bot />
           <select value={selectedBotFilter} onChange={(event) => setSelectedBotFilter(event.target.value)} aria-label="Filter by chatbot">
@@ -1372,7 +1423,7 @@ export default function Leads() {
                 <th>Phone Number</th>
                 <th>Project</th>
                 <th>Book a Site Visit</th>
-                <th className="cell-right">Action</th>
+                <th className="cell-right">Details</th>
               </tr>
             </thead>
 
@@ -1413,63 +1464,27 @@ export default function Leads() {
                           aria-label={`Select lead ${lead.id}`}
                         />
                       </td>
-
                       <td>
                         <span className="cell-title block whitespace-nowrap">
-                          {date ? format(date, 'dd/MM/yyyy') : '—'}
+                          {date ? format(date, 'MMM d, yyyy') : '—'}
                         </span>
                         <span className="cell-sub">
                           {date ? format(date, 'HH:mm:ss') : ''}
                         </span>
                       </td>
-
-                      <td className="max-w-[180px] truncate">
-                        {name || <span className="cell-empty">—</span>}
-                      </td>
-
-                      <td className="max-w-[220px] truncate">
-                        {email || <span className="cell-empty">—</span>}
-                      </td>
-
-                      <td className="whitespace-nowrap">
-                        {phone || <span className="cell-empty">—</span>}
-                      </td>
-
-                      <td className="max-w-[190px] truncate">
-                        {project || <span className="cell-empty">—</span>}
-                      </td>
-
-                      <td className="max-w-[220px]">
-                        {bookVisit ? (
-                          <span title={bookVisit} className="block truncate">
-                            {bookVisit}
-                          </span>
-                        ) : (
-                          <span className="cell-empty">—</span>
-                        )}
-                      </td>
-
+                      <td><span className="cell-title">{name || '—'}</span></td>
+                      <td className="max-w-[220px] truncate">{email || '—'}</td>
+                      <td className="whitespace-nowrap">{phone || '—'}</td>
+                      <td className="max-w-[200px] truncate">{project || '—'}</td>
+                      <td className="max-w-[210px] truncate">{bookVisit || '—'}</td>
                       <td className="cell-right">
-                        <div
-                          className="row-actions"
-                          onClick={(event) => event.stopPropagation()}
-                        >
+                        <div className="row-actions">
                           <button
                             type="button"
                             onClick={() => setSelectedLead(lead)}
                             className="button-secondary compact"
                           >
                             Details
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => setDeletingLead(lead)}
-                            className="icon-button danger"
-                            title="Delete lead"
-                            aria-label="Delete lead"
-                          >
-                            <Trash2 />
                           </button>
                         </div>
                       </td>

@@ -1,46 +1,21 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { onAuthStateChanged, User } from 'firebase/auth';
-import { doc, setDoc, serverTimestamp, getDoc } from 'firebase/firestore';
+import { onAuthStateChanged, User, signOut } from 'firebase/auth';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
-
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData.map(provider => ({
-        providerId: provider.providerId,
-        displayName: provider.displayName,
-        email: provider.email,
-        photoUrl: provider.photoURL
-      })) || []
-    },
-    operationType,
-    path
-  };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  return new Error(JSON.stringify(errInfo));
-}
 
 export interface ImpersonatedClient {
   id: string;
   name: string;
   email: string;
   company?: string;
-  password?: string;
+}
+
+export interface ClientProfile {
+  id: string;
+  name: string;
+  email: string;
+  company?: string;
+  clientId: string;
 }
 
 interface AuthContextType {
@@ -48,13 +23,13 @@ interface AuthContextType {
   isDemo: boolean;
   loading: boolean;
   isAdmin: boolean;
-  userRole: 'admin' | 'user';
-  clientUser: ImpersonatedClient | null;
+  userRole: 'admin' | 'client' | 'user';
+  clientUser: ClientProfile | null;
   impersonatedClient: ImpersonatedClient | null;
   effectiveUserId: string;
   loginDemo: () => void;
   loginClient: (client: ImpersonatedClient) => void;
-  logout: () => void;
+  logout: () => Promise<void>;
   setImpersonatedClient: (client: ImpersonatedClient | null) => void;
   clearImpersonation: () => void;
 }
@@ -70,151 +45,148 @@ const ADMIN_EMAILS = [
 
 export const isAdminEmail = (email?: string | null) => {
   if (!email) return false;
-  const clean = email.toLowerCase().trim();
-  return ADMIN_EMAILS.includes(clean);
+  return ADMIN_EMAILS.includes(email.toLowerCase().trim());
 };
+
+function readStoredImpersonation(): ImpersonatedClient | null {
+  try {
+    const raw = sessionStorage.getItem('mintage_admin_impersonation');
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isDemo, setIsDemo] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [userRole, setUserRole] = useState<'admin' | 'user'>('user');
-  const [clientUser, setClientUser] = useState<ImpersonatedClient | null>(() => {
-    try {
-      const stored = localStorage.getItem('botflow_client_user');
-      return stored ? JSON.parse(stored) : null;
-    } catch {
-      return null;
-    }
-  });
-  const [impersonatedClient, setImpersonatedClientState] = useState<ImpersonatedClient | null>(() => {
-    try {
-      const stored = localStorage.getItem('botflow_impersonated_client');
-      return stored ? JSON.parse(stored) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [userRole, setUserRole] = useState<'admin' | 'client' | 'user'>('user');
+  const [clientUser, setClientUser] = useState<ClientProfile | null>(null);
+  const [impersonatedClientState, setImpersonatedClientState] = useState<ImpersonatedClient | null>(null);
 
   const setImpersonatedClient = (client: ImpersonatedClient | null) => {
+    // Only a real Firebase admin may enter a client workspace.
+    const currentIsAdmin = isAdminEmail(auth.currentUser?.email) || userRole === 'admin' || isDemo;
+    if (client && !currentIsAdmin) return;
     setImpersonatedClientState(client);
-    if (client) {
-      localStorage.setItem('botflow_impersonated_client', JSON.stringify(client));
-    } else {
-      localStorage.removeItem('botflow_impersonated_client');
-    }
+    if (client) sessionStorage.setItem('mintage_admin_impersonation', JSON.stringify(client));
+    else sessionStorage.removeItem('mintage_admin_impersonation');
   };
 
   const clearImpersonation = () => {
-    setImpersonatedClient(null);
-  };
-
-  const loginClient = (client: ImpersonatedClient) => {
-    setClientUser(client);
     setImpersonatedClientState(null);
-    setIsDemo(false);
-    setUserRole('user');
-    localStorage.setItem('botflow_client_user', JSON.stringify(client));
-    localStorage.removeItem('botflow_demo_session');
-    localStorage.removeItem('botflow_impersonated_client');
+    sessionStorage.removeItem('mintage_admin_impersonation');
   };
 
   useEffect(() => {
-    const demoSession = localStorage.getItem('botflow_demo_session');
-    const storedClient = localStorage.getItem('botflow_client_user');
-
-    if (storedClient) {
-      setUserRole('user');
-    } else if (demoSession === 'true') {
-      setIsDemo(true);
-      setUserRole('admin');
-    }
-
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        if (isAdminEmail(firebaseUser.email)) {
-          setUserRole('admin');
-        }
-
-        const userRef = doc(db, 'users', firebaseUser.uid);
-        try {
-          const userDoc = await getDoc(userRef).catch(() => null);
-          if (!userDoc || !userDoc.exists()) {
-            const roleToSet = isAdminEmail(firebaseUser.email) ? 'admin' : 'user';
-            await setDoc(userRef, {
-              email: firebaseUser.email || '',
-              displayName: firebaseUser.displayName || '',
-              photoURL: firebaseUser.photoURL || '',
-              createdAt: serverTimestamp(),
-              lastLogin: serverTimestamp(),
-              role: roleToSet
-            }, { merge: true }).catch(err => console.warn('User profile create warning:', err?.message || err));
-          } else {
-            const data = userDoc.data();
-            if (data?.role === 'admin' || isAdminEmail(firebaseUser.email)) {
-              setUserRole('admin');
-            } else {
-              setUserRole('user');
-            }
-
-            await setDoc(userRef, {
-              lastLogin: serverTimestamp(),
-              displayName: firebaseUser.displayName || data?.displayName || '',
-              photoURL: firebaseUser.photoURL || data?.photoURL || '',
-            }, { merge: true }).catch(err => console.warn('User profile update warning:', err?.message || err));
-          }
-        } catch (error: any) {
-          if (error?.code === 'permission-denied') {
-            const enhancedError = handleFirestoreError(error, OperationType.WRITE, `users/${firebaseUser.uid}`);
-            console.warn('Sync failed (permission denied):', enhancedError.message);
-          } else {
-            console.warn('User profile sync skipped/offline:', error?.message || error);
-          }
-        }
-      }
       setUser(firebaseUser);
-      setLoading(false);
+      setClientUser(null);
+      setUserRole('user');
+
+      if (!firebaseUser) {
+        setImpersonatedClientState(null);
+        setLoading(false);
+        return;
+      }
+
+      const adminByEmail = isAdminEmail(firebaseUser.email);
+
+      try {
+        const userRef = doc(db, 'users', firebaseUser.uid);
+        const userSnap = await getDoc(userRef);
+        const data = userSnap.exists() ? userSnap.data() : {};
+
+        if (adminByEmail || data.role === 'admin') {
+          setUserRole('admin');
+          setClientUser(null);
+          const storedImpersonation = readStoredImpersonation();
+          if (storedImpersonation) setImpersonatedClientState(storedImpersonation);
+        } else if (data.role === 'client' && data.clientId) {
+          const clientId = String(data.clientId);
+          const profile: ClientProfile = {
+            id: firebaseUser.uid,
+            clientId,
+            name: String(data.displayName || firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Client'),
+            email: String(firebaseUser.email || data.email || ''),
+            company: String(data.company || '')
+          };
+          setUserRole('client');
+          setClientUser(profile);
+          setImpersonatedClientState(null);
+          sessionStorage.removeItem('mintage_admin_impersonation');
+
+          await setDoc(userRef, {
+            email: firebaseUser.email || '',
+            displayName: profile.name,
+            role: 'client',
+            clientId,
+            lastLogin: serverTimestamp()
+          }, { merge: true });
+        } else {
+          // Authenticated but not provisioned by an admin: fail closed.
+          setUserRole('user');
+          setClientUser(null);
+          setImpersonatedClientState(null);
+          sessionStorage.removeItem('mintage_admin_impersonation');
+        }
+      } catch (error) {
+        console.warn('Unable to load user profile:', error);
+        if (adminByEmail) {
+          setUserRole('admin');
+          setClientUser(null);
+        } else {
+          // Fail closed: an authenticated account without a tenant is not given
+          // access to another tenant. It can only see an empty client workspace.
+          setUserRole('user');
+          setClientUser(null);
+          setImpersonatedClientState(null);
+        }
+      } finally {
+        setLoading(false);
+      }
     });
 
     return () => unsubscribe();
   }, []);
 
   const loginDemo = () => {
-    setIsDemo(true);
-    setClientUser(null);
-    setUserRole('admin');
-    localStorage.setItem('botflow_demo_session', 'true');
-    localStorage.removeItem('botflow_client_user');
+    // Kept for backwards compatibility with old UI code, but no longer grants
+    // admin access. Real admins must authenticate through Firebase Auth.
+    setIsDemo(false);
+  };
+
+  const loginClient = (_client: ImpersonatedClient) => {
+    // Legacy API kept only so older components compile. Client identity now comes
+    // exclusively from Firebase Authentication + users/{uid}.
+    return;
   };
 
   const logout = async () => {
-    localStorage.removeItem('botflow_demo_session');
-    localStorage.removeItem('botflow_impersonated_client');
-    localStorage.removeItem('botflow_client_user');
-    setIsDemo(false);
+    clearImpersonation();
     setClientUser(null);
-    setImpersonatedClientState(null);
     setUserRole('user');
-    await auth.signOut();
+    setIsDemo(false);
+    await signOut(auth);
   };
 
-  // Effective User ID for querying resources (bots, leads)
-  const effectiveUserId = impersonatedClient ? impersonatedClient.id : (clientUser ? clientUser.id : (user?.uid || 'demo_user'));
-
-  // Admin boolean: true ONLY if user is genuinely an admin AND NOT a client account
-  const isAdmin = !clientUser && (isAdminEmail(user?.email) || userRole === 'admin' || (isDemo && !clientUser));
+  const isAdmin = Boolean(user && (isAdminEmail(user.email) || userRole === 'admin'));
+  const effectiveUserId = isAdmin
+    ? (impersonatedClientState?.id || user?.uid || '')
+    : (clientUser?.id || '');
 
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      isDemo, 
-      loading, 
+    <AuthContext.Provider value={{
+      user,
+      isDemo,
+      loading,
       isAdmin,
       userRole,
       clientUser,
-      impersonatedClient,
+      impersonatedClient: isAdmin ? impersonatedClientState : null,
       effectiveUserId,
-      loginDemo, 
+      loginDemo,
       loginClient,
       logout,
       setImpersonatedClient,
@@ -227,8 +199,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
 export function useAuth() {
   const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (!context) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 }
