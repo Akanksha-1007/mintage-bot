@@ -1,590 +1,814 @@
 import React, { useEffect, useState } from 'react';
-import { db, auth } from '../lib/firebase';
 import {
   collection,
+  onSnapshot,
   query,
   where,
-  getDocs,
-  limit,
-  orderBy,
-  onSnapshot,
 } from 'firebase/firestore';
-
 import {
-  ArrowRight,
-  Bot,
-  CheckCircle2,
+  Building2,
   Clock,
-  Code2,
-  GitBranch,
-  MessageSquare,
-  TrendingUp,
+  Mail,
+  Phone,
+  User,
   Users,
 } from 'lucide-react';
-
-import { Link, useNavigate } from 'react-router-dom';
+import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
-interface RecentLead {
+interface Lead {
   id: string;
-  flowName?: string;
+  ownerId?: string;
+  clientId?: string;
   project?: string;
   selectedProject?: string;
   projectName?: string;
-  data: Record<string, any>;
   timestamp?: any;
+  createdAt?: any;
+  data?: Record<string, any>;
+  [key: string]: any;
 }
 
-const getRecentLeadProject = (lead: RecentLead): string => {
-  const direct = lead.project || lead.selectedProject || lead.projectName;
-  if (direct) return String(direct).trim();
-  const data = lead.data && typeof lead.data === 'object' ? lead.data : {};
-  const value = data.selectedProject ?? data.project ?? data.projectName ?? data['Selected Project'] ?? data['Project'];
-  return value ? String(value).trim() : '';
-};
+interface ClientInfo {
+  id?: string;
+  uid?: string;
+  name?: string;
+  fullName?: string;
+  email?: string;
+  company?: string;
+  clientId?: string;
+}
+
+function getLeadData(lead: Lead): Record<string, any> {
+  if (
+    lead.data &&
+    typeof lead.data === 'object' &&
+    !Array.isArray(lead.data)
+  ) {
+    return lead.data;
+  }
+
+  return lead;
+}
+
+function getLeadName(lead: Lead): string {
+  const data = getLeadData(lead);
+
+  return String(
+    data.name ||
+    data.Name ||
+    data.fullName ||
+    data.full_name ||
+    data.fullname ||
+    lead.name ||
+    lead.Name ||
+    'Anonymous lead'
+  );
+}
+
+function getLeadEmail(lead: Lead): string {
+  const data = getLeadData(lead);
+
+  return String(
+    data.email ||
+    data.Email ||
+    data.emailAddress ||
+    data['Email Address'] ||
+    lead.email ||
+    lead.Email ||
+    ''
+  );
+}
+
+function getLeadPhone(lead: Lead): string {
+  const data = getLeadData(lead);
+
+  return String(
+    data.phone ||
+    data.Phone ||
+    data.phoneNumber ||
+    data['Phone Number'] ||
+    data.mobile ||
+    data.Mobile ||
+    lead.phone ||
+    lead.Phone ||
+    ''
+  );
+}
+
+function getLeadProject(lead: Lead): string {
+  const data = getLeadData(lead);
+
+  return String(
+    lead.project ||
+    lead.selectedProject ||
+    lead.projectName ||
+    data.project ||
+    data.selectedProject ||
+    data.projectName ||
+    data['Project'] ||
+    data['Selected Project'] ||
+    ''
+  );
+}
+
+function getTimestampValue(value: any): number {
+  if (!value) {
+    return 0;
+  }
+
+  try {
+    if (typeof value?.toMillis === 'function') {
+      return value.toMillis();
+    }
+
+    if (typeof value?.toDate === 'function') {
+      return value.toDate().getTime();
+    }
+
+    if (value?.seconds) {
+      return Number(value.seconds) * 1000;
+    }
+
+    if (typeof value === 'number') {
+      return value;
+    }
+
+    if (typeof value === 'string') {
+      const parsed = new Date(value).getTime();
+
+      return Number.isNaN(parsed) ? 0 : parsed;
+    }
+  } catch {
+    return 0;
+  }
+
+  return 0;
+}
+
+function getLeadDate(lead: Lead): string {
+  const timestamp =
+    lead.timestamp ||
+    lead.createdAt;
+
+  const value = getTimestampValue(timestamp);
+
+  if (!value) {
+    return '—';
+  }
+
+  return new Date(value).toLocaleString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 
 export default function Dashboard() {
-  const { effectiveUserId, impersonatedClient, clientUser, isAdmin } = useAuth();
+  const {
+    user,
+    clientUser,
+    impersonatedClient,
+    isAdmin,
+    loading: authLoading,
+  } = useAuth();
+
   const navigate = useNavigate();
 
-  const [stats, setStats] = useState({
-    bots: 0,
-    leads: 0,
-    conversion: 0,
-  });
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [loadingLeads, setLoadingLeads] = useState(true);
 
-  const [recentLeads, setRecentLeads] = useState<RecentLead[]>([]);
-  const [loading, setLoading] = useState(true);
+  /*
+   * ============================================================
+   * CLIENT IDENTIFICATION
+   * ============================================================
+   *
+   * Normal client:
+   *   clientUser.id
+   *
+   * Admin opening a client workspace:
+   *   impersonatedClient.id
+   *
+   * Normal client NEVER gets to choose another client.
+   */
+  const client: ClientInfo | null = isAdmin
+    ? (impersonatedClient as ClientInfo | null)
+    : (clientUser as ClientInfo | null);
 
-  const authorizedFetch = async (url: string, options: RequestInit = {}) => {
-    const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
-    const headers = new Headers(options.headers || {});
-    if (token) headers.set('Authorization', `Bearer ${token}`);
-    return fetch(url, { ...options, headers });
-  };
+  const targetClientId =
+    client?.id ||
+    client?.uid ||
+    client?.clientId ||
+    (!isAdmin ? user?.uid : '');
 
+  /*
+   * ============================================================
+   * CLIENT ROUTE PROTECTION
+   * ============================================================
+   */
   useEffect(() => {
-    if (isAdmin && !impersonatedClient) {
-      navigate('/admin', { replace: true });
+    if (authLoading) {
       return;
     }
 
-    const targetUserId = effectiveUserId || auth.currentUser?.uid;
-    const isGlobalAdminView = isAdmin && !impersonatedClient;
-
-    const fetchStats = async () => {
-      let botsCount = 0;
-      let leadsCount = 0;
-      let fetchedLeads: RecentLead[] = [];
-
-      // Read deleted bot IDs blacklist.
-      const deletedIdsRaw = localStorage.getItem('mintage_deleted_bot_ids');
-      let deletedIds: string[] = [];
-
-      if (deletedIdsRaw) {
-        try {
-          const parsed = JSON.parse(deletedIdsRaw);
-          if (Array.isArray(parsed)) {
-            deletedIds = parsed;
-          }
-        } catch {
-          deletedIds = [];
-        }
-      }
-
-      // 1. Local storage fallback reads.
-      const localBotsRaw = localStorage.getItem('mintage_bots');
-
-      if (localBotsRaw) {
-        try {
-          const parsed = JSON.parse(localBotsRaw);
-
-          if (Array.isArray(parsed)) {
-            const filtered = (
-              !isGlobalAdminView && targetUserId
-                ? parsed.filter(
-                  (bot: any) =>
-                    bot.createdBy === targetUserId || !bot.createdBy
-                )
-                : parsed
-            ).filter(
-              (bot: any) =>
-                bot && bot.id && !deletedIds.includes(String(bot.id))
-            );
-
-            botsCount = filtered.length;
-          }
-        } catch {
-          // Ignore invalid local storage data.
-        }
-      }
-
-      const localLeadsRaw = localStorage.getItem('mintage_leads');
-
-      if (localLeadsRaw) {
-        try {
-          const parsed = JSON.parse(localLeadsRaw);
-
-          if (Array.isArray(parsed)) {
-            const filtered =
-              !isGlobalAdminView && targetUserId
-                ? parsed.filter(
-                  (lead: any) =>
-                    lead.ownerId === targetUserId ||
-                    !lead.ownerId ||
-                    targetUserId === 'demo_user'
-                )
-                : parsed;
-
-            leadsCount = filtered.length;
-            fetchedLeads = filtered.slice(0, 5);
-          }
-        } catch {
-          // Ignore invalid local storage data.
-        }
-      }
-
-      // 2. Fetch API server leads.
-      let apiLeadsList: RecentLead[] = [];
-
-      try {
-        const url = isGlobalAdminView
-          ? '/api/leads'
-          : `/api/leads?ownerId=${encodeURIComponent(
-            targetUserId || 'demo_user'
-          )}`;
-
-        const response = await authorizedFetch(url);
-
-        if (response.ok) {
-          const apiData = await response.json();
-
-          if (apiData.success && Array.isArray(apiData.leads)) {
-            apiLeadsList = apiData.leads;
-          }
-        }
-      } catch (error) {
-        console.warn('Backend leads API warning:', error);
-      }
-
-      // 3. Fetch Firestore bots count.
-      try {
-        const botsQuery = isGlobalAdminView
-          ? query(collection(db, 'bot_configurations'))
-          : targetUserId
-            ? query(
-              collection(db, 'bot_configurations'),
-              where('createdBy', '==', targetUserId)
-            )
-            : null;
-
-        if (botsQuery) {
-          const botsSnap = await getDocs(botsQuery).catch(() => null);
-
-          if (botsSnap) {
-            const validDocs = botsSnap.docs.filter(
-              (doc) => !deletedIds.includes(doc.id)
-            );
-
-            botsCount = isGlobalAdminView
-              ? validDocs.length
-              : Math.max(botsCount, validDocs.length);
-          }
-        }
-      } catch (error) {
-        console.warn('Bots query skipped:', error);
-      }
-
-      // 4. Fetch Firestore leads and combine all sources.
-      const allLeadsMap = new Map<string, RecentLead>();
-
-      fetchedLeads.forEach((lead) => allLeadsMap.set(lead.id, lead));
-      apiLeadsList.forEach((lead) => allLeadsMap.set(lead.id, lead));
-
-      try {
-        const leadsQuery = isGlobalAdminView
-          ? query(
-            collection(db, 'leads'),
-            orderBy('timestamp', 'desc'),
-            limit(5)
-          )
-          : targetUserId
-            ? query(
-              collection(db, 'leads'),
-              where('ownerId', '==', targetUserId),
-              orderBy('timestamp', 'desc'),
-              limit(5)
-            )
-            : null;
-
-        if (leadsQuery) {
-          const leadsSnap = await getDocs(leadsQuery).catch(() => null);
-
-          if (leadsSnap && !leadsSnap.empty) {
-            const firestoreLeads = leadsSnap.docs.map((doc) => ({
-              id: doc.id,
-              ...doc.data(),
-            })) as RecentLead[];
-
-            firestoreLeads.forEach((lead) =>
-              allLeadsMap.set(lead.id, lead)
-            );
-          }
-        }
-      } catch (error) {
-        console.warn('Leads query skipped:', error);
-      }
-
-      const combinedLeads = Array.from(allLeadsMap.values());
-
-      // Sort newest first when timestamps are available.
-      combinedLeads.sort((a, b) => {
-        const getTime = (lead: RecentLead) => {
-          const timestamp = lead.timestamp;
-
-          if (timestamp?.toMillis) {
-            return timestamp.toMillis();
-          }
-
-          if (timestamp?.seconds) {
-            return timestamp.seconds * 1000;
-          }
-
-          if (typeof timestamp === 'string' || typeof timestamp === 'number') {
-            const parsed = new Date(timestamp).getTime();
-            return Number.isNaN(parsed) ? 0 : parsed;
-          }
-
-          return 0;
-        };
-
-        return getTime(b) - getTime(a);
+    /*
+     * Admin without selecting a client:
+     * send admin back to admin dashboard.
+     */
+    if (isAdmin && !impersonatedClient) {
+      navigate('/admin', {
+        replace: true,
       });
 
-      leadsCount = Math.max(leadsCount, combinedLeads.length);
-      fetchedLeads = combinedLeads.slice(0, 5);
+      return;
+    }
 
-      setStats({
-        bots: botsCount,
-        leads: leadsCount,
-        conversion:
-          botsCount > 0
-            ? Math.round((leadsCount / (botsCount * 10)) * 100) / 10
-            : 0,
+    /*
+     * Normal client must have a client profile.
+     */
+    if (!isAdmin && !clientUser) {
+      navigate('/login', {
+        replace: true,
       });
+    }
+  }, [
+    authLoading,
+    isAdmin,
+    impersonatedClient,
+    clientUser,
+    navigate,
+  ]);
 
-      setRecentLeads(fetchedLeads);
-      setLoading(false);
-    };
-
-    fetchStats();
-
-    // Real-time listener: Firestore leads.
-    let unsubscribeLeads: (() => void) | null = null;
-
-    // Real-time listener: Firestore bots.
-    let unsubscribeBots: (() => void) | null = null;
-
-    try {
-      unsubscribeLeads = onSnapshot(
-        collection(db, 'leads'),
-        () => fetchStats(),
-        () => { }
-      );
-
-      unsubscribeBots = onSnapshot(
-        collection(db, 'bot_configurations'),
-        () => fetchStats(),
-        () => { }
-      );
-    } catch (error) {
-      console.warn('Firestore realtime listeners unavailable:', error);
+  /*
+   * ============================================================
+   * LOAD ONLY THIS CLIENT'S LEADS
+   * ============================================================
+   */
+  useEffect(() => {
+    if (authLoading) {
+      return;
     }
 
-    // Real-time listener: Server-Sent Events from backend.
-    let eventSource: EventSource | null = null;
-
-    try {
-      eventSource = new EventSource('/api/events');
-
-      eventSource.onmessage = (event) => {
-        if (event.data && !event.data.startsWith(':')) {
-          fetchStats();
-        }
-      };
-
-      eventSource.onerror = () => {
-        // Keep the polling fallback active if SSE is unavailable.
-      };
-    } catch {
-      eventSource = null;
+    if (!targetClientId) {
+      setLeads([]);
+      setLoadingLeads(false);
+      return;
     }
 
-    // Real-time listener: custom intra-tab events.
-    const handleCustomLead = () => fetchStats();
-    window.addEventListener('mintage_lead_captured', handleCustomLead);
+    setLoadingLeads(true);
 
-    // Fallback polling every 4 seconds.
-    const pollInterval = window.setInterval(() => {
-      fetchStats();
-    }, 4000);
+    /*
+     * IMPORTANT:
+     *
+     * We DO NOT use:
+     *
+     * collection(db, 'leads')
+     *
+     * by itself.
+     *
+     * We always filter by ownerId.
+     */
+    const leadsQuery = query(
+      collection(db, 'leads'),
+      where('ownerId', '==', targetClientId)
+    );
+
+    const unsubscribe = onSnapshot(
+      leadsQuery,
+      (snapshot) => {
+        const clientLeads: Lead[] = [];
+
+        snapshot.forEach((document) => {
+          const data = document.data();
+
+          /*
+           * Second safety check.
+           *
+           * Even though Firestore query already filters
+           * ownerId, we check again before rendering.
+           */
+          if (data.ownerId !== targetClientId) {
+            return;
+          }
+
+          clientLeads.push({
+            id: document.id,
+            ...data,
+          } as Lead);
+        });
+
+        /*
+         * Newest first.
+         */
+        clientLeads.sort((a, b) => {
+          const dateA = getTimestampValue(
+            a.timestamp || a.createdAt
+          );
+
+          const dateB = getTimestampValue(
+            b.timestamp || b.createdAt
+          );
+
+          return dateB - dateA;
+        });
+
+        setLeads(clientLeads);
+        setLoadingLeads(false);
+      },
+      (error) => {
+        console.error(
+          'Unable to load client leads:',
+          error
+        );
+
+        setLeads([]);
+        setLoadingLeads(false);
+      }
+    );
 
     return () => {
-      if (unsubscribeLeads) {
-        unsubscribeLeads();
-      }
-
-      if (unsubscribeBots) {
-        unsubscribeBots();
-      }
-
-      if (eventSource) {
-        eventSource.close();
-      }
-
-      window.removeEventListener(
-        'mintage_lead_captured',
-        handleCustomLead
-      );
-
-      window.clearInterval(pollInterval);
+      unsubscribe();
     };
-  }, [effectiveUserId, isAdmin, impersonatedClient]);
+  }, [
+    targetClientId,
+    authLoading,
+  ]);
 
-  const workspaceName = impersonatedClient
-    ? `${impersonatedClient.name}'s workspace`
-    : clientUser
-      ? `${clientUser.name}'s workspace`
-      : 'Dashboard';
+  /*
+   * ============================================================
+   * LOADING
+   * ============================================================
+   */
+  if (authLoading) {
+    return (
+      <div className="centered-status">
+        <p>Loading workspace…</p>
+      </div>
+    );
+  }
 
+  /*
+   * ============================================================
+   * SAFETY
+   * ============================================================
+   */
+  if (!targetClientId) {
+    return (
+      <div className="centered-status">
+        <p>
+          No client workspace is assigned to this account.
+        </p>
+      </div>
+    );
+  }
+
+  const clientName =
+    client?.name ||
+    client?.fullName ||
+    'Client';
+
+  const clientEmail =
+    client?.email ||
+    user?.email ||
+    '';
+
+  const clientCompany =
+    client?.company ||
+    '';
+
+  /*
+   * ============================================================
+   * CLIENT DASHBOARD
+   * ============================================================
+   */
   return (
     <div className="workspace-page dashboard-page">
+
+      {/* ========================================================
+          HEADER
+         ======================================================== */}
+
       <header className="page-heading">
         <div>
           <div className="eyebrow-row">
-            <span className="eyebrow">Workspace overview</span>
+
+            <span className="eyebrow">
+              Workspace overview
+            </span>
+
             <span className="status-pill status-live">
               <span />
               Live
             </span>
+
           </div>
 
-          <h1>{workspaceName}</h1>
+          <h1>
+            {clientName}'s workspace
+          </h1>
 
           <p>
-            Manage your chatbot flows, captured leads, and publishing tools
-            from one place.
+            Manage your chatbot workspace and captured
+            leads from one place.
           </p>
-        </div>
-
-        <div className="page-actions">
-          <Link to="/integrations" className="button-secondary">
-            <Code2 />
-            Embed widget
-          </Link>
-
-          <Link to="/builder" className="button-primary">
-            <PlusIcon />
-            New bot
-          </Link>
         </div>
       </header>
 
+      {/* ========================================================
+          CLIENT INFORMATION
+         ======================================================== */}
+
       <section
         className="metric-grid"
-        aria-label="Workspace statistics"
+        aria-label="Client information"
       >
+
+        {/* Client */}
+
         <article className="metric-card">
+
           <div className="metric-icon">
-            <Bot />
+            <User />
           </div>
 
           <div>
-            <p>Active bots</p>
-            <strong>{loading ? '—' : stats.bots}</strong>
+            <p>Client</p>
+
+            <strong>
+              {clientName}
+            </strong>
           </div>
 
-          <Link to="/bots">
-            Open <ArrowRight />
-          </Link>
         </article>
 
+        {/* Company */}
+
         <article className="metric-card">
+
+          <div className="metric-icon">
+            <Building2 />
+          </div>
+
+          <div>
+            <p>Company</p>
+
+            <strong>
+              {clientCompany || '—'}
+            </strong>
+          </div>
+
+        </article>
+
+        {/* Email */}
+
+        <article className="metric-card">
+
+          <div className="metric-icon">
+            <Mail />
+          </div>
+
+          <div>
+            <p>Email</p>
+
+            <strong
+              style={{
+                fontSize: '13px',
+                wordBreak: 'break-word',
+              }}
+            >
+              {clientEmail || '—'}
+            </strong>
+          </div>
+
+        </article>
+
+        {/* Leads */}
+
+        <article className="metric-card">
+
           <div className="metric-icon">
             <Users />
           </div>
 
           <div>
             <p>Captured leads</p>
-            <strong>{loading ? '—' : stats.leads}</strong>
-          </div>
 
-          <Link to="/leads">
-            View <ArrowRight />
-          </Link>
-        </article>
-
-        <article className="metric-card">
-          <div className="metric-icon">
-            <TrendingUp />
-          </div>
-
-          <div>
-            <p>Conversion rate</p>
             <strong>
-              {loading ? '—' : `${stats.conversion}%`}
+              {loadingLeads
+                ? '—'
+                : leads.length}
             </strong>
           </div>
 
-          <div className="metric-progress">
-            <span
-              style={{
-                width: `${Math.min(stats.conversion * 5, 100)}%`,
-              }}
-            />
-          </div>
         </article>
+
       </section>
 
-      <div className="dashboard-columns">
-        <section className="dashboard-main-column">
-          <div className="section-title-row">
-            <div>
-              <p className="eyebrow">Quick start</p>
-              <h2>Build and publish</h2>
-            </div>
+      {/* ========================================================
+          LEADS
+         ======================================================== */}
 
-            <span className="text-note">
-              Everything stays in this workspace
-            </span>
+      <section className="recent-panel">
+
+        <div className="section-title-row">
+
+          <div>
+            <p className="eyebrow">
+              Lead data
+            </p>
+
+            <h2>
+              Your leads
+            </h2>
           </div>
 
-          <article className="builder-feature">
-            <div className="feature-copy">
-              <span className="feature-icon">
-                <GitBranch />
-              </span>
+          <span className="text-note">
+            {loadingLeads
+              ? 'Loading…'
+              : `${leads.length} total`}
+          </span>
 
-              <h3>Shape a conversation visually</h3>
+        </div>
 
-              <p>
-                Arrange messages, questions, conditions, and lead capture
-                steps in the drag-and-drop builder.
-              </p>
+        {/* Loading */}
 
-              <Link to="/builder" className="button-primary">
-                Open builder <ArrowRight />
-              </Link>
-            </div>
+        {loadingLeads && (
+          <div className="empty-activity">
 
-            <div className="feature-canvas" aria-hidden="true">
-              <div className="flow-card flow-card-a">
-                <span />
-                Welcome message
-              </div>
+            <Clock />
 
-              <div className="flow-line" />
+            <strong>
+              Loading leads…
+            </strong>
 
-              <div className="flow-card flow-card-b">
-                <span />
-                Capture contact
-              </div>
+            <p>
+              Fetching leads from your workspace.
+            </p>
 
-              <div className="flow-card flow-card-c">
-                <span />
-                Save lead
-              </div>
-            </div>
-          </article>
-
-          <Link
-            to="/integrations"
-            className="inline-resource-card"
-          >
-            <span className="resource-icon">
-              <MessageSquare />
-            </span>
-
-            <span className="min-w-0 flex-1">
-              <strong>Website embed</strong>
-              <small>
-                Add a floating chatbot to any site with one script.
-              </small>
-            </span>
-
-            <ArrowRight />
-          </Link>
-        </section>
-
-        <aside className="recent-panel">
-          <div className="section-title-row compact">
-            <div>
-              <p className="eyebrow">Activity</p>
-              <h2>Recent leads</h2>
-            </div>
-
-            <Link to="/leads">View all</Link>
           </div>
+        )}
 
-          {recentLeads.length > 0 ? (
-            <div className="recent-list">
-              {recentLeads.map((lead, index) => {
-                const leadName =
-                  lead.data?.email ||
-                  lead.data?.Email ||
-                  lead.data?.name ||
-                  'Anonymous lead';
+        {/* No leads */}
 
-                return (
-                  <div
-                    key={lead.id || index}
-                    className="recent-item"
-                  >
-                    <div className="avatar-initial">
-                      {String(leadName)
-                        .charAt(0)
-                        .toUpperCase()}
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <strong>{leadName}</strong>
-                      <span>
-                        <Clock /> Recent submission
-                      </span>
-                      {getRecentLeadProject(lead) && (
-                        <span style={{ marginTop: 3, fontWeight: 600 }}>
-                          Project: {getRecentLeadProject(lead)}
-                        </span>
-                      )}
-                    </div>
-
-                    <span className="status-pill">
-                      <span />
-                      New
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
+        {!loadingLeads &&
+          leads.length === 0 && (
             <div className="empty-activity">
-              <CheckCircle2 />
-              <strong>No leads yet</strong>
+
+              <Users />
+
+              <strong>
+                No leads yet
+              </strong>
+
               <p>
-                New submissions will appear here as they arrive.
+                New chatbot submissions will
+                appear here.
               </p>
+
             </div>
           )}
-        </aside>
-      </div>
-    </div>
-  );
-}
 
-function PlusIcon() {
-  return (
-    <span className="plus-icon" aria-hidden="true">
-      +
-    </span>
+        {/* Leads table */}
+
+        {!loadingLeads &&
+          leads.length > 0 && (
+
+            <div
+              style={{
+                overflowX: 'auto',
+                marginTop: '16px',
+              }}
+            >
+
+              <table
+                style={{
+                  width: '100%',
+                  borderCollapse:
+                    'collapse',
+                }}
+              >
+
+                <thead>
+
+                  <tr
+                    style={{
+                      borderBottom:
+                        '1px solid var(--line)',
+                      textAlign:
+                        'left',
+                    }}
+                  >
+
+                    <th
+                      style={{
+                        padding:
+                          '12px 10px',
+                      }}
+                    >
+                      Date / Time
+                    </th>
+
+                    <th
+                      style={{
+                        padding:
+                          '12px 10px',
+                      }}
+                    >
+                      Name
+                    </th>
+
+                    <th
+                      style={{
+                        padding:
+                          '12px 10px',
+                      }}
+                    >
+                      Email
+                    </th>
+
+                    <th
+                      style={{
+                        padding:
+                          '12px 10px',
+                      }}
+                    >
+                      Phone
+                    </th>
+
+                    <th
+                      style={{
+                        padding:
+                          '12px 10px',
+                      }}
+                    >
+                      Project
+                    </th>
+
+                  </tr>
+
+                </thead>
+
+                <tbody>
+
+                  {leads.map((lead) => {
+
+                    const name =
+                      getLeadName(
+                        lead
+                      );
+
+                    const email =
+                      getLeadEmail(
+                        lead
+                      );
+
+                    const phone =
+                      getLeadPhone(
+                        lead
+                      );
+
+                    const project =
+                      getLeadProject(
+                        lead
+                      );
+
+                    return (
+                      <tr
+                        key={lead.id}
+                        style={{
+                          borderBottom:
+                            '1px solid var(--line-soft)',
+                        }}
+                      >
+
+                        <td
+                          style={{
+                            padding:
+                              '14px 10px',
+                            whiteSpace:
+                              'nowrap',
+                          }}
+                        >
+
+                          <span
+                            style={{
+                              display:
+                                'inline-flex',
+                              alignItems:
+                                'center',
+                              gap: '6px',
+                            }}
+                          >
+
+                            <Clock
+                              size={14}
+                            />
+
+                            {getLeadDate(
+                              lead
+                            )}
+
+                          </span>
+
+                        </td>
+
+                        <td
+                          style={{
+                            padding:
+                              '14px 10px',
+                            fontWeight: 600,
+                          }}
+                        >
+                          {name}
+                        </td>
+
+                        <td
+                          style={{
+                            padding:
+                              '14px 10px',
+                          }}
+                        >
+
+                          {email ? (
+                            <span
+                              style={{
+                                display:
+                                  'inline-flex',
+                                alignItems:
+                                  'center',
+                                gap: '6px',
+                              }}
+                            >
+
+                              <Mail
+                                size={14}
+                              />
+
+                              {email}
+
+                            </span>
+                          ) : (
+                            '—'
+                          )}
+
+                        </td>
+
+                        <td
+                          style={{
+                            padding:
+                              '14px 10px',
+                          }}
+                        >
+
+                          {phone ? (
+                            <span
+                              style={{
+                                display:
+                                  'inline-flex',
+                                alignItems:
+                                  'center',
+                                gap: '6px',
+                              }}
+                            >
+
+                              <Phone
+                                size={14}
+                              />
+
+                              {phone}
+
+                            </span>
+                          ) : (
+                            '—'
+                          )}
+
+                        </td>
+
+                        <td
+                          style={{
+                            padding:
+                              '14px 10px',
+                          }}
+                        >
+                          {project || '—'}
+                        </td>
+
+                      </tr>
+                    );
+                  })}
+
+                </tbody>
+
+              </table>
+
+            </div>
+          )}
+
+      </section>
+
+    </div>
   );
 }
