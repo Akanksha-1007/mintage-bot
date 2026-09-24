@@ -81,8 +81,8 @@ function BuilderContent() {
     try {
       // 1. Delete from Server API
       try {
-        await authorizedFetch(`/api/bots/${encodeURIComponent(id)}`, { method: 'DELETE' });
-        await authorizedFetch('/api/bots/delete', {
+        await fetch(`/api/bots/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        await fetch('/api/bots/delete', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id })
@@ -141,14 +141,7 @@ function BuilderContent() {
     }, 4000);
   };
 
-  const authorizedFetch = async (url: string, options: RequestInit = {}) => {
-    const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
-    const headers = new Headers(options.headers || {});
-    if (token) headers.set('Authorization', `Bearer ${token}`);
-    return fetch(url, { ...options, headers });
-  };
-
-  const { effectiveUserId, isAdmin, impersonatedClient } = useAuth();
+  const { effectiveUserId } = useAuth();
 
   const loadUserTokens = useCallback(async () => {
     // 1. Try local storage first for instant responsiveness
@@ -288,7 +281,7 @@ function BuilderContent() {
     } catch { }
 
     try {
-      await authorizedFetch('/api/bots/project-sheet-routing', {
+      await fetch('/api/bots/project-sheet-routing', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, projectSheetMappings: cleaned })
@@ -351,16 +344,6 @@ function BuilderContent() {
 
         if (docSnap && docSnap.exists()) {
           const data = docSnap.data();
-          const targetUserId = effectiveUserId || auth.currentUser?.uid || '';
-          const adminGlobal = isAdmin && !impersonatedClient;
-          const ownsBot = data.createdBy === targetUserId || data.clientId === targetUserId || data.ownerId === targetUserId;
-
-          if (!adminGlobal && !ownsBot) {
-            showToast('You do not have access to this chatbot.', 'error');
-            navigate('/bots', { replace: true });
-            return;
-          }
-
           const rawNodes = data.nodes;
           const nodesArr = Array.isArray(rawNodes)
             ? rawNodes
@@ -395,14 +378,6 @@ function BuilderContent() {
           const found = Array.isArray(localBots)
             ? localBots.find((b: any) => b && b.id === id)
             : null;
-
-          const localOwnerId = effectiveUserId || auth.currentUser?.uid || '';
-          const adminGlobal = isAdmin && !impersonatedClient;
-          if (found && !adminGlobal && found.createdBy && found.createdBy !== localOwnerId && found.clientId !== localOwnerId) {
-            showToast('You do not have access to this chatbot.', 'error');
-            navigate('/bots', { replace: true });
-            return;
-          }
 
           if (found && !cancelled) {
             const rawLocalNodes = found.nodes;
@@ -590,367 +565,96 @@ function BuilderContent() {
   };
 
   const onSave = async () => {
-    /*
-     * ============================================================
-     * CLIENT / TENANT ID
-     * ============================================================
-     *
-     * For a normal client:
-     *   effectiveUserId = Firebase Auth UID
-     *
-     * For an admin impersonating a client:
-     *   effectiveUserId = selected client's Firebase UID
-     *
-     * Never fall back to guest_user because that would make
-     * the bot impossible to associate with a client.
-     */
+    const targetUserId = effectiveUserId || auth.currentUser?.uid || 'guest_user';
 
-    const firebaseUid =
-      auth.currentUser?.uid || '';
-
-    const targetUserId =
-      effectiveUserId ||
-      firebaseUid;
-
-    if (!targetUserId) {
-      showToast(
-        'Unable to determine the client account. Please login again.',
-        'error'
-      );
-
-      return;
-    }
 
     setIsSaving(true);
-
     try {
-      /*
-       * ==========================================================
-       * GOOGLE SHEET ID
-       * ==========================================================
-       */
-
-      let cleanSpreadsheetId =
-        botSpreadsheetId.trim();
-
-      if (
-        cleanSpreadsheetId.includes('/d/')
-      ) {
-        const match =
-          cleanSpreadsheetId.match(
-            /\/d\/([\w-_]+)/
-          );
-
-        if (
-          match &&
-          match[1]
-        ) {
-          cleanSpreadsheetId =
-            match[1];
-        }
+      let cleanSpreadsheetId = botSpreadsheetId.trim();
+      if (cleanSpreadsheetId.includes('/d/')) {
+        const match = cleanSpreadsheetId.match(/\/d\/([\w-_]+)/);
+        if (match && match[1]) cleanSpreadsheetId = match[1];
       }
 
-      /*
-       * ==========================================================
-       * CLEAN REACT FLOW DATA
-       * ==========================================================
-       */
+      // Clean data to prevent "Unsupported field value: undefined" errors
+      const cleanNodes = JSON.parse(JSON.stringify(safeNodes));
+      const cleanEdges = JSON.parse(JSON.stringify(safeEdges));
 
-      const cleanNodes =
-        JSON.parse(
-          JSON.stringify(
-            safeNodes
-          )
-        );
+      let savedId = id || ('bot_' + Date.now());
+      let firestoreSuccess = false;
 
-      const cleanEdges =
-        JSON.parse(
-          JSON.stringify(
-            safeEdges
-          )
-        );
-
-      /*
-       * ==========================================================
-       * BOT ID
-       * ==========================================================
-       */
-
-      let savedId =
-        id ||
-        `bot_${Date.now()}`;
-
-      /*
-       * ==========================================================
-       * SAVE TO FIRESTORE
-       * ==========================================================
-       */
-
+      // 1. Try saving to Firestore with explicit document ID matching savedId
       try {
-        await setDoc(
-          doc(
-            db,
-            'bot_configurations',
-            savedId
-          ),
-          {
-            id: savedId,
-
-            name:
-              botName ||
-              'Unnamed Bot',
-
-            nodes:
-              cleanNodes,
-
-            edges:
-              cleanEdges,
-
-            spreadsheetId:
-              cleanSpreadsheetId,
-
-            /*
-             * IMPORTANT:
-             *
-             * Store the Firebase UID in ALL tenant fields.
-             *
-             * This guarantees that the bot can be found by
-             * the client's dashboard.
-             */
-
-            createdBy:
-              targetUserId,
-
-            ownerId:
-              targetUserId,
-
-            clientId:
-              targetUserId,
-
-            createdAt:
-              serverTimestamp(),
-
-            updatedAt:
-              serverTimestamp(),
-          },
-          {
-            merge: true,
-          }
-        );
-
-      } catch (firestoreError) {
-        console.warn(
-          'Firestore bot save warning:',
-          firestoreError
-        );
-
-        /*
-         * Do not stop the save completely.
-         * The server/local cache will still be updated.
-         */
+        await setDoc(doc(db, 'bot_configurations', savedId), {
+          id: savedId,
+          name: botName || 'Unnamed Bot',
+          clientLogo: clientLogo || '',
+          designConfig: JSON.parse(JSON.stringify(designConfig || getDefaultDesignConfig())),
+          nodes: cleanNodes,
+          edges: cleanEdges,
+          spreadsheetId: cleanSpreadsheetId,
+          projectSheetMappings,
+          createdBy: targetUserId,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+        firestoreSuccess = true;
+      } catch (fsErr) {
+        console.warn('Firestore save flow warning, falling back to local/server cache:', fsErr);
       }
 
-      /*
-       * ==========================================================
-       * BOT OBJECT FOR SERVER + LOCAL CACHE
-       * ==========================================================
-       */
+      // 2. Always sync to LocalStorage and Express Server API
+      if (!savedId) {
+        savedId = 'bot_' + Date.now();
+      }
 
       const newBotObj = {
         id: savedId,
-
-        name:
-          botName ||
-          'Unnamed Bot',
-
-        nodes:
-          cleanNodes,
-
-        edges:
-          cleanEdges,
-
-        spreadsheetId:
-          cleanSpreadsheetId,
-
-        /*
-         * Tenant ownership
-         */
-
-        createdBy:
-          targetUserId,
-
-        ownerId:
-          targetUserId,
-
-        clientId:
-          targetUserId,
-
-        createdAt:
-          new Date().toISOString(),
-
-        updatedAt:
-          new Date().toISOString(),
+        name: botName || 'Unnamed Bot',
+        clientLogo: clientLogo || '',
+        designConfig: JSON.parse(JSON.stringify(designConfig || getDefaultDesignConfig())),
+        nodes: cleanNodes,
+        edges: cleanEdges,
+        spreadsheetId: cleanSpreadsheetId,
+        projectSheetMappings,
+        createdBy: targetUserId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
       };
 
-      /*
-       * ==========================================================
-       * SAVE TO SERVER
-       * ==========================================================
-       */
-
+      // Sync to Express Server
       try {
-        const response =
-          await fetch(
-            '/api/bots/save',
-            {
-              method: 'POST',
-
-              headers: {
-                'Content-Type':
-                  'application/json',
-              },
-
-              body:
-                JSON.stringify(
-                  newBotObj
-                ),
-            }
-          );
-
-        if (!response.ok) {
-          console.warn(
-            'Server bot save returned:',
-            response.status
-          );
-        }
-
-      } catch (serverError) {
-        console.warn(
-          'Server bot sync error:',
-          serverError
-        );
+        await fetch('/api/bots/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newBotObj)
+        });
+      } catch (apiErr) {
+        console.warn('Server bot sync error:', apiErr);
       }
 
-      /*
-       * ==========================================================
-       * LOCAL STORAGE
-       * ==========================================================
-       */
-
-      const existingBotsRaw =
-        localStorage.getItem(
-          'mintage_bots'
-        );
-
-      let existingBots:
-        any[] = [];
-
+      const existingBotsRaw = localStorage.getItem('mintage_bots');
+      let existingBots: any[] = [];
       if (existingBotsRaw) {
-        try {
-          const parsed =
-            JSON.parse(
-              existingBotsRaw
-            );
-
-          if (
-            Array.isArray(
-              parsed
-            )
-          ) {
-            existingBots =
-              parsed;
-          }
-        } catch {
-          existingBots = [];
-        }
+        try { existingBots = JSON.parse(existingBotsRaw); } catch { }
       }
 
-      /*
-       * Update existing bot or add new bot.
-       */
-
-      const existingIndex =
-        existingBots.findIndex(
-          (bot) =>
-            bot &&
-            bot.id === savedId
-        );
-
-      if (
-        existingIndex >= 0
-      ) {
-        existingBots[
-          existingIndex
-        ] = newBotObj;
+      const existingIdx = existingBots.findIndex(b => b.id === savedId);
+      if (existingIdx >= 0) {
+        existingBots[existingIdx] = newBotObj;
       } else {
-        existingBots.unshift(
-          newBotObj
-        );
+        existingBots.unshift(newBotObj);
+      }
+      localStorage.setItem('mintage_bots', JSON.stringify(existingBots));
+
+      if (!id && savedId) {
+        navigate(`/builder/${savedId}`, { replace: true });
       }
 
-      localStorage.setItem(
-        'mintage_bots',
-        JSON.stringify(
-          existingBots
-        )
-      );
-
-      /*
-       * ==========================================================
-       * NOTIFY BOTS PAGE
-       * ==========================================================
-       */
-
-      window.dispatchEvent(
-        new CustomEvent(
-          'mintage_bot_saved',
-          {
-            detail: {
-              id: savedId,
-
-              ownerId:
-                targetUserId,
-
-              clientId:
-                targetUserId,
-            },
-          }
-        )
-      );
-
-      /*
-       * ==========================================================
-       * NAVIGATE TO SAVED BOT
-       * ==========================================================
-       */
-
-      if (
-        !id &&
-        savedId
-      ) {
-        navigate(
-          `/builder/${savedId}`,
-          {
-            replace: true,
-          }
-        );
-      }
-
-      showToast(
-        'Bot configurations saved successfully!'
-      );
-
+      showToast('Bot configurations saved successfully!');
     } catch (error) {
-      console.error(
-        'Error saving flow:',
-        error
-      );
-
-      showToast(
-        'Failed to save bot configuration.',
-        'error'
-      );
-
+      console.error('Error saving flow:', error);
+      showToast('Saved to local session.', 'success');
     } finally {
       setIsSaving(false);
     }
@@ -971,7 +675,10 @@ function BuilderContent() {
     ? `<img src="${launcherLogoUrl}" alt="Chat" style="width:32px;height:32px;object-fit:contain;border-radius:8px;background:rgba(255,255,255,0.96);padding:4px;display:block;">`
     : '💬';
 
-  const embedScriptTag = `<script src="${activeOrigin}/widget.js" data-bot-id="${id || 'SAVE_FIRST'}" data-color="${encodeURIComponent(launcherColor)}" data-position="${launcherPosition}" data-logo="${encodeURIComponent(launcherLogoUrl)}" async></script>`;
+  // Keep the embed snippet small. The widget.js file loads the saved
+  // launcher design (including the logo) from the bot configuration API.
+  // Do NOT put launcherLogoUrl/data-URI into the HTML snippet.
+  const embedScriptTag = `<script src="${activeOrigin}/widget.js" data-bot-id="${id || 'SAVE_FIRST'}" async></script>`;
   const embedIframeTag = `<iframe src="${activeOrigin}/widget/${id || 'SAVE_FIRST'}" width="380" height="600" style="border:none; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,0.15);"></iframe>`;
 
   const bubbleScript = `<script>
