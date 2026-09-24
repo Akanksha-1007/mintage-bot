@@ -539,6 +539,78 @@ async function startServer() {
     return trimmed;
   }
 
+
+  // ---------------------------------------------------------------------------
+  // PROJECT-SPECIFIC GOOGLE SHEET ROUTING
+  // ---------------------------------------------------------------------------
+  // DSR Altitudes, DSR Skymarq and DSR W each use a different Google
+  // Spreadsheet. Set these three server environment variables to the
+  // corresponding Spreadsheet ID (or full Google Sheets URL).
+  //
+  //   DSR_ALTITUDES_SPREADSHEET_ID=...
+  //   DSR_SKYMARQ_SPREADSHEET_ID=...
+  //   DSR_W_SPREADSHEET_ID=...
+  //
+  // The project-specific value has priority over any generic/global
+  // GOOGLE_SPREADSHEET_ID or SPREADSHEET_ID value. This prevents leads from
+  // one DSR project from being written into another project's spreadsheet.
+  const PROJECT_SPREADSHEET_ENV: Array<{ match: RegExp; env: string; project: string }> = [
+    {
+      match: /\bdsr[\s_-]*altitudes?\b/i,
+      env: 'DSR_ALTITUDES_SPREADSHEET_ID',
+      project: 'DSR Altitudes'
+    },
+    {
+      match: /\bdsr[\s_-]*skymarq\b/i,
+      env: 'DSR_SKYMARQ_SPREADSHEET_ID',
+      project: 'DSR Skymarq'
+    },
+    {
+      match: /\bdsr[\s_-]*w\b/i,
+      env: 'DSR_W_SPREADSHEET_ID',
+      project: 'DSR W'
+    }
+  ];
+
+  function getProjectSpreadsheetConfig(
+    botId?: string,
+    botName?: string,
+    configuredSpreadsheetId?: string
+  ) {
+    const identity = `${String(botId || '')} ${String(botName || '')}`
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const matched = PROJECT_SPREADSHEET_ENV.find(item => item.match.test(identity));
+
+    if (matched) {
+      const projectSpreadsheetId = extractSpreadsheetId(process.env[matched.env]);
+
+      if (projectSpreadsheetId) {
+        return {
+          spreadsheetId: projectSpreadsheetId,
+          project: matched.project,
+          source: 'project_env'
+        };
+      }
+
+      // IMPORTANT: do not fall back to the generic spreadsheet for a named
+      // DSR project. A missing project configuration must result in
+      // "not configured", not cross-project lead contamination.
+      return {
+        spreadsheetId: '',
+        project: matched.project,
+        source: 'project_env_missing'
+      };
+    }
+
+    return {
+      spreadsheetId: extractSpreadsheetId(configuredSpreadsheetId),
+      project: '',
+      source: configuredSpreadsheetId ? 'bot_config' : 'none'
+    };
+  }
+
   // Per-process lead/sheet lock. This serializes concurrent sync calls for the same
   // lead on a Render instance, which prevents the read->append race that was creating
   // multiple identical rows. The frontend also has a submission guard.
@@ -636,7 +708,7 @@ async function startServer() {
   // written to the user-facing lead data tab.
   // Google Sheets synchronization.
   // Lead Data contains ONLY the contact/visit details required by the client:
-  //   Date | Project | Name | Phone Number | Email | Book a Visit
+  //   Date | Name | Phone Number | Email | Book a Visit
   // All other chatbot questions are intentionally excluded.
   async function syncLeadToGoogleSheets(tokens: any, rawSpreadsheetId: string, worksheetName = 'Sheet1', lead: any) {
     const spreadsheetId = extractSpreadsheetId(rawSpreadsheetId);
@@ -644,431 +716,428 @@ async function startServer() {
 
     const leadKey = String(lead.id || `anonymous_${Date.now()}`);
 
-    // Serialize BOTH by lead and by worksheet. The lead lock is important here:
-    // multiple /api/leads requests for the same conversation/lead can arrive at
-    // nearly the same time. Returning the first in-flight promise prevents the
-    // same lead from being appended multiple times to Google Sheets.
-    return withGoogleSheetLeadLock(spreadsheetId, leadKey, async () => {
-      return withGoogleSheetWorksheetLock(spreadsheetId, 'Lead Data', async () => {
-        const auth = createOAuth2Client(tokens);
-        const sheets = google.sheets({ version: 'v4', auth });
-        const requiredHeaders = ['Date', 'Project', 'Name', 'Phone Number', 'Email', 'Book a Visit'];
-        let targetWorksheet = 'Lead Data';
-        let targetSheetId: number | null = null;
+    // Lead Data is the only managed worksheet, so serialize its sync operations.
+    // The lead lock remains available for other sync paths, but the worksheet
+    // lock is what prevents two different lead IDs from racing into append().
+    return withGoogleSheetWorksheetLock(spreadsheetId, 'Lead Data', async () => {
+      const auth = createOAuth2Client(tokens);
+      const sheets = google.sheets({ version: 'v4', auth });
+      const requiredHeaders = ['Date', 'Name', 'Phone Number', 'Email', 'Book a Visit'];
+      let targetWorksheet = 'Lead Data';
+      let targetSheetId: number | null = null;
 
-        // Always use a dedicated Lead Data tab. Sheet1/other legacy tabs remain untouched.
-        const meta = await sheets.spreadsheets.get({
+      // Always use a dedicated Lead Data tab. Sheet1/other legacy tabs remain untouched.
+      const meta = await sheets.spreadsheets.get({
+        spreadsheetId,
+        fields: 'sheets.properties(sheetId,title)'
+      });
+      let sheetProperties = (meta.data.sheets || [])
+        .map((s: any) => s.properties)
+        .filter((p: any) => p?.title) as Array<{ sheetId?: number; title: string }>;
+      let titles = sheetProperties.map(p => p.title);
+
+      if (!titles.includes(targetWorksheet)) {
+        const addSheetResponse = await sheets.spreadsheets.batchUpdate({
           spreadsheetId,
-          fields: 'sheets.properties(sheetId,title)'
-        });
-        let sheetProperties = (meta.data.sheets || [])
-          .map((s: any) => s.properties)
-          .filter((p: any) => p?.title) as Array<{ sheetId?: number; title: string }>;
-        let titles = sheetProperties.map(p => p.title);
-
-        if (!titles.includes(targetWorksheet)) {
-          const addSheetResponse = await sheets.spreadsheets.batchUpdate({
-            spreadsheetId,
-            requestBody: {
-              requests: [{ addSheet: { properties: { title: targetWorksheet } } }]
-            }
-          });
-          targetWorksheet = addSheetResponse.data.replies?.[0]?.addSheet?.properties?.title || targetWorksheet;
-          targetSheetId = addSheetResponse.data.replies?.[0]?.addSheet?.properties?.sheetId ?? null;
-        } else {
-          targetSheetId = sheetProperties.find(p => p.title === targetWorksheet)?.sheetId ?? null;
-        }
-
-        let existingRows: any[][] = [];
-        try {
-          const response = await sheets.spreadsheets.values.get({
-            spreadsheetId,
-            range: `'${targetWorksheet}'!A1:ZZ1000`
-          });
-          existingRows = response.data.values || [];
-        } catch (err: any) {
-          const msg = String(err?.message || err).toLowerCase();
-          if (msg.includes('invalid_grant') || msg.includes('unauthorized_client') || msg.includes('invalid_client')) {
-            const oauthErr: any = new Error('Google Account authorization expired. Please re-authorize your Google account.');
-            oauthErr.code = 'invalid_grant';
-            oauthErr.reconnectRequired = true;
-            throw oauthErr;
+          requestBody: {
+            requests: [{ addSheet: { properties: { title: targetWorksheet } } }]
           }
-          throw err;
-        }
+        });
+        targetWorksheet = addSheetResponse.data.replies?.[0]?.addSheet?.properties?.title || targetWorksheet;
+        targetSheetId = addSheetResponse.data.replies?.[0]?.addSheet?.properties?.sheetId ?? null;
+      } else {
+        targetSheetId = sheetProperties.find(p => p.title === targetWorksheet)?.sheetId ?? null;
+      }
 
-        // Extract the four managed fields from both the canonical fields array and
-        // legacy data keys. This makes Book a Visit resilient to older widget payloads.
-        const selectedFields = {
-          project: String(lead?.selectedProject ?? lead?.project ?? lead?.projectName ?? lead?.data?.selectedProject ?? lead?.data?.project ?? lead?.data?.projectName ?? lead?.data?.['Selected Project'] ?? lead?.data?.['Project'] ?? '').trim(),
-          name: String(lead?.name ?? lead?.data?.name ?? lead?.data?.full_name ?? lead?.data?.Name ?? '').trim(),
-          phone: String(lead?.phone ?? lead?.data?.phone ?? lead?.data?.Phone ?? lead?.data?.['Phone Number'] ?? '').trim(),
-          email: String(lead?.email ?? lead?.data?.email ?? lead?.data?.Email ?? '').trim(),
-          bookVisit: normalizeBookVisitValue(
-            lead?.bookVisit ??
-            lead?.book_a_visit ??
-            lead?.data?.book_a_visit ??
-            lead?.data?.bookVisit ??
-            lead?.data?.['Book a Visit'] ??
-            lead?.data?.appointment ??
-            lead?.data?.dateTime ??
-            lead?.data?.datetime ??
-            ''
-          )
+      let existingRows: any[][] = [];
+      try {
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId,
+          range: `'${targetWorksheet}'!A1:ZZ1000`
+        });
+        existingRows = response.data.values || [];
+      } catch (err: any) {
+        const msg = String(err?.message || err).toLowerCase();
+        if (msg.includes('invalid_grant') || msg.includes('unauthorized_client') || msg.includes('invalid_client')) {
+          const oauthErr: any = new Error('Google Account authorization expired. Please re-authorize your Google account.');
+          oauthErr.code = 'invalid_grant';
+          oauthErr.reconnectRequired = true;
+          throw oauthErr;
+        }
+        throw err;
+      }
+
+      // Extract the four managed fields from both the canonical fields array and
+      // legacy data keys. This makes Book a Visit resilient to older widget payloads.
+      const selectedFields = {
+        name: String(lead?.name ?? lead?.data?.name ?? lead?.data?.Name ?? '').trim(),
+        phone: String(lead?.phone ?? lead?.data?.phone ?? lead?.data?.Phone ?? lead?.data?.['Phone Number'] ?? '').trim(),
+        email: String(lead?.email ?? lead?.data?.email ?? lead?.data?.Email ?? '').trim(),
+        bookVisit: normalizeBookVisitValue(
+          lead?.bookVisit ??
+          lead?.book_a_visit ??
+          lead?.data?.book_a_visit ??
+          lead?.data?.bookVisit ??
+          lead?.data?.['Book a Visit'] ??
+          lead?.data?.appointment ??
+          lead?.data?.dateTime ??
+          lead?.data?.datetime ??
+          ''
+        )
+      };
+
+      // Read every field independently. Do not use an else-if chain here: a
+      // date/time node can have a label such as "Visit Date" and must always
+      // be captured as Book a Visit even when another matcher also matches.
+      if (Array.isArray(lead.fields)) {
+        for (const field of lead.fields) {
+          const label = String(field?.label ?? '').replace(/\s+/g, ' ').trim();
+          const key = String(field?.fieldKey ?? field?.key ?? field?.leadKey ?? '').replace(/\s+/g, ' ').trim();
+          const type = String(field?.type ?? field?.componentType ?? '').trim().toLowerCase();
+          const value = field?.value == null ? '' : String(field.value).trim();
+          if (!value) continue;
+
+          const haystack = `${label} ${key}`.toLowerCase();
+          const isName = type === 'name' || /\b(full\s*name|name)\b/.test(haystack);
+          const isPhone = type === 'phone' || /\b(phone|mobile|contact\s*(number|no\.?))\b/.test(haystack);
+          const isEmail = type === 'email' || /\bemail\b/.test(haystack);
+          const isVisit = isBookVisitField(field) ||
+            /\b(book\s*(a\s*)?visit|visit\s*(date|time|slot)?|appointment|date\s*(and|&)\s*time|date[_ -]?time)\b/i.test(haystack) ||
+            ['datetime', 'datetime-local', 'appointment', 'dateTime'.toLowerCase()].includes(type);
+
+          if (isVisit) {
+            selectedFields.bookVisit = normalizeBookVisitValue(value);
+          }
+          if (isName && !selectedFields.name) selectedFields.name = value;
+          if (isPhone && !selectedFields.phone) selectedFields.phone = value;
+          if (isEmail && !selectedFields.email) selectedFields.email = value;
+        }
+      }
+
+      // Also inspect common direct properties on the field object. Some older
+      // flow builders serialize the selected datetime as `dateTime`, `datetime`,
+      // `appointment`, or `selectedDateTime` instead of `value`.
+      if (!selectedFields.bookVisit && Array.isArray(lead.fields)) {
+        for (const field of lead.fields) {
+          const candidates = [
+            field?.bookVisit, field?.book_a_visit, field?.appointment,
+            field?.dateTime, field?.datetime, field?.selectedDateTime,
+            field?.selectedDatetime, field?.date_time
+          ];
+          const candidate = candidates.find(v => String(v ?? '').trim() !== '');
+          if (candidate) {
+            selectedFields.bookVisit = normalizeBookVisitValue(candidate);
+            if (selectedFields.bookVisit) break;
+          }
+        }
+      }
+
+      // Legacy payload fallbacks.
+      const legacyData = lead?.data && typeof lead.data === 'object' ? lead.data : {};
+      if (!selectedFields.name) selectedFields.name = String(legacyData.name ?? legacyData.Name ?? '').trim();
+      if (!selectedFields.phone) selectedFields.phone = String(legacyData.phone ?? legacyData.Phone ?? legacyData['Phone Number'] ?? '').trim();
+      if (!selectedFields.email) selectedFields.email = String(legacyData.email ?? legacyData.Email ?? '').trim();
+      if (!selectedFields.bookVisit) {
+        const legacyVisit = legacyData.book_a_visit ?? legacyData.bookVisit ?? legacyData['Book a Visit'] ?? legacyData.appointment ?? legacyData.dateTime ?? legacyData.datetime;
+        selectedFields.bookVisit = normalizeBookVisitValue(legacyVisit);
+      }
+
+      selectedFields.email = normalizeLeadEmail(selectedFields.email);
+      selectedFields.phone = String(selectedFields.phone ?? '').trim();
+      // The Date/Time picker stores the visitor's exact local wall-clock value.
+      if (selectedFields.bookVisit && parseDateTimeLocal(selectedFields.bookVisit)) {
+        const clientOffset = lead.clientTimezoneOffsetMinutes ?? lead.data?.clientTimezoneOffsetMinutes;
+        if (!isDateTimeLocalInPresentOrFuture(selectedFields.bookVisit, clientOffset)) {
+          throw new Error('Please select the current date/time or a future date/time. Previous dates are not allowed.');
+        }
+      }
+
+      // Do not create a row unless at least one of the four requested details exists.
+      if (!selectedFields.name && !selectedFields.phone && !selectedFields.email && !selectedFields.bookVisit) {
+        return {
+          success: true,
+          action: 'skipped_no_required_contact_fields',
+          updatedRange: null,
+          rowNumber: null,
+          spreadsheetId,
+          worksheetName: targetWorksheet
         };
+      }
 
-        // Read every field independently. Do not use an else-if chain here: a
-        // date/time node can have a label such as "Visit Date" and must always
-        // be captured as Book a Visit even when another matcher also matches.
-        if (Array.isArray(lead.fields)) {
-          for (const field of lead.fields) {
-            const label = String(field?.label ?? '').replace(/\s+/g, ' ').trim();
-            const key = String(field?.fieldKey ?? field?.key ?? field?.leadKey ?? '').replace(/\s+/g, ' ').trim();
-            const type = String(field?.type ?? field?.componentType ?? '').trim().toLowerCase();
-            const value = field?.value == null ? '' : String(field.value).trim();
-            if (!value) continue;
+      const existingHeaders = (existingRows[0] || [])
+        .map((h: any) => String(h ?? '').replace(/\s+/g, ' ').trim())
+        .filter(Boolean);
 
-            const haystack = `${label} ${key}`.toLowerCase();
-            const isProject = /\b(project|property|community|development|residence|residential)\b/i.test(haystack);
-            const isName = type === 'name' || /\b(full\s*name|name)\b/.test(haystack);
-            const isPhone = type === 'phone' || /\b(phone|mobile|contact\s*(number|no\.?))\b/.test(haystack);
-            const isEmail = type === 'email' || /\bemail\b/.test(haystack);
-            const isVisit = isBookVisitField(field) ||
-              /\b(book\s*(a\s*)?visit|visit\s*(date|time|slot)?|appointment|date\s*(and|&)\s*time|date[_ -]?time)\b/i.test(haystack) ||
-              ['datetime', 'datetime-local', 'appointment', 'dateTime'.toLowerCase()].includes(type);
+      // Migrate the previous four-column Lead Data layout in place.
+      // Existing rows are preserved and simply shifted one column to the right;
+      // their Date remains blank because the old sheet did not store it.
+      const oldFourColumnHeaders = ['Name', 'Phone Number', 'Email', 'Book a Visit'];
+      const headersMatch = JSON.stringify(existingHeaders) === JSON.stringify(requiredHeaders);
+      const oldFourColumnMatch = JSON.stringify(existingHeaders) === JSON.stringify(oldFourColumnHeaders);
 
-            if (isVisit) {
-              selectedFields.bookVisit = normalizeBookVisitValue(value);
-            }
-            if (isProject && !selectedFields.project) selectedFields.project = value;
-            if (isName && !selectedFields.name) selectedFields.name = value;
-            if (isPhone && !selectedFields.phone) selectedFields.phone = value;
-            if (isEmail && !selectedFields.email) selectedFields.email = value;
-          }
-        }
-
-        // Also inspect common direct properties on the field object. Some older
-        // flow builders serialize the selected datetime as `dateTime`, `datetime`,
-        // `appointment`, or `selectedDateTime` instead of `value`.
-        if (!selectedFields.bookVisit && Array.isArray(lead.fields)) {
-          for (const field of lead.fields) {
-            const candidates = [
-              field?.bookVisit, field?.book_a_visit, field?.appointment,
-              field?.dateTime, field?.datetime, field?.selectedDateTime,
-              field?.selectedDatetime, field?.date_time
-            ];
-            const candidate = candidates.find(v => String(v ?? '').trim() !== '');
-            if (candidate) {
-              selectedFields.bookVisit = normalizeBookVisitValue(candidate);
-              if (selectedFields.bookVisit) break;
-            }
-          }
-        }
-
-        // Legacy payload fallbacks.
-        const legacyData = lead?.data && typeof lead.data === 'object' ? lead.data : {};
-        if (!selectedFields.project) selectedFields.project = String(legacyData.selectedProject ?? legacyData.project ?? legacyData.projectName ?? legacyData['Selected Project'] ?? legacyData['Project'] ?? '').trim();
-        if (!selectedFields.name) selectedFields.name = String(legacyData.name ?? legacyData.full_name ?? legacyData.fullName ?? legacyData.Name ?? '').trim();
-        if (!selectedFields.phone) selectedFields.phone = String(legacyData.phone ?? legacyData.Phone ?? legacyData['Phone Number'] ?? '').trim();
-        if (!selectedFields.email) selectedFields.email = String(legacyData.email ?? legacyData.Email ?? '').trim();
-        if (!selectedFields.bookVisit) {
-          const legacyVisit = legacyData.book_a_visit ?? legacyData.bookVisit ?? legacyData['Book a Visit'] ?? legacyData.appointment ?? legacyData.dateTime ?? legacyData.datetime;
-          selectedFields.bookVisit = normalizeBookVisitValue(legacyVisit);
-        }
-
-        selectedFields.project = String(selectedFields.project ?? '').replace(/\s+/g, ' ').trim();
-        selectedFields.email = normalizeLeadEmail(selectedFields.email);
-        selectedFields.phone = String(selectedFields.phone ?? '').trim();
-        // The Date/Time picker stores the visitor's exact local wall-clock value.
-        if (selectedFields.bookVisit && parseDateTimeLocal(selectedFields.bookVisit)) {
-          const clientOffset = lead.clientTimezoneOffsetMinutes ?? lead.data?.clientTimezoneOffsetMinutes;
-          if (!isDateTimeLocalInPresentOrFuture(selectedFields.bookVisit, clientOffset)) {
-            throw new Error('Please select the current date/time or a future date/time. Previous dates are not allowed.');
-          }
-        }
-
-        // Do not create a row unless at least one of the four requested details exists.
-        if (!selectedFields.name && !selectedFields.phone && !selectedFields.email && !selectedFields.bookVisit) {
-          return {
-            success: true,
-            action: 'skipped_no_required_contact_fields',
-            updatedRange: null,
-            rowNumber: null,
-            spreadsheetId,
-            worksheetName: targetWorksheet
-          };
-        }
-
-        const existingHeaders = (existingRows[0] || [])
-          .map((h: any) => String(h ?? '').replace(/\s+/g, ' ').trim())
-          .filter(Boolean);
-
-        // Migrate the previous four-column Lead Data layout in place.
-        // Existing rows are preserved and simply shifted one column to the right;
-        // their Date remains blank because the old sheet did not store it.
-        const oldFourColumnHeaders = ['Name', 'Phone Number', 'Email', 'Book a Visit'];
-        const oldFiveColumnHeaders = ['Date', 'Name', 'Phone Number', 'Email', 'Book a Visit'];
-        const headersMatch = JSON.stringify(existingHeaders) === JSON.stringify(requiredHeaders);
-        const oldFourColumnMatch = JSON.stringify(existingHeaders) === JSON.stringify(oldFourColumnHeaders);
-        const oldFiveColumnMatch = JSON.stringify(existingHeaders) === JSON.stringify(oldFiveColumnHeaders);
-
-        if (existingRows.length > 0 && oldFourColumnMatch) {
-          // Legacy four-column layout: Name | Phone Number | Email | Book a Visit
-          existingRows = existingRows.map((row: any[], index: number) =>
-            index === 0 ? requiredHeaders : ['', '', ...(row || []).slice(0, 4)]
-          );
-
-          const lastRow = Math.max(existingRows.length, 1);
-          await sheets.spreadsheets.values.update({
-            spreadsheetId,
-            range: `'${targetWorksheet}'!A1:F${lastRow}`,
-            valueInputOption: 'RAW',
-            requestBody: {
-              values: existingRows.map(row => [
-                ...(row || []),
-                ...Array(Math.max(0, 6 - (row || []).length)).fill('')
-              ].slice(0, 6))
-            }
-          });
-        } else if (existingRows.length > 0 && oldFiveColumnMatch) {
-          // Previous five-column layout: Date | Name | Phone Number | Email | Book a Visit
-          // Insert the new Project column after Date while preserving all existing data.
-          existingRows = existingRows.map((row: any[], index: number) =>
-            index === 0 ? requiredHeaders : [
-              row?.[0] ?? '',
-              '',
-              row?.[1] ?? '',
-              row?.[2] ?? '',
-              row?.[3] ?? '',
-              row?.[4] ?? ''
-            ]
-          );
-
-          const lastRow = Math.max(existingRows.length, 1);
-          await sheets.spreadsheets.values.update({
-            spreadsheetId,
-            range: `'${targetWorksheet}'!A1:F${lastRow}`,
-            valueInputOption: 'RAW',
-            requestBody: { values: existingRows }
-          });
-        } else if (existingRows.length > 0 && !headersMatch) {
-          // If Lead Data contains an unrelated legacy/dynamic layout, preserve it
-          // by moving it to a backup tab, then create a clean Lead Data tab.
-          const backupBase = 'Lead Data - Old';
-          let backupName = backupBase;
-          let suffix = 2;
-          while (titles.includes(backupName)) backupName = `${backupBase} ${suffix++}`;
-
-          if (targetSheetId !== null) {
-            await sheets.spreadsheets.batchUpdate({
-              spreadsheetId,
-              requestBody: {
-                requests: [{
-                  updateSheetProperties: {
-                    properties: { sheetId: targetSheetId, title: backupName },
-                    fields: 'title'
-                  }
-                }]
-              }
-            });
-          }
-
-          const addSheetResponse = await sheets.spreadsheets.batchUpdate({
-            spreadsheetId,
-            requestBody: {
-              requests: [{ addSheet: { properties: { title: 'Lead Data' } } }]
-            }
-          });
-          targetWorksheet = addSheetResponse.data.replies?.[0]?.addSheet?.properties?.title || 'Lead Data';
-          targetSheetId = addSheetResponse.data.replies?.[0]?.addSheet?.properties?.sheetId ?? null;
-          existingRows = [];
-        }
-
-        // Fixed schema: ONLY these five columns.
-        await sheets.spreadsheets.values.update({
-          spreadsheetId,
-          range: `'${targetWorksheet}'!A1:F1`,
-          valueInputOption: 'USER_ENTERED',
-          requestBody: { values: [requiredHeaders] }
-        });
-
-        // Column A stores the lead's submission date/time. Keep it as a real
-        // Google Sheets date-time value so it can be sorted and filtered normally.
-        const leadDateSerial = submittedAtToSheetsSerial(
-          lead?.submittedAt,
-          lead?.clientTimezoneOffsetMinutes ?? lead?.data?.clientTimezoneOffsetMinutes
+      if (existingRows.length > 0 && oldFourColumnMatch) {
+        existingRows = existingRows.map((row: any[], index: number) =>
+          index === 0 ? requiredHeaders : ['', ...(row || []).slice(0, 4)]
         );
 
-        // Keep the exact selected date/time in Book a Visit. Google Sheets receives a
-        // serial value only for this one cell and the number format makes it readable.
-        const bookVisitSerial = selectedFields.bookVisit && parseDateTimeLocal(selectedFields.bookVisit)
-          ? dateTimeLocalToSheetsSerial(selectedFields.bookVisit)
-          : null;
-
-        const rowValues = [
-          leadDateSerial ?? '',
-          selectedFields.project,
-          selectedFields.name,
-          selectedFields.phone,
-          selectedFields.email,
-          bookVisitSerial ?? selectedFields.bookVisit
-        ];
-
-        // Protect against repeated HTTP submissions of the same lead. The client
-        // has its own guard, but the API must be idempotent too because duplicate
-        // requests can come from remounts, retries, multiple widgets, or a slow
-        // browser. We only dedupe rows with the same contact identity/project
-        // inside a short window, so a genuine later enquiry can still create a
-        // new row.
-        const leadSubmittedMs = lead?.submittedAt ? new Date(lead.submittedAt).getTime() : Date.now();
-        const normalizedProject = String(selectedFields.project || '').replace(/\s+/g, ' ').trim().toLowerCase();
-        const normalizedName = normalizeLeadName(selectedFields.name);
-        const normalizedPhone = normalizeLeadPhone(selectedFields.phone);
-        const normalizedEmail = normalizeLeadEmail(selectedFields.email);
-        const DUPLICATE_WINDOW_MS = 2 * 60 * 1000;
-        const sheetSerialToMs = (value: any): number | null => {
-          const numeric = Number(value);
-          if (!Number.isFinite(numeric) || numeric < 1) return null;
-          return (numeric - 25569) * 86400000;
-        };
-        const duplicateRowIndex = existingRows.slice(1).findIndex((row: any[]) => {
-          const rowMs = sheetSerialToMs(row?.[0]);
-          if (rowMs === null || Math.abs(rowMs - leadSubmittedMs) > DUPLICATE_WINDOW_MS) return false;
-          const rowProject = String(row?.[1] ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
-          const rowName = normalizeLeadName(row?.[2]);
-          const rowPhone = normalizeLeadPhone(row?.[3]);
-          const rowEmail = normalizeLeadEmail(row?.[4]);
-          if (normalizedProject && rowProject && normalizedProject !== rowProject) return false;
-          const samePhone = normalizedPhone && rowPhone && normalizedPhone === rowPhone;
-          const sameEmail = normalizedEmail && rowEmail && normalizedEmail === rowEmail;
-          const sameName = normalizedName && rowName && normalizedName === rowName;
-          return Boolean(samePhone || sameEmail || (sameName && normalizedProject && rowProject === normalizedProject));
+        const lastRow = Math.max(existingRows.length, 1);
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: `'${targetWorksheet}'!A1:E${lastRow}`,
+          valueInputOption: 'RAW',
+          requestBody: {
+            values: existingRows.map(row => [
+              ...(row || []),
+              ...Array(Math.max(0, 5 - (row || []).length)).fill('')
+            ].slice(0, 5))
+          }
         });
+      } else if (existingRows.length > 0 && !headersMatch) {
+        // If Lead Data contains an unrelated legacy/dynamic layout, preserve it
+        // by moving it to a backup tab, then create a clean Lead Data tab.
+        const backupBase = 'Lead Data - Old';
+        let backupName = backupBase;
+        let suffix = 2;
+        while (titles.includes(backupName)) backupName = `${backupBase} ${suffix++}`;
 
-        if (duplicateRowIndex >= 0) {
-          const rowNumber = duplicateRowIndex + 2;
-          const updatedRange = `'${targetWorksheet}'!A${rowNumber}:F${rowNumber}`;
-          console.log('[GOOGLE_SHEET_SYNC_DEDUPLICATED]', { leadId: lead.id, spreadsheetId, worksheet: targetWorksheet, rowNumber });
-          return {
-            success: true,
-            action: 'deduplicated',
-            updatedRange,
-            rowNumber,
+        if (targetSheetId !== null) {
+          await sheets.spreadsheets.batchUpdate({
             spreadsheetId,
-            worksheetName: targetWorksheet,
-            fields: requiredHeaders.filter((_, i) => rowValues[i] !== '')
-          };
+            requestBody: {
+              requests: [{
+                updateSheetProperties: {
+                  properties: { sheetId: targetSheetId, title: backupName },
+                  fields: 'title'
+                }
+              }]
+            }
+          });
         }
 
-        let updatedRange: string | null = null;
-        let rowNumber: number | null = null;
-        const action: 'appended' = 'appended';
+        const addSheetResponse = await sheets.spreadsheets.batchUpdate({
+          spreadsheetId,
+          requestBody: {
+            requests: [{ addSheet: { properties: { title: 'Lead Data' } } }]
+          }
+        });
+        targetWorksheet = addSheetResponse.data.replies?.[0]?.addSheet?.properties?.title || 'Lead Data';
+        targetSheetId = addSheetResponse.data.replies?.[0]?.addSheet?.properties?.sheetId ?? null;
+        existingRows = [];
+      }
 
+      // Fixed schema: ONLY these five columns.
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `'${targetWorksheet}'!A1:E1`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [requiredHeaders] }
+      });
+
+      // Column A stores the lead's submission date/time. Keep it as a real
+      // Google Sheets date-time value so it can be sorted and filtered normally.
+      const leadDateSerial = submittedAtToSheetsSerial(
+        lead?.submittedAt,
+        lead?.clientTimezoneOffsetMinutes ?? lead?.data?.clientTimezoneOffsetMinutes
+      );
+
+      // Keep the exact selected date/time in Book a Visit. Google Sheets receives a
+      // serial value only for this one cell and the number format makes it readable.
+      const bookVisitSerial = selectedFields.bookVisit && parseDateTimeLocal(selectedFields.bookVisit)
+        ? dateTimeLocalToSheetsSerial(selectedFields.bookVisit)
+        : null;
+
+      const rowValues = [
+        leadDateSerial ?? '',
+        selectedFields.name,
+        selectedFields.phone,
+        selectedFields.email,
+        bookVisitSerial ?? selectedFields.bookVisit
+      ];
+
+      // Deduplicate by phone/email/name fallback. Lead identity is handled first
+      // by the backend, while the sheet has no hidden ID column, so contact keys
+      // are used here to find the existing visible row.
+      const normalizeSheetValue = (value: any) => String(value ?? '').trim().toLowerCase();
+      const wantedName = normalizeLeadName(selectedFields.name);
+      const wantedPhone = normalizeLeadPhone(selectedFields.phone);
+      const wantedEmail = normalizeLeadEmail(selectedFields.email);
+
+      const matchingRows: Array<{ rowNumber: number; row: any[]; score: number }> = [];
+      existingRows.slice(1).forEach((row: any[], index: number) => {
+        const rowNumber = index + 2;
+        const rowName = normalizeLeadName(row?.[1]);
+        const rowPhone = normalizeLeadPhone(row?.[2]);
+        const rowEmail = normalizeLeadEmail(row?.[3]);
+
+        const emailMatch = Boolean(wantedEmail && rowEmail && wantedEmail === rowEmail);
+        const phoneMatch = Boolean(wantedPhone && rowPhone && wantedPhone === rowPhone);
+        const nameMatch = Boolean(wantedName && rowName && wantedName === rowName);
+
+        // Name alone is only a fallback when no stronger contact identifier is
+        // present. Never merge two people with the same name when phone/email exists.
+        if (emailMatch || phoneMatch || ((!wantedEmail && !wantedPhone) && nameMatch)) {
+          matchingRows.push({
+            rowNumber,
+            row,
+            score: (emailMatch ? 100 : 0) + (phoneMatch ? 80 : 0) + (nameMatch ? 10 : 0) +
+              row.slice(1, 5).filter((v: any) => String(v ?? '').trim() !== '').length
+          });
+        }
+      });
+
+      matchingRows.sort((a, b) => b.score - a.score || a.rowNumber - b.rowNumber);
+
+      const primaryMatch = matchingRows[0] || null;
+      const mergedRowValues = primaryMatch
+        ? rowValues.map((value, columnIndex) => {
+          const incoming = value === null || value === undefined ? '' : value;
+          const existing = primaryMatch.row?.[columnIndex] ?? '';
+          return String(incoming).trim() !== '' ? incoming : existing;
+        })
+        : rowValues;
+
+      let updatedRange: string | null = null;
+      let rowNumber: number | null = null;
+      let action: 'appended' | 'updated' | 'duplicate_updated' = 'appended';
+
+      if (primaryMatch) {
+        rowNumber = primaryMatch.rowNumber;
+        updatedRange = `'${targetWorksheet}'!A${rowNumber}:E${rowNumber}`;
+
+        // Update the existing lead row. This fills Book a Visit when it arrives
+        // after Name/Phone/Email instead of creating another row.
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: updatedRange,
+          valueInputOption: 'RAW',
+          requestBody: { values: [mergedRowValues] }
+        });
+
+        // Remove older duplicate rows for this same lead.
+        const duplicateMatches = matchingRows.slice(1).sort((a, b) => b.rowNumber - a.rowNumber);
+        if (targetSheetId !== null && duplicateMatches.length > 0) {
+          await sheets.spreadsheets.batchUpdate({
+            spreadsheetId,
+            requestBody: {
+              requests: duplicateMatches.map(match => ({
+                deleteDimension: {
+                  range: {
+                    sheetId: targetSheetId,
+                    dimension: 'ROWS',
+                    startIndex: match.rowNumber - 1,
+                    endIndex: match.rowNumber
+                  }
+                }
+              }))
+            }
+          });
+          action = 'duplicate_updated';
+        } else {
+          action = 'updated';
+        }
+      } else {
         const appendRes = await sheets.spreadsheets.values.append({
           spreadsheetId,
-          range: `'${targetWorksheet}'!A:F`,
+          range: `'${targetWorksheet}'!A:E`,
           valueInputOption: 'RAW',
           insertDataOption: 'INSERT_ROWS',
           requestBody: { values: [rowValues] }
         });
-
         updatedRange = appendRes.data.updates?.updatedRange || null;
-        rowNumber = updatedRange
-          ? Number(String(updatedRange).match(/![A-Z]+(\d+)/)?.[1] || 0) || null
-          : null;
+        rowNumber = updatedRange ? Number(String(updatedRange).match(/![A-Z]+(\d+)/)?.[1] || 0) || null : null;
+      }
 
-        // Format the lead submission date/time cell.
-        const finalLeadDate = rowValues[0];
-        const finalLeadDateSerial = typeof finalLeadDate === 'number'
-          ? finalLeadDate
-          : submittedAtToSheetsSerial(lead?.submittedAt, lead?.clientTimezoneOffsetMinutes ?? lead?.data?.clientTimezoneOffsetMinutes);
+      // Format the lead submission date/time cell.
+      const finalLeadDate = mergedRowValues[0];
+      const finalLeadDateSerial = typeof finalLeadDate === 'number'
+        ? finalLeadDate
+        : submittedAtToSheetsSerial(lead?.submittedAt, lead?.clientTimezoneOffsetMinutes ?? lead?.data?.clientTimezoneOffsetMinutes);
 
-        if (targetSheetId !== null && finalLeadDateSerial !== null && rowNumber !== null) {
-          await sheets.spreadsheets.batchUpdate({
-            spreadsheetId,
-            requestBody: {
-              requests: [{
-                repeatCell: {
-                  range: {
-                    sheetId: targetSheetId,
-                    startRowIndex: rowNumber - 1,
-                    endRowIndex: rowNumber,
-                    startColumnIndex: 0,
-                    endColumnIndex: 1
-                  },
-                  cell: {
-                    userEnteredFormat: {
-                      numberFormat: {
-                        type: 'DATE_TIME',
-                        pattern: 'dd/mm/yyyy hh:mm:ss'
-                      }
-                    }
-                  },
-                  fields: 'userEnteredFormat.numberFormat'
-                }
-              }]
-            }
-          });
-        }
-
-        // Format only the Book a Visit cell for this lead.
-        const finalBookVisit = rowValues[5];
-        const finalBookVisitSerial = typeof finalBookVisit === 'number'
-          ? finalBookVisit
-          : (parseDateTimeLocal(String(finalBookVisit || ''))
-            ? dateTimeLocalToSheetsSerial(String(finalBookVisit))
-            : null);
-
-        const bookVisitColumnIndex = 5;
-        if (targetSheetId !== null && finalBookVisitSerial !== null && rowNumber !== null) {
-          await sheets.spreadsheets.batchUpdate({
-            spreadsheetId,
-            requestBody: {
-              requests: [{
-                repeatCell: {
-                  range: {
-                    sheetId: targetSheetId,
-                    startRowIndex: rowNumber - 1,
-                    endRowIndex: rowNumber,
-                    startColumnIndex: bookVisitColumnIndex,
-                    endColumnIndex: bookVisitColumnIndex + 1
-                  },
-                  cell: {
-                    userEnteredFormat: {
-                      numberFormat: {
-                        type: 'DATE_TIME',
-                        pattern: 'dd/mm/yyyy hh:mm:ss'
-                      }
-                    }
-                  },
-                  fields: 'userEnteredFormat.numberFormat'
-                }
-              }]
-            }
-          });
-        }
-
-        console.log('[GOOGLE_SHEET_CONTACT_LEAD_SYNC]', {
-          leadId: lead.id,
+      if (targetSheetId !== null && finalLeadDateSerial !== null && rowNumber !== null) {
+        await sheets.spreadsheets.batchUpdate({
           spreadsheetId,
-          worksheet: targetWorksheet,
-          action,
-          rowNumber,
-          updatedRange,
-          duplicateRowsRemoved: 0,
-          hasBookVisit: Boolean(finalBookVisit)
+          requestBody: {
+            requests: [{
+              repeatCell: {
+                range: {
+                  sheetId: targetSheetId,
+                  startRowIndex: rowNumber - 1,
+                  endRowIndex: rowNumber,
+                  startColumnIndex: 0,
+                  endColumnIndex: 1
+                },
+                cell: {
+                  userEnteredFormat: {
+                    numberFormat: {
+                      type: 'DATE_TIME',
+                      pattern: 'dd/mm/yyyy hh:mm:ss'
+                    }
+                  }
+                },
+                fields: 'userEnteredFormat.numberFormat'
+              }
+            }]
+          }
         });
+      }
 
-        return {
-          success: true,
-          action,
-          updatedRange,
-          rowNumber,
+      // Format only the Book a Visit cell for this lead.
+      const finalBookVisit = mergedRowValues[4];
+      const finalBookVisitSerial = typeof finalBookVisit === 'number'
+        ? finalBookVisit
+        : (parseDateTimeLocal(String(finalBookVisit || ''))
+          ? dateTimeLocalToSheetsSerial(String(finalBookVisit))
+          : null);
+
+      const bookVisitColumnIndex = 4;
+      if (targetSheetId !== null && finalBookVisitSerial !== null && rowNumber !== null) {
+        await sheets.spreadsheets.batchUpdate({
           spreadsheetId,
-          worksheetName: targetWorksheet,
-          fields: requiredHeaders.filter((_, i) => rowValues[i] !== '')
-        };
+          requestBody: {
+            requests: [{
+              repeatCell: {
+                range: {
+                  sheetId: targetSheetId,
+                  startRowIndex: rowNumber - 1,
+                  endRowIndex: rowNumber,
+                  startColumnIndex: bookVisitColumnIndex,
+                  endColumnIndex: bookVisitColumnIndex + 1
+                },
+                cell: {
+                  userEnteredFormat: {
+                    numberFormat: {
+                      type: 'DATE_TIME',
+                      pattern: 'dd/mm/yyyy hh:mm:ss'
+                    }
+                  }
+                },
+                fields: 'userEnteredFormat.numberFormat'
+              }
+            }]
+          }
+        });
+      }
+
+      console.log('[GOOGLE_SHEET_CONTACT_LEAD_SYNC]', {
+        leadId: lead.id,
+        spreadsheetId,
+        worksheet: targetWorksheet,
+        action,
+        rowNumber,
+        updatedRange,
+        duplicateRowsRemoved: Math.max(0, matchingRows.length - 1),
+        hasBookVisit: Boolean(finalBookVisit)
       });
+
+      return {
+        success: true,
+        action,
+        updatedRange,
+        rowNumber,
+        spreadsheetId,
+        worksheetName: targetWorksheet,
+        fields: requiredHeaders.filter((_, i) => mergedRowValues[i] !== '')
+      };
     });
   }
 
@@ -1084,6 +1153,7 @@ async function startServer() {
       const leadObj = {
         id: leadId || leadData?.id || (conversationId ? `lead_${leadData?.botId || 'bot'}_${conversationId}` : ('lead_' + Date.now())),
         conversationId: conversationId || leadData?.conversationId || '',
+        botId: leadData?.botId || leadData?.flowId || '',
         botName: leadData?.sourceBot || leadData?.clientName || 'Chatbot',
         fields: leadData?.fields || [],
         data: leadData,
@@ -1091,13 +1161,26 @@ async function startServer() {
         submittedAt: leadData?.submittedAt || new Date().toLocaleString()
       };
 
-      const syncResult = await syncLeadToGoogleSheets(tokens, spreadsheetId, worksheetName || 'Sheet1', leadObj);
+      const resolvedBot = await resolveBotAndOwner(leadObj.botId || leadData?.botId || leadData?.flowId || '');
+      const projectSheetConfig = getProjectSpreadsheetConfig(
+        leadObj.botId || leadData?.botId || leadData?.flowId || resolvedBot?.botId,
+        resolvedBot?.botName || leadData?.botName || leadData?.sourceBot,
+        spreadsheetId
+      );
+      const targetSpreadsheetId = projectSheetConfig.spreadsheetId || extractSpreadsheetId(spreadsheetId);
+
+      const syncResult = await syncLeadToGoogleSheets(
+        tokens,
+        targetSpreadsheetId,
+        worksheetName || 'Sheet1',
+        leadObj
+      );
       res.json({
         success: true,
         action: syncResult?.action || 'synced',
         updatedRange: syncResult?.updatedRange || null,
         rowNumber: syncResult?.rowNumber || null,
-        spreadsheetId: extractSpreadsheetId(spreadsheetId),
+        spreadsheetId: targetSpreadsheetId,
         worksheetName: syncResult?.worksheetName || worksheetName || 'Sheet1'
       });
     } catch (error: any) {
@@ -1153,6 +1236,117 @@ async function startServer() {
     }
   });
 
+  // Link an existing Google Drive spreadsheet to one specific bot.
+  // This is the authoritative bot -> Google owner -> spreadsheet mapping used
+  // by live lead synchronization and retry-sync.
+  app.post('/api/sheets/link-bot', async (req, res) => {
+    const { botId, name, createdBy, spreadsheetId, googleOwnerId, tokens, worksheetName } = req.body || {};
+    const cleanBotId = String(botId || '').trim();
+    const cleanSpreadsheetId = extractSpreadsheetId(spreadsheetId);
+    const ownerId = String(googleOwnerId || createdBy || '').trim();
+
+    if (!cleanBotId || !cleanSpreadsheetId) {
+      return res.status(400).json({ success: false, error: 'Bot ID and Spreadsheet ID are required.' });
+    }
+
+    if (!ownerId) {
+      return res.status(400).json({ success: false, error: 'Google owner ID is required. Please reconnect Google account.' });
+    }
+
+    try {
+      // Verify that the connected Google account can actually access the selected file.
+      let googleTokens = tokens || null;
+      if (!googleTokens && db) {
+        const ownerSnap = await getDoc(doc(db, 'users', ownerId)).catch(() => null);
+        if (ownerSnap?.exists()) googleTokens = ownerSnap.data()?.googleTokens || null;
+      }
+      if (!googleTokens && userTokens.has(ownerId)) googleTokens = userTokens.get(ownerId);
+
+      if (!googleTokens) {
+        return res.status(400).json({ success: false, error: 'Google Account is not connected for this user. Please re-authorize Google account.' });
+      }
+
+      const auth = createOAuth2Client(googleTokens);
+      const sheets = google.sheets({ version: 'v4', auth });
+      const metadata = await sheets.spreadsheets.get({
+        spreadsheetId: cleanSpreadsheetId,
+        fields: 'spreadsheetId,spreadsheetUrl,properties(title)',
+      });
+
+      const verifiedSpreadsheetId = metadata.data.spreadsheetId || cleanSpreadsheetId;
+      const verifiedTitle = metadata.data.properties?.title || name || 'Google Sheet';
+
+      // Store the Google credentials for this owner so a later lead sync can
+      // recover them even after the browser is closed or Render restarts.
+      userTokens.set(ownerId, googleTokens);
+      if (db) {
+        await setDoc(doc(db, 'users', ownerId), {
+          googleTokens,
+          googleOwnerId: ownerId,
+          updatedAt: new Date().toISOString()
+        }, { merge: true }).catch(err => {
+          console.warn('[GOOGLE_OWNER_SAVE_WARNING]', err?.message || err);
+        });
+      }
+
+      // Persist the mapping in Firestore. This is what the lead sync resolver
+      // reads when a public widget creates a lead.
+      if (db) {
+        await setDoc(doc(db, 'bot_configurations', cleanBotId), {
+          id: cleanBotId,
+          name: name || cleanBotId,
+          createdBy: createdBy || ownerId,
+          googleOwnerId: ownerId,
+          spreadsheetId: verifiedSpreadsheetId,
+          worksheetName: worksheetName || 'Sheet1',
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+      }
+
+      // Keep the server-side bot cache in sync as well.
+      const existing = serverBotsMap.get(cleanBotId);
+      const botObj = {
+        id: cleanBotId,
+        name: name || existing?.name || 'Chatbot',
+        nodes: existing?.nodes || [],
+        edges: existing?.edges || [],
+        spreadsheetId: verifiedSpreadsheetId,
+        worksheetName: worksheetName || existing?.worksheetName || 'Sheet1',
+        createdBy: createdBy || existing?.createdBy || ownerId,
+        googleOwnerId: ownerId,
+        designConfig: existing?.designConfig,
+        updatedAt: new Date().toISOString()
+      };
+      serverBotsMap.set(cleanBotId, botObj);
+      saveBotsToFile();
+      broadcastEvent('BOT_SAVED', botObj);
+
+      // Immediately migrate any pending leads for this exact bot.
+      const syncResult = await autoSyncPendingLeads(cleanBotId, ownerId);
+
+      return res.json({
+        success: true,
+        bot: botObj,
+        spreadsheetId: verifiedSpreadsheetId,
+        spreadsheetUrl: metadata.data.spreadsheetUrl || `https://docs.google.com/spreadsheets/d/${verifiedSpreadsheetId}/edit`,
+        title: verifiedTitle,
+        synced: syncResult?.synced || 0,
+        processed: syncResult?.processed || 0
+      });
+    } catch (error: any) {
+      console.error('[GOOGLE_SHEET_LINK_BOT_FAILED]', {
+        botId: cleanBotId,
+        spreadsheetId: cleanSpreadsheetId,
+        googleOwnerId: ownerId,
+        error: error?.message || error
+      });
+      return res.status(400).json({
+        success: false,
+        error: error?.message || 'Could not access or link the selected Google spreadsheet.'
+      });
+    }
+  });
+
   // Create a new Google Sheet
   app.post('/api/sheets/create', async (req, res) => {
     const { tokens, title } = req.body;
@@ -1183,10 +1377,10 @@ async function startServer() {
         // Add header row to new sheet
         await sheets.spreadsheets.values.update({
           spreadsheetId,
-          range: 'Sheet1!A1:F1',
+          range: 'Sheet1!A1:E1',
           valueInputOption: 'USER_ENTERED',
           requestBody: {
-            values: [['Date', 'Project', 'Name', 'Phone Number', 'Email', 'Book a Visit']],
+            values: [['Timestamp', 'Name', 'Email', 'Phone', 'All Captured Fields']],
           },
         });
       }
@@ -1313,7 +1507,7 @@ async function startServer() {
 
   // Save/Update Bot Configuration
   app.post('/api/bots/save', (req, res) => {
-    const { id, name, nodes, edges, spreadsheetId, createdBy, googleOwnerId, worksheetName, designConfig, projectSheetMappings } = req.body;
+    const { id, name, nodes, edges, spreadsheetId, createdBy, googleOwnerId, worksheetName, designConfig } = req.body;
     if (!id) {
       return res.status(400).json({ error: 'Bot ID is required' });
     }
@@ -1326,9 +1520,6 @@ async function startServer() {
       edges: Array.isArray(edges) ? edges : (existing?.edges || []),
       spreadsheetId: spreadsheetId !== undefined ? spreadsheetId : (existing?.spreadsheetId || ''),
       worksheetName: worksheetName || existing?.worksheetName || 'Sheet1',
-      projectSheetMappings: Array.isArray(projectSheetMappings)
-        ? projectSheetMappings
-        : (Array.isArray(existing?.projectSheetMappings) ? existing.projectSheetMappings : []),
       createdBy: createdBy || existing?.createdBy || existing?.clientId || existing?.ownerId || 'guest_user',
       googleOwnerId: googleOwnerId || existing?.googleOwnerId || createdBy || existing?.createdBy || '',
       designConfig: designConfig || existing?.designConfig || undefined,
@@ -1344,230 +1535,6 @@ async function startServer() {
     }
 
     res.json({ success: true, bot: botObj });
-  });
-
-  // Save project/option -> Google Spreadsheet routing independently of the main flow
-  // spreadsheet. This makes routing reusable for every flow, not just DSR.
-  app.post('/api/bots/project-sheet-routing', async (req, res) => {
-    const { id, projectSheetMappings } = req.body || {};
-    if (!id) {
-      return res.status(400).json({ error: 'Bot ID is required' });
-    }
-
-    const cleanedMappings = Array.isArray(projectSheetMappings)
-      ? projectSheetMappings
-        .map((m: any) => ({
-          project: String(m?.project || m?.projectName || m?.name || '').replace(/\s+/g, ' ').trim(),
-          spreadsheetId: extractSpreadsheetId(m?.spreadsheetId || m?.sheetId || m?.spreadsheetUrl),
-          worksheetName: String(m?.worksheetName || 'Lead Data').trim() || 'Lead Data'
-        }))
-        .filter((m: any) => m.project && m.spreadsheetId)
-      : [];
-
-    loadBotsFromFile();
-    const existing = serverBotsMap.get(id);
-    const updatedBot = {
-      ...(existing || { id, name: 'Unnamed Bot', nodes: [], edges: [] }),
-      projectSheetMappings: cleanedMappings,
-      updatedAt: new Date().toISOString()
-    };
-
-    serverBotsMap.set(id, updatedBot);
-    saveBotsToFile();
-
-    if (db) {
-      await setDoc(doc(db, 'bot_configurations', id), {
-        projectSheetMappings: cleanedMappings,
-        updatedAt: new Date().toISOString()
-      }, { merge: true }).catch((err) => {
-        console.warn('[PROJECT_SHEET_ROUTING_FIRESTORE_WARNING]', err?.message || err);
-      });
-    }
-
-    // Re-sync any pending leads immediately using the new routing rules.
-    autoSyncPendingLeads(id).catch((err) => {
-      console.warn('[PROJECT_SHEET_ROUTING_AUTOSYNC_WARNING]', err?.message || err);
-    });
-
-    broadcastEvent('BOT_PROJECT_SHEET_ROUTING_SAVED', {
-      botId: id,
-      projectSheetMappings: cleanedMappings
-    });
-
-    res.json({
-      success: true,
-      botId: id,
-      projectSheetMappings: cleanedMappings
-    });
-  });
-
-
-  // Link and verify a Google Drive spreadsheet to a specific bot.
-  // This endpoint is used by the Integrations Drive picker. It verifies that
-  // the authenticated Google account can access the selected spreadsheet,
-  // persists the bot-specific spreadsheet ID, and starts a pending-lead sync.
-  app.post('/api/sheets/link-bot', async (req, res) => {
-    const {
-      botId,
-      name,
-      createdBy,
-      spreadsheetId: rawSpreadsheetId,
-      googleOwnerId,
-      tokens
-    } = req.body || {};
-
-    const cleanBotId = String(botId || '').trim();
-    const spreadsheetId = extractSpreadsheetId(String(rawSpreadsheetId || '').trim());
-    const ownerId = String(googleOwnerId || createdBy || '').trim();
-
-    if (!cleanBotId) {
-      return res.status(400).json({
-        success: false,
-        error: 'Bot ID is required.'
-      });
-    }
-
-    if (!spreadsheetId) {
-      return res.status(400).json({
-        success: false,
-        error: 'A Google Spreadsheet must be selected.'
-      });
-    }
-
-    if (!tokens) {
-      return res.status(401).json({
-        success: false,
-        error: 'Google Account is not connected. Please re-authorize Google.'
-      });
-    }
-
-    try {
-      // 1. Verify the selected Drive spreadsheet is accessible with the
-      //    currently authorized Google account.
-      const auth = createOAuth2Client(tokens);
-      const sheets = google.sheets({ version: 'v4', auth });
-
-      const spreadsheetResponse = await sheets.spreadsheets.get({
-        spreadsheetId,
-        fields: 'spreadsheetId,spreadsheetUrl,properties.title,sheets.properties(sheetId,title)'
-      });
-
-      const spreadsheetTitle =
-        spreadsheetResponse.data.properties?.title || 'Google Sheet';
-
-      // 2. Persist the spreadsheet against THIS bot on the server.
-      loadBotsFromFile();
-
-      const existing = serverBotsMap.get(cleanBotId);
-
-      const botObj = {
-        ...(existing || {}),
-        id: cleanBotId,
-        name: name || existing?.name || 'Unnamed Bot',
-        spreadsheetId,
-        worksheetName: existing?.worksheetName || 'Lead Data',
-        createdBy:
-          createdBy ||
-          existing?.createdBy ||
-          existing?.clientId ||
-          existing?.ownerId ||
-          'guest_user',
-        googleOwnerId:
-          ownerId ||
-          existing?.googleOwnerId ||
-          createdBy ||
-          existing?.createdBy ||
-          '',
-        updatedAt: new Date().toISOString()
-      };
-
-      serverBotsMap.set(cleanBotId, botObj);
-      saveBotsToFile();
-
-      // 3. Persist the same bot-specific connection in Firestore.
-      if (db) {
-        await setDoc(
-          doc(db, 'bot_configurations', cleanBotId),
-          {
-            spreadsheetId,
-            worksheetName: botObj.worksheetName,
-            googleOwnerId: botObj.googleOwnerId || null,
-            updatedAt: new Date().toISOString()
-          },
-          { merge: true }
-        ).catch((err) => {
-          console.warn(
-            '[GOOGLE_SHEET_LINK_FIRESTORE_WARNING]',
-            err?.message || err
-          );
-        });
-      }
-
-      // 4. Immediately retry pending leads for THIS bot.
-      autoSyncPendingLeads(cleanBotId).catch((err) => {
-        console.warn(
-          '[GOOGLE_SHEET_LINK_AUTOSYNC_WARNING]',
-          err?.message || err
-        );
-      });
-
-      broadcastEvent('BOT_SHEET_LINKED', {
-        botId: cleanBotId,
-        spreadsheetId,
-        googleOwnerId: botObj.googleOwnerId || ''
-      });
-
-      res.json({
-        success: true,
-        botId: cleanBotId,
-        spreadsheetId,
-        spreadsheetUrl:
-          spreadsheetResponse.data.spreadsheetUrl ||
-          `https://docs.google.com/spreadsheets/d/${spreadsheetId}`,
-        title: spreadsheetTitle,
-        worksheetName: botObj.worksheetName
-      });
-    } catch (error: any) {
-      const message = String(error?.message || error);
-      const lower = message.toLowerCase();
-
-      console.error('[GOOGLE_SHEET_LINK_FAILED]', {
-        botId: cleanBotId,
-        spreadsheetId,
-        error: message
-      });
-
-      if (
-        lower.includes('invalid_grant') ||
-        lower.includes('unauthorized_client') ||
-        lower.includes('invalid_client') ||
-        lower.includes('invalid credentials')
-      ) {
-        return res.status(401).json({
-          success: false,
-          error:
-            'Google Account authorization expired. Please re-authorize your Google account.'
-        });
-      }
-
-      if (
-        lower.includes('permission') ||
-        lower.includes('forbidden') ||
-        lower.includes('not found')
-      ) {
-        return res.status(403).json({
-          success: false,
-          error:
-            'This Google Drive spreadsheet cannot be accessed by the connected Google account. Make sure the sheet belongs to that account or has been shared with it.'
-        });
-      }
-
-      return res.status(400).json({
-        success: false,
-        error:
-          'Could not access the selected Google Drive spreadsheet. Please reconnect Google and try again.'
-      });
-    }
   });
 
   // Get Bot Configuration by ID
@@ -1779,104 +1746,6 @@ async function startServer() {
     };
   }
 
-  // ---------------------------------------------------------------------------
-  // GENERIC FLOW / PROJECT GOOGLE SHEET ROUTING
-  // ---------------------------------------------------------------------------
-  // Each bot/flow can have a default spreadsheet and optional project-specific
-  // spreadsheet mappings. This is intentionally generic: it works for DSR
-  // projects as well as any other flow.
-  function normalizeSheetRouteKey(value: any): string {
-    return String(value ?? '')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .toLowerCase();
-  }
-
-  function collectLeadRouteValues(lead: any): string[] {
-    const values: string[] = [];
-    const push = (value: any) => {
-      const text = String(value ?? '').replace(/\s+/g, ' ').trim();
-      if (text) values.push(text);
-    };
-
-    push(lead?.selectedProject);
-    push(lead?.project);
-    push(lead?.projectName);
-    push(lead?.data?.selectedProject);
-    push(lead?.data?.project);
-    push(lead?.data?.projectName);
-    push(lead?.data?.['Selected Project']);
-    push(lead?.data?.['Project']);
-
-    if (Array.isArray(lead?.fields)) {
-      for (const field of lead.fields) {
-        const label = String(field?.label ?? '').replace(/\s+/g, ' ').trim();
-        const key = String(field?.fieldKey || field?.key || field?.leadKey || '').replace(/\s+/g, ' ').trim();
-        const value = String(field?.value ?? '').replace(/\s+/g, ' ').trim();
-
-        // Project/property/community questions are the strongest signals.
-        if (value && /\b(project|property|community|development|residence|residential|select|choose)\b/i.test(`${label} ${key}`)) {
-          push(value);
-        }
-        // Also retain every choice value so a configured mapping can match any
-        // project option without requiring a specific node type or label.
-        if (value && ['project', 'singlechoice', 'multiplechoice', 'choice', 'select'].includes(String(field?.type || '').toLowerCase())) {
-          push(value);
-        }
-      }
-    }
-
-    return Array.from(new Set(values));
-  }
-
-  async function getFlowProjectSheetMappings(botId?: string): Promise<any[]> {
-    const cleanBotId = String(botId || '').trim();
-    if (!cleanBotId) return [];
-
-    loadBotsFromFile();
-    const cached = serverBotsMap.get(cleanBotId);
-    if (Array.isArray(cached?.projectSheetMappings)) {
-      return cached.projectSheetMappings;
-    }
-
-    if (db) {
-      try {
-        const snap = await getDoc(doc(db, 'bot_configurations', cleanBotId)).catch(() => null);
-        if (snap?.exists()) {
-          const data = snap.data() || {};
-          if (Array.isArray(data.projectSheetMappings)) return data.projectSheetMappings;
-        }
-      } catch (e) {
-        console.warn('[FLOW_PROJECT_SHEET_MAPPING_LOOKUP_WARNING]', e);
-      }
-    }
-
-    return [];
-  }
-
-  function matchProjectSheetMapping(mappings: any[], lead: any): any | null {
-    if (!Array.isArray(mappings) || mappings.length === 0) return null;
-
-    const routeValues = collectLeadRouteValues(lead).map(normalizeSheetRouteKey).filter(Boolean);
-    if (routeValues.length === 0) return null;
-
-    for (const mapping of mappings) {
-      const project = normalizeSheetRouteKey(mapping?.project || mapping?.projectName || mapping?.name);
-      const spreadsheetId = extractSpreadsheetId(mapping?.spreadsheetId || mapping?.sheetId || mapping?.spreadsheetUrl);
-      if (!project || !spreadsheetId) continue;
-
-      if (routeValues.includes(project)) {
-        return {
-          project: mapping.project || mapping.projectName || mapping.name,
-          spreadsheetId,
-          worksheetName: mapping.worksheetName || 'Sheet1'
-        };
-      }
-    }
-
-    return null;
-  }
-
   // Resolve Google Sheets credentials only for the explicit Google owner of the bot.
   async function resolveClientGoogleSheetsConfig(
     clientId: string,
@@ -1884,24 +1753,13 @@ async function startServer() {
     botWorksheetName?: string,
     googleOwnerId?: string,
     botId?: string,
-    lead?: any
+    botName?: string
   ) {
     let googleTokens: any = null;
-    let spreadsheetId = extractSpreadsheetId(botSpreadsheetId) || '';
+    const projectSheetConfig = getProjectSpreadsheetConfig(botId, botName, botSpreadsheetId);
+    let spreadsheetId = projectSheetConfig.spreadsheetId;
     let worksheetName = botWorksheetName || 'Sheet1';
-    let routingProject = '';
-    let routingSource = spreadsheetId ? 'bot_config' : 'none';
     const ownerId = (googleOwnerId || clientId || '').trim();
-
-    // A project-specific mapping always wins over the flow's default sheet.
-    const projectSheetMappings = await getFlowProjectSheetMappings(botId);
-    const matchedProjectSheet = matchProjectSheetMapping(projectSheetMappings, lead);
-    if (matchedProjectSheet?.spreadsheetId) {
-      spreadsheetId = matchedProjectSheet.spreadsheetId;
-      worksheetName = matchedProjectSheet.worksheetName || worksheetName;
-      routingProject = matchedProjectSheet.project || '';
-      routingSource = 'project_mapping';
-    }
 
     if (db && ownerId) {
       try {
@@ -1909,7 +1767,9 @@ async function startServer() {
         if (ownerDoc?.exists()) {
           const data = ownerDoc.data();
           googleTokens = data.googleTokens || null;
-          if (!spreadsheetId && data.spreadsheetId) spreadsheetId = extractSpreadsheetId(data.spreadsheetId);
+          if (!spreadsheetId && projectSheetConfig.source !== 'project_env_missing' && data.spreadsheetId) {
+            spreadsheetId = extractSpreadsheetId(data.spreadsheetId);
+          }
           if (!botWorksheetName && data.worksheetName) worksheetName = data.worksheetName;
         }
       } catch (e) {
@@ -1922,16 +1782,22 @@ async function startServer() {
       googleTokens = userTokens.get(clientId);
     }
 
-    if (!spreadsheetId && process.env.GOOGLE_SPREADSHEET_ID) spreadsheetId = extractSpreadsheetId(process.env.GOOGLE_SPREADSHEET_ID);
-    if (!spreadsheetId && process.env.SPREADSHEET_ID) spreadsheetId = extractSpreadsheetId(process.env.SPREADSHEET_ID);
+    if (!spreadsheetId && projectSheetConfig.source !== 'project_env_missing') {
+      if (process.env.GOOGLE_SPREADSHEET_ID) {
+        spreadsheetId = extractSpreadsheetId(process.env.GOOGLE_SPREADSHEET_ID);
+      }
+      if (!spreadsheetId && process.env.SPREADSHEET_ID) {
+        spreadsheetId = extractSpreadsheetId(process.env.SPREADSHEET_ID);
+      }
+    }
 
     return {
       googleTokens,
       spreadsheetId,
       worksheetName,
       googleOwnerId: ownerId,
-      project: routingProject,
-      spreadsheetSource: routingSource
+      project: projectSheetConfig.project,
+      spreadsheetSource: projectSheetConfig.source
     };
   }
 
@@ -1986,7 +1852,14 @@ async function startServer() {
         }
 
         const clientId = lead.clientId || lead.ownerId || (resolvedBot ? resolvedBot.clientId : 'demo_user');
-        const sheetConfig = await resolveClientGoogleSheetsConfig(clientId, resolvedBot?.spreadsheetId, resolvedBot?.worksheetName, resolvedBot?.googleOwnerId || lead.googleOwnerId, botId, lead);
+        const sheetConfig = await resolveClientGoogleSheetsConfig(
+          clientId,
+          resolvedBot?.spreadsheetId,
+          resolvedBot?.worksheetName,
+          resolvedBot?.googleOwnerId || lead.googleOwnerId,
+          lead.botId || lead.flowId || resolvedBot?.botId,
+          resolvedBot?.botName
+        );
 
         if (sheetConfig.googleTokens && sheetConfig.spreadsheetId) {
           const syncResult = await syncLeadToGoogleSheets(sheetConfig.googleTokens, sheetConfig.spreadsheetId, sheetConfig.worksheetName, lead);
@@ -2165,23 +2038,6 @@ async function startServer() {
       }
     });
 
-    // A visitor's name is also captured by the chatbot user/profile tracker.
-    // Use that value as a fallback when an older/custom flow did not serialize
-    // the name field into the lead payload. Never use the generic
-    // "Anonymous Visitor" placeholder as an actual lead name.
-    const isAnonymousVisitorName = (value: any) => /^anonymous\s+visitor$/i.test(String(value ?? '').trim());
-    if (isAnonymousVisitorName(extractedName)) extractedName = '';
-    if (!extractedName && userId) {
-      try {
-        loadChatbotStoreFromFile();
-        const profile = serverChatbotUsersMap.get(userId);
-        const profileName = String(profile?.name ?? '').replace(/\s+/g, ' ').trim();
-        if (profileName && !isAnonymousVisitorName(profileName)) extractedName = profileName;
-      } catch {
-        // Lead capture must continue even if the optional profile lookup fails.
-      }
-    }
-
     loadLeadsFromFile();
 
     const normalizeEmail = (value: any) => String(value ?? '').trim().toLowerCase();
@@ -2256,35 +2112,7 @@ async function startServer() {
       }
     }
 
-    const extractedProjectFromFields = (items: any[]): string => {
-      for (const field of Array.isArray(items) ? items : []) {
-        const label = String(field?.label ?? '').trim();
-        const key = String(field?.fieldKey || field?.key || field?.leadKey || '').trim();
-        const type = String(field?.type || field?.componentType || '').trim().toLowerCase();
-        const value = String(field?.value ?? '').trim();
-        if (value && (/\b(project|property|community|development|residence|residential)\b/i.test(`${label} ${key}`) || ['singlechoice', 'multiplechoice', 'choice', 'select'].includes(type) && /\b(dsr|project|residence|apartments?|homes?)\b/i.test(value))) return value;
-      }
-      return '';
-    };
-
-    const resolvedProjectFromPayload = String(leadPayload.selectedProject || leadPayload.projectName || leadPayload.project || extractedProjectFromFields(fields) || existingLead?.selectedProject || existingLead?.project || existingLead?.projectName || '').replace(/\s+/g, ' ').trim();
-    if (resolvedProjectFromPayload) {
-      flattenedData.selectedProject = resolvedProjectFromPayload;
-      flattenedData.project = resolvedProjectFromPayload;
-      flattenedData.projectName = resolvedProjectFromPayload;
-    }
-
     const nowIso = new Date().toISOString();
-
-    // Every /api/leads request represents a NEW lead submission for Google Sheets.
-    // Never reuse an older lead's submittedAt value: a returning visitor can submit
-    // another lead later, and that submission must get its own actual submission time.
-    const incomingSubmittedAt = String(leadPayload.submittedAt || '').trim();
-    const parsedIncomingSubmittedAt = incomingSubmittedAt ? new Date(incomingSubmittedAt) : null;
-    const submissionTimestamp = parsedIncomingSubmittedAt && !Number.isNaN(parsedIncomingSubmittedAt.getTime())
-      ? parsedIncomingSubmittedAt.toISOString()
-      : nowIso;
-
     const isUpdate = !!existingLead;
 
     if (existingLead) {
@@ -2342,9 +2170,6 @@ async function startServer() {
       clientId,
       ownerId: clientId,
       googleOwnerId: resolvedBot?.googleOwnerId || existingLead?.googleOwnerId || '',
-      selectedProject: resolvedProjectFromPayload,
-      project: resolvedProjectFromPayload,
-      projectName: resolvedProjectFromPayload,
       userId: userId || existingLead?.userId || '',
       conversationId: conversationId || existingLead?.conversationId || '',
       botName,
@@ -2360,9 +2185,7 @@ async function startServer() {
       sourceUrl: leadPayload.sourceUrl || existingLead?.sourceUrl || '',
       source: leadPayload.source || existingLead?.source || 'Website Widget',
       referrer: leadPayload.referrer || existingLead?.referrer || '',
-      // IMPORTANT: submittedAt belongs to THIS submission, not to the older
-      // Firestore lead record. Google Sheets appends a new row for every submission.
-      submittedAt: submissionTimestamp,
+      submittedAt: existingLead?.submittedAt || leadPayload.submittedAt || nowIso,
       clientTimezoneOffsetMinutes: Number.isFinite(Number(leadPayload.clientTimezoneOffsetMinutes))
         ? Number(leadPayload.clientTimezoneOffsetMinutes)
         : (existingLead?.clientTimezoneOffsetMinutes ?? null),
@@ -2405,10 +2228,8 @@ async function startServer() {
     // itself must contain the real Sheet result so the dashboard never reports a
     // false "Synced" state.
     //
-    // Every submission is appended as a NEW Google Sheets row, including when
-    // the backend recognizes the same visitor/phone/email as an existing lead.
-    // Firestore may update the conversation's lead record, but Sheets never rewrites
-    // an older submission row.
+    // Existing leads must also synchronize. If Book a Visit is provided later,
+    // the existing Google Sheet row is updated instead of appending another row.
     const runGoogleSheetSyncInBackground = async () => {
       const sheetConfig = await resolveClientGoogleSheetsConfig(
         clientId,
@@ -2416,7 +2237,7 @@ async function startServer() {
         resolvedBot?.worksheetName,
         resolvedBot?.googleOwnerId,
         botId,
-        leadRecord
+        resolvedBot?.botName
       );
 
       if (sheetConfig.googleTokens && sheetConfig.spreadsheetId) {
@@ -2901,15 +2722,37 @@ async function startServer() {
       return res.status(404).json({ success: false, error: 'Lead record not found.' });
     }
 
-    const resolvedBot = await resolveBotAndOwner(lead.botId || lead.flowId);
+    const requestedBotId = String(req.body?.botId || lead.botId || lead.flowId || '').trim();
+    const resolvedBot = await resolveBotAndOwner(requestedBotId);
     const clientId = lead.clientId || lead.ownerId || (resolvedBot ? resolvedBot.clientId : null);
-    const googleOwnerId = lead.googleOwnerId || resolvedBot?.googleOwnerId || '';
+    const googleOwnerId = String(req.body?.googleOwnerId || lead.googleOwnerId || resolvedBot?.googleOwnerId || '').trim();
+    const explicitSpreadsheetId = extractSpreadsheetId(req.body?.spreadsheetId || lead.spreadsheetId || resolvedBot?.spreadsheetId || '');
 
-    if (!clientId && !googleOwnerId) {
+    // If the dashboard supplies the current Google owner/token, use it for this
+    // retry and persist it so subsequent public-widget leads use the same account.
+    if (req.body?.tokens && googleOwnerId) {
+      userTokens.set(googleOwnerId, req.body.tokens);
+      if (db) {
+        await setDoc(doc(db, 'users', googleOwnerId), {
+          googleTokens: req.body.tokens,
+          googleOwnerId,
+          updatedAt: new Date().toISOString()
+        }, { merge: true }).catch(() => null);
+      }
+    }
+
+    if (!clientId && !googleOwnerId && !requestedBotId) {
       return res.status(400).json({ success: false, error: 'Could not resolve client owner for lead.' });
     }
 
-    const sheetConfig = await resolveClientGoogleSheetsConfig(clientId || googleOwnerId, resolvedBot?.spreadsheetId, resolvedBot?.worksheetName, googleOwnerId || resolvedBot?.googleOwnerId, lead.botId || lead.flowId, lead);
+    const sheetConfig = await resolveClientGoogleSheetsConfig(
+      clientId || googleOwnerId || resolvedBot?.clientId || 'demo_user',
+      explicitSpreadsheetId || resolvedBot?.spreadsheetId,
+      resolvedBot?.worksheetName,
+      googleOwnerId || resolvedBot?.googleOwnerId,
+      requestedBotId || resolvedBot?.botId,
+      resolvedBot?.botName
+    );
 
     if (!sheetConfig.googleTokens || !sheetConfig.spreadsheetId) {
       return res.status(400).json({ success: false, error: 'Google Account or Spreadsheet not connected for client.' });
@@ -2998,7 +2841,8 @@ async function startServer() {
         const resolvedBot = await resolveBotAndOwner(leadBotId);
         const ownerMatches =
           lead.googleOwnerId === targetGoogleOwnerId ||
-          resolvedBot?.googleOwnerId === targetGoogleOwnerId;
+          resolvedBot?.googleOwnerId === targetGoogleOwnerId ||
+          resolvedBot?.clientId === targetGoogleOwnerId;
         if (!ownerMatches) continue;
       } else if (targetClientId && targetClientId !== 'ALL') {
         if (lead.clientId !== targetClientId && lead.ownerId !== targetClientId) continue;
@@ -3023,15 +2867,21 @@ async function startServer() {
       const resolvedBot = await resolveBotAndOwner(lead.botId || lead.flowId);
       const sheetConfig = await resolveClientGoogleSheetsConfig(
         lead.clientId || targetClientId || resolvedBot?.clientId || 'demo_user',
-        resolvedBot?.spreadsheetId,
-        resolvedBot?.worksheetName,
-        targetGoogleOwnerId || lead.googleOwnerId || resolvedBot?.googleOwnerId,
-        lead.botId || lead.flowId,
-        lead
+        resolvedBot?.spreadsheetId || lead.spreadsheetId,
+        resolvedBot?.worksheetName || lead.worksheetName,
+        targetGoogleOwnerId || resolvedBot?.googleOwnerId || lead.googleOwnerId,
+        lead.botId || lead.flowId || resolvedBot?.botId,
+        resolvedBot?.botName
       );
 
       const hasConfig = !!(sheetConfig.googleTokens && sheetConfig.spreadsheetId);
-      console.log('[SYNC_GOOGLE_CONFIG]', { spreadsheetConfigured: hasConfig, worksheet: sheetConfig.worksheetName });
+      console.log('[SYNC_GOOGLE_CONFIG]', {
+        spreadsheetConfigured: hasConfig,
+        spreadsheetId: sheetConfig.spreadsheetId,
+        spreadsheetSource: sheetConfig.spreadsheetSource,
+        project: sheetConfig.project,
+        worksheet: sheetConfig.worksheetName
+      });
 
       if (!hasConfig) {
         lead.googleSheetSyncStatus = 'not_configured';

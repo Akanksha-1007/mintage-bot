@@ -7,8 +7,6 @@ import {
   getDoc,
   getDocs,
   onSnapshot,
-  query,
-  where,
 } from 'firebase/firestore';
 import { format } from 'date-fns';
 import {
@@ -26,7 +24,6 @@ import {
   RefreshCw,
   Search,
   Tag,
-  Filter,
   Trash2,
   X,
 } from 'lucide-react';
@@ -49,10 +46,10 @@ interface Lead {
   botName?: string;
   flowName?: string;
   clientName?: string;
+  googleOwnerId?: string;
+  spreadsheetId?: string;
+  worksheetName?: string;
   name?: string;
-  project?: string;
-  selectedProject?: string;
-  projectName?: string;
   status?: string;
   conversationId?: string;
   fields?: DynamicField[];
@@ -108,29 +105,6 @@ const getLeadDate = (lead: Lead): Date | null => {
   return getTimestampDate(lead.timestamp);
 };
 
-const getLeadProject = (lead: Lead): string => {
-  const direct = lead.project || lead.selectedProject || lead.projectName;
-  if (direct) return String(direct).trim();
-
-  const data = lead.data && typeof lead.data === 'object' ? lead.data : {};
-  const dataProject =
-    data.selectedProject ??
-    data.project ??
-    data.projectName ??
-    data['Selected Project'] ??
-    data['Project'];
-  if (dataProject) return String(dataProject).trim();
-
-  if (Array.isArray(lead.fields)) {
-    const projectField = lead.fields.find((field) =>
-      /\b(project|property|community|development|residence|residential)\b/i.test(String(field?.label || '')),
-    );
-    if (projectField?.value) return String(projectField.value).trim();
-  }
-
-  return '';
-};
-
 const escapeCsv = (value: unknown): string => {
   return `"${String(value ?? '').replace(/"/g, '""')}"`;
 };
@@ -142,37 +116,16 @@ export default function Leads() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [botNames, setBotNames] = useState<Record<string, string>>({});
-  // Project filter options come only from dedicated Project nodes in each flow.
-  // Normal Single Choice / Multiple Choice options are intentionally ignored.
-  const [flowProjectOptions, setFlowProjectOptions] = useState<Record<string, string[]>>({});
 
   const [selectedBotFilter, setSelectedBotFilter] = useState('ALL');
-  const [selectedClientFilter, setSelectedClientFilter] = useState('ALL');
-  const [clientOptions, setClientOptions] = useState<Array<{ id: string; name: string; company?: string }>>([]);
   const [selectedStatusFilter, setSelectedStatusFilter] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
-
-  // Advanced lead filters
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
-  const [timeFrom, setTimeFrom] = useState('');
-  const [timeTo, setTimeTo] = useState('');
-  const [selectedProjectFilter, setSelectedProjectFilter] = useState('ALL');
-  const [nameFilter, setNameFilter] = useState('');
-  const [phoneFilter, setPhoneFilter] = useState('');
-  const [emailFilter, setEmailFilter] = useState('');
-  const [bookVisitFrom, setBookVisitFrom] = useState('');
-  const [bookVisitTo, setBookVisitTo] = useState('');
-  const [selectedSyncFilter, setSelectedSyncFilter] = useState('ALL');
 
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [deletingLead, setDeletingLead] = useState<Lead | null>(null);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
 
   const [isDeletingLead, setIsDeletingLead] = useState(false);
-  const [selectedLeadIds, setSelectedLeadIds] = useState<Set<string>>(new Set());
-  const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
-  const [isDeletingBulk, setIsDeletingBulk] = useState(false);
   const [isRetryingSync, setIsRetryingSync] = useState(false);
   const [isSyncingAll, setIsSyncingAll] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
@@ -181,39 +134,6 @@ export default function Leads() {
     setToast({ msg, type });
     window.setTimeout(() => setToast(null), 3500);
   };
-
-  const authorizedFetch = async (url: string, options: RequestInit = {}) => {
-    const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
-    const headers = new Headers(options.headers || {});
-    if (token) headers.set('Authorization', `Bearer ${token}`);
-    return fetch(url, { ...options, headers });
-  };
-
-  useEffect(() => {
-    if (!isAdmin || impersonatedClient) {
-      setClientOptions([]);
-      setSelectedClientFilter('ALL');
-      return;
-    }
-
-    let cancelled = false;
-    getDocs(collection(db, 'clients')).then((snapshot) => {
-      if (cancelled) return;
-      const options = snapshot.docs.map((clientDoc) => {
-        const data = clientDoc.data();
-        return {
-          id: clientDoc.id,
-          name: String(data.name || data.company || data.email || clientDoc.id),
-          company: String(data.company || ''),
-        };
-      }).sort((a, b) => a.name.localeCompare(b.name));
-      setClientOptions(options);
-    }).catch((error) => {
-      console.warn('[LEADS_PAGE] Client filter load warning:', error);
-    });
-
-    return () => { cancelled = true; };
-  }, [isAdmin, impersonatedClient]);
 
   const getDeletedLeadIds = (): string[] => {
     try {
@@ -244,7 +164,7 @@ export default function Leads() {
         ? '/api/leads'
         : `/api/leads?ownerId=${encodeURIComponent(targetUserId)}`;
 
-      const response = await authorizedFetch(url);
+      const response = await fetch(url);
 
       if (!response.ok) return [];
 
@@ -318,86 +238,6 @@ export default function Leads() {
     setBotNames((previous) => ({ ...previous, ...names }));
   };
 
-  const toggleLeadSelection = (leadId: string) => {
-    setSelectedLeadIds((previous) => {
-      const next = new Set(previous);
-      if (next.has(leadId)) next.delete(leadId);
-      else next.add(leadId);
-      return next;
-    });
-  };
-
-  const toggleSelectAllVisible = () => {
-    setSelectedLeadIds((previous) => {
-      const next = new Set(previous);
-      const visibleIds = filteredLeads.map((lead) => lead.id);
-      const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => next.has(id));
-
-      if (allVisibleSelected) {
-        visibleIds.forEach((id) => next.delete(id));
-      } else {
-        visibleIds.forEach((id) => next.add(id));
-      }
-
-      return next;
-    });
-  };
-
-  const confirmDeleteSelectedLeads = async () => {
-    const targetIds = Array.from(selectedLeadIds);
-    if (targetIds.length === 0) return;
-
-    setIsDeletingBulk(true);
-    try {
-      const response = await authorizedFetch('/api/leads/bulk-delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: targetIds }),
-      });
-
-      const data = await response.json().catch(() => ({}));
-
-      if (!response.ok || !data?.success) {
-        throw new Error(data?.error || 'Failed to delete selected leads.');
-      }
-
-      const deletedIds: string[] = Array.isArray(data.deletedIds)
-        ? data.deletedIds.map((id: unknown) => String(id))
-        : targetIds;
-
-      const localDeletedIds = getDeletedLeadIds();
-      const mergedDeletedIds = Array.from(new Set([...localDeletedIds, ...deletedIds]));
-      localStorage.setItem('mintage_deleted_lead_ids', JSON.stringify(mergedDeletedIds));
-
-      const localLeads = getLocalLeads();
-      localStorage.setItem(
-        'mintage_leads',
-        JSON.stringify(localLeads.filter((lead) => !deletedIds.includes(lead?.id || ''))),
-      );
-
-      setLeads((previous) => previous.filter((lead) => !deletedIds.includes(lead.id)));
-      setSelectedLeadIds(new Set());
-      setIsBulkDeleteConfirmOpen(false);
-
-      const failedCount = Array.isArray(data.failed) ? data.failed.length : 0;
-      showToast(
-        failedCount > 0
-          ? `${deletedIds.length} leads deleted. ${failedCount} could not be deleted.`
-          : `${deletedIds.length} leads deleted permanently.`,
-        failedCount > 0 ? 'error' : 'success',
-      );
-    } catch (error) {
-      console.error('[LEADS_PAGE] Bulk delete error:', error);
-      showToast(
-        `Failed to delete selected leads: ${error instanceof Error ? error.message : 'Unknown error'
-        }`,
-        'error',
-      );
-    } finally {
-      setIsDeletingBulk(false);
-    }
-  };
-
   const confirmDeleteLead = async () => {
     if (!deletingLead) return;
 
@@ -408,11 +248,11 @@ export default function Leads() {
       // Delete from the server APIs. Failure here is tolerated because Firestore
       // and the local blacklist are also updated below.
       try {
-        await authorizedFetch(`/api/leads/${encodeURIComponent(targetId)}`, {
+        await fetch(`/api/leads/${encodeURIComponent(targetId)}`, {
           method: 'DELETE',
         });
 
-        await authorizedFetch('/api/leads/delete', {
+        await fetch('/api/leads/delete', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: targetId }),
@@ -453,11 +293,6 @@ export default function Leads() {
       }
 
       setDeletingLead(null);
-      setSelectedLeadIds((previous) => {
-        const next = new Set(previous);
-        next.delete(targetId);
-        return next;
-      });
       showToast('Lead deleted permanently.');
     } catch (error) {
       console.error('[LEADS_PAGE] Error deleting lead:', error);
@@ -517,15 +352,8 @@ export default function Leads() {
       });
     };
 
-    // Clients query only their own tenant. Admins may query all tenants.
-    // This query shape is important because Firestore security rules reject an
-    // unscoped collection query for a client even if the UI later filters it.
-    const leadsQuery = isGlobalAdminView
-      ? query(collection(db, 'leads'))
-      : query(collection(db, 'leads'), where('ownerId', '==', resolvedUserId));
-
     const unsubscribe = onSnapshot(
-      leadsQuery,
+      collection(db, 'leads'),
       async (snapshot) => {
         if (cancelled) return;
 
@@ -539,78 +367,46 @@ export default function Leads() {
         try {
           const botSnapshot = await getDocs(collection(db, 'bot_configurations'));
 
-          const allowedBotDocs = botSnapshot.docs.filter((botDoc) => {
-            if (isGlobalAdminView) return true;
-
-            const data = botDoc.data();
-            return (
-              data.createdBy === resolvedUserId ||
-              data.clientId === resolvedUserId ||
-              data.ownerId === resolvedUserId
-            );
-          });
-
-          userBotIds = allowedBotDocs.map((botDoc) => botDoc.id);
-
-          // IMPORTANT: Only the dedicated Project component contributes to the
-          // dashboard Project filter. A Multiple Choice / Single Choice node,
-          // even if its question happens to mention a project, must not add its
-          // options here.
-          const projectMap: Record<string, string[]> = {};
-
-          allowedBotDocs.forEach((botDoc) => {
-            const data = botDoc.data() || {};
-            const rawNodes = Array.isArray(data.nodes)
-              ? data.nodes
-              : (data.nodes && typeof data.nodes === 'object' ? Object.values(data.nodes) : []);
-
-            const projects: string[] = [];
-            rawNodes.forEach((node: any) => {
-              const type = String(node?.type || node?.data?.componentType || '').trim().toLowerCase();
-              const isDedicatedProjectNode =
-                type === 'project' ||
-                node?.data?.isProjectSelection === true ||
-                node?.data?.projectSelector === true ||
-                node?.data?.projectField === true;
-
-              if (!isDedicatedProjectNode) return;
-
-              const choices = Array.isArray(node?.data?.choices) ? node.data.choices : [];
-              choices.forEach((choice: any) => {
-                const value = typeof choice === 'string'
-                  ? choice.trim()
-                  : String(choice?.label || choice?.value || choice?.text || '').trim();
-
-                if (!value) return;
-                if (!projects.some((project) => project.toLowerCase() === value.toLowerCase())) {
-                  projects.push(value);
-                }
-              });
-            });
-
-            projectMap[botDoc.id] = projects.sort((a, b) => a.localeCompare(b));
-          });
-
-          setFlowProjectOptions(projectMap);
+          userBotIds = botSnapshot.docs
+            .filter((botDoc) => {
+              const data = botDoc.data();
+              return (
+                data.createdBy === resolvedUserId ||
+                data.clientId === resolvedUserId ||
+                data.ownerId === resolvedUserId
+              );
+            })
+            .map((botDoc) => botDoc.id);
         } catch (error) {
           console.warn('[LEADS_PAGE] Bot configuration lookup warning:', error);
         }
 
         if (!isGlobalAdminView) {
-          // The Firestore query is already tenant-scoped. Keep this defensive
-          // check so a malformed legacy document cannot appear in a client UI.
-          firestoreLeads = firestoreLeads.filter((lead) => lead.ownerId === resolvedUserId);
+          firestoreLeads = firestoreLeads.filter((lead) => {
+            return (
+              lead.clientId === resolvedUserId ||
+              lead.ownerId === resolvedUserId ||
+              userBotIds.includes(lead.botId || '') ||
+              userBotIds.includes(lead.flowId || '') ||
+              lead.clientId === 'demo_user' ||
+              lead.ownerId === 'demo_user' ||
+              resolvedUserId === 'demo_user'
+            );
+          });
         }
 
-        const serverLeads = isGlobalAdminView
-          ? await getServerLeads(resolvedUserId, true)
-          : [];
+        const serverLeads = await getServerLeads(
+          resolvedUserId,
+          isGlobalAdminView,
+        );
 
         if (cancelled) return;
 
-        const mergedLeads = isGlobalAdminView
-          ? mergeLeads(getLocalLeads(), serverLeads, firestoreLeads)
-          : firestoreLeads;
+        const mergedLeads = mergeLeads(
+          getLocalLeads(),
+          serverLeads,
+          firestoreLeads,
+        );
 
         setLeads(mergedLeads);
         setLoading(false);
@@ -621,9 +417,10 @@ export default function Leads() {
       async (error) => {
         console.error('[LEADS_PAGE] Firestore snapshot error:', error);
 
-        const serverLeads = isGlobalAdminView
-          ? await getServerLeads(resolvedUserId, true)
-          : [];
+        const serverLeads = await getServerLeads(
+          resolvedUserId,
+          isGlobalAdminView,
+        );
 
         if (cancelled) return;
 
@@ -751,7 +548,7 @@ export default function Leads() {
 
   const handleUpdateStatus = async (leadId: string, newStatus: string) => {
     try {
-      const response = await authorizedFetch('/api/leads/status', {
+      const response = await fetch('/api/leads/status', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -793,10 +590,16 @@ export default function Leads() {
     setIsRetryingSync(true);
 
     try {
-      const response = await authorizedFetch('/api/leads/retry-sync', {
+      const response = await fetch('/api/leads/retry-sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ leadId: lead.id }),
+        body: JSON.stringify({
+          leadId: lead.id,
+          lead,
+          botId: lead.botId || lead.flowId || '',
+          googleOwnerId: auth.currentUser?.uid || effectiveUserId || lead.googleOwnerId || '',
+          spreadsheetId: lead.spreadsheetId || ''
+        }),
       });
 
       const data = await response.json().catch(() => ({}));
@@ -858,10 +661,14 @@ export default function Leads() {
       effectiveUserId || auth.currentUser?.uid || 'demo_user';
 
     try {
-      const response = await authorizedFetch('/api/leads/sync-all', {
+      const response = await fetch('/api/leads/sync-all', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId: targetUserId }),
+        body: JSON.stringify({
+          clientId: targetUserId,
+          googleOwnerId: auth.currentUser?.uid || effectiveUserId || '',
+          botIds: selectedBotFilter !== 'ALL' ? [selectedBotFilter] : []
+        }),
       });
 
       const data = await response.json().catch(() => ({}));
@@ -889,101 +696,6 @@ export default function Leads() {
     }
   };
 
-  const getLeadFieldValue = (lead: Lead, matcher: (label: string, key: string) => boolean): string => {
-    if (Array.isArray(lead.fields)) {
-      for (const field of lead.fields) {
-        const label = String(field?.label || '').trim();
-        const key = String((field as any)?.fieldKey || (field as any)?.key || '').trim();
-        const value = field?.value == null ? '' : String(field.value).trim();
-        if (value && matcher(label, key)) return value;
-      }
-    }
-
-    if (lead.data && typeof lead.data === 'object') {
-      for (const [key, rawValue] of Object.entries(lead.data)) {
-        const value = rawValue == null ? '' : String(rawValue).trim();
-        if (value && matcher(key, key)) return value;
-      }
-    }
-
-    return '';
-  };
-
-  const getLeadName = (lead: Lead): string =>
-    String(lead.name || getLeadFieldValue(lead, (label, key) =>
-      /^(name|full[ _-]?name)$/i.test(key) || /\b(full\s*)?name\b/i.test(label),
-    )).trim();
-
-  const getLeadPhone = (lead: Lead): string =>
-    getLeadFieldValue(lead, (label, key) =>
-      /^(phone|phone_number|mobile|mobile_number|contact_number)$/i.test(key) ||
-      /\b(phone|mobile|contact\s*(number|no\.?)?)\b/i.test(label),
-    );
-
-  const getLeadEmail = (lead: Lead): string =>
-    getLeadFieldValue(lead, (label, key) =>
-      /^(email|email_address)$/i.test(key) || /\bemail\b/i.test(label),
-    );
-
-  const getLeadBookVisit = (lead: Lead): string => {
-    const direct = (lead.data && typeof lead.data === 'object'
-      ? (lead.data['Book a Visit'] ?? lead.data.book_a_visit ?? lead.data.bookVisit ?? lead.data.appointment ?? lead.data.dateTime ?? lead.data.datetime)
-      : '') as unknown;
-    if (direct) return String(direct).trim();
-
-    return getLeadFieldValue(lead, (label, key) =>
-      /\b(book\s*(a\s*)?visit|visit|appointment|date\s*(and|&)\s*time|date[_ -]?time)\b/i.test(`${label} ${key}`),
-    );
-  };
-
-  const parseFilterDateTime = (value: string): Date | null => {
-    if (!value) return null;
-    const normalized = value.includes('T') ? value : value.replace(' ', 'T');
-    const date = new Date(normalized);
-    return Number.isNaN(date.getTime()) ? null : date;
-  };
-
-  const getBookVisitDate = (lead: Lead): Date | null => {
-    const raw = getLeadBookVisit(lead);
-    if (!raw) return null;
-    const localMatch = raw.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/);
-    if (localMatch) {
-      const date = new Date(`${localMatch[1]}T${localMatch[2]}:${localMatch[3]}:${localMatch[4] || '00'}`);
-      return Number.isNaN(date.getTime()) ? null : date;
-    }
-    return parseFilterDateTime(raw);
-  };
-
-  const projectOptions = useMemo(() => {
-    const botIds = selectedBotFilter === 'ALL'
-      ? Object.keys(flowProjectOptions)
-      : [selectedBotFilter];
-
-    const projects = botIds.flatMap((botId) => flowProjectOptions[botId] || []);
-
-    return Array.from(
-      new Set(projects.filter(Boolean).map((project) => String(project).trim())),
-    ).sort((a, b) => a.localeCompare(b));
-  }, [flowProjectOptions, selectedBotFilter]);
-
-  const clearLeadFilters = () => {
-    setDateFrom('');
-    setDateTo('');
-    setTimeFrom('');
-    setTimeTo('');
-    setSelectedProjectFilter('ALL');
-    setNameFilter('');
-    setPhoneFilter('');
-    setEmailFilter('');
-    setBookVisitFrom('');
-    setBookVisitTo('');
-    setSelectedSyncFilter('ALL');
-    setSearchQuery('');
-    setSelectedBotFilter('ALL');
-    setSelectedClientFilter('ALL');
-    setSelectedStatusFilter('ALL');
-  };
-
   const leadStats = useMemo(
     () => ({
       total: leads.length,
@@ -998,114 +710,57 @@ export default function Leads() {
 
   const filteredLeads = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    const normalizedName = nameFilter.trim().toLowerCase();
-    const normalizedPhone = phoneFilter.replace(/\D/g, '');
-    const normalizedEmail = emailFilter.trim().toLowerCase();
 
     return leads.filter((lead) => {
-      if (isAdmin && !impersonatedClient && selectedClientFilter !== 'ALL') {
-        const clientId = String(lead.clientId || lead.ownerId || '');
-        if (clientId !== selectedClientFilter) return false;
-      }
-
       const botId = lead.botId || lead.flowId || '';
       const currentStatus = lead.status || 'New';
-      const syncStatus = lead.googleSheetSyncStatus || 'pending';
-      const leadDate = getLeadDate(lead);
-      const leadProject = getLeadProject(lead);
-      const leadName = getLeadName(lead);
-      const leadPhone = getLeadPhone(lead);
-      const leadEmail = getLeadEmail(lead);
-      const bookVisitDate = getBookVisitDate(lead);
 
-      if (selectedBotFilter !== 'ALL' && botId !== selectedBotFilter) return false;
-      if (selectedStatusFilter !== 'ALL' && currentStatus !== selectedStatusFilter) return false;
-      if (selectedProjectFilter !== 'ALL' && leadProject !== selectedProjectFilter) return false;
-      if (selectedSyncFilter !== 'ALL' && syncStatus !== selectedSyncFilter) return false;
-
-      if (normalizedName && !leadName.toLowerCase().includes(normalizedName)) return false;
-      if (normalizedPhone && !leadPhone.replace(/\D/g, '').includes(normalizedPhone)) return false;
-      if (normalizedEmail && !leadEmail.toLowerCase().includes(normalizedEmail)) return false;
-
-      // Submitted date range.
-      if (dateFrom) {
-        if (!leadDate) return false;
-        const from = new Date(`${dateFrom}T00:00:00`);
-        if (leadDate < from) return false;
-      }
-      if (dateTo) {
-        if (!leadDate) return false;
-        const to = new Date(`${dateTo}T23:59:59.999`);
-        if (leadDate > to) return false;
+      if (selectedBotFilter !== 'ALL' && botId !== selectedBotFilter) {
+        return false;
       }
 
-      // Submitted time-of-day range.
-      if (timeFrom || timeTo) {
-        if (!leadDate) return false;
-        const minutes = leadDate.getHours() * 60 + leadDate.getMinutes();
-        if (timeFrom) {
-          const [h, m] = timeFrom.split(':').map(Number);
-          if (minutes < h * 60 + m) return false;
-        }
-        if (timeTo) {
-          const [h, m] = timeTo.split(':').map(Number);
-          if (minutes > h * 60 + m) return false;
-        }
-      }
-
-      // Book-a-Visit date range.
-      if (bookVisitFrom) {
-        if (!bookVisitDate) return false;
-        const from = new Date(`${bookVisitFrom}T00:00:00`);
-        if (bookVisitDate < from) return false;
-      }
-      if (bookVisitTo) {
-        if (!bookVisitDate) return false;
-        const to = new Date(`${bookVisitTo}T23:59:59.999`);
-        if (bookVisitDate > to) return false;
+      if (
+        selectedStatusFilter !== 'ALL' &&
+        currentStatus !== selectedStatusFilter
+      ) {
+        return false;
       }
 
       if (!query) return true;
 
       const botName = (
-        botNames[botId] || lead.botName || lead.flowName || lead.clientName || ''
+        botNames[botId] ||
+        lead.botName ||
+        lead.flowName ||
+        lead.clientName ||
+        ''
       ).toLowerCase();
+
       const fieldMatch = getLeadFieldEntries(lead).some(
-        (field) => field.label.toLowerCase().includes(query) || field.value.toLowerCase().includes(query),
+        (field) =>
+          field.label.toLowerCase().includes(query) ||
+          field.value.toLowerCase().includes(query),
       );
+
       const urlMatch = (lead.sourceUrl || '').toLowerCase().includes(query);
       const idMatch = lead.id.toLowerCase().includes(query);
       const statusMatch = currentStatus.toLowerCase().includes(query);
-      const projectMatch = leadProject.toLowerCase().includes(query);
 
       return (
-        botName.includes(query) || projectMatch || leadName.toLowerCase().includes(query) ||
-        leadPhone.toLowerCase().includes(query) || leadEmail.toLowerCase().includes(query) ||
-        fieldMatch || urlMatch || idMatch || statusMatch
+        botName.includes(query) ||
+        fieldMatch ||
+        urlMatch ||
+        idMatch ||
+        statusMatch
       );
     });
   }, [
     leads,
     searchQuery,
     selectedBotFilter,
-    selectedClientFilter,
-    isAdmin,
-    impersonatedClient,
     selectedStatusFilter,
-    selectedProjectFilter,
-    selectedSyncFilter,
-    nameFilter,
-    phoneFilter,
-    emailFilter,
-    dateFrom,
-    dateTo,
-    timeFrom,
-    timeTo,
-    bookVisitFrom,
-    bookVisitTo,
     botNames,
   ]);
-
 
   const dynamicColumnLabels = useMemo(
     () =>
@@ -1137,7 +792,6 @@ export default function Leads() {
       'Date',
       'Lead ID',
       'Bot Name',
-      'Project',
       ...dynamicColumnLabels,
       'Source URL',
       'Google Sheet Sync',
@@ -1166,7 +820,6 @@ export default function Leads() {
         escapeCsv(dateString),
         escapeCsv(lead.id),
         escapeCsv(botName),
-        escapeCsv(getLeadProject(lead)),
         ...dynamicColumnLabels.map((label) =>
           escapeCsv(fieldMap.get(label) || ''),
         ),
@@ -1245,81 +898,56 @@ export default function Leads() {
         </div>
       </header>
 
-      <div className="leads-control-bar" style={{ alignItems: 'stretch', flexWrap: 'wrap', gap: '10px' }}>
-        {isAdmin && !impersonatedClient && (
-          <label className="inline-select">
-            <Filter />
-            <select value={selectedClientFilter} onChange={(event) => setSelectedClientFilter(event.target.value)} aria-label="Filter by client">
-              <option value="ALL">All clients ({leads.length})</option>
-              {clientOptions.map((client) => (
-                <option key={client.id} value={client.id}>{client.name}{client.company ? ` — ${client.company}` : ''}</option>
-              ))}
-            </select>
-          </label>
-        )}
-
+      <div className="leads-control-bar">
         <label className="inline-select">
           <Bot />
-          <select value={selectedBotFilter} onChange={(event) => setSelectedBotFilter(event.target.value)} aria-label="Filter by chatbot">
+          <select
+            value={selectedBotFilter}
+            onChange={(event) => setSelectedBotFilter(event.target.value)}
+            aria-label="Filter by chatbot"
+          >
             <option value="ALL">All chatbots ({leads.length})</option>
-            {uniqueBotsList.map((bot) => <option key={bot.id} value={bot.id}>{bot.name}</option>)}
+            {uniqueBotsList.map((bot) => (
+              <option key={bot.id} value={bot.id}>
+                {bot.name}
+              </option>
+            ))}
           </select>
         </label>
 
         <label className="inline-select">
           <Tag />
-          <select value={selectedStatusFilter} onChange={(event) => setSelectedStatusFilter(event.target.value)} aria-label="Filter by status">
+          <select
+            value={selectedStatusFilter}
+            onChange={(event) => setSelectedStatusFilter(event.target.value)}
+            aria-label="Filter by status"
+          >
             <option value="ALL">All statuses ({leads.length})</option>
             <option value="New">New ({leadStats.new})</option>
-            <option value="Contacted">Contacted ({leadStats.contacted})</option>
-            <option value="Qualified">Qualified ({leadStats.qualified})</option>
-            <option value="Converted">Converted ({leadStats.converted})</option>
+            <option value="Contacted">
+              Contacted ({leadStats.contacted})
+            </option>
+            <option value="Qualified">
+              Qualified ({leadStats.qualified})
+            </option>
+            <option value="Converted">
+              Converted ({leadStats.converted})
+            </option>
             <option value="Lost">Lost ({leadStats.lost})</option>
           </select>
         </label>
 
-        <label className="inline-select">
-          <Filter />
-          <select value={selectedProjectFilter} onChange={(event) => setSelectedProjectFilter(event.target.value)} aria-label="Filter by project">
-            <option value="ALL">All projects ({leads.length})</option>
-            {projectOptions.map((project) => <option key={project} value={project}>{project}</option>)}
-          </select>
-        </label>
-
-        <label className="inline-select">
-          <select value={selectedSyncFilter} onChange={(event) => setSelectedSyncFilter(event.target.value)} aria-label="Filter by Google Sheet sync status">
-            <option value="ALL">All sync states</option>
-            <option value="synced">Synced</option>
-            <option value="pending">Pending</option>
-            <option value="failed">Failed</option>
-          </select>
-        </label>
-
-        <label className="search-field" style={{ minWidth: '240px', flex: '1 1 240px' }}>
+        <label className="search-field">
           <Search />
-          <input type="text" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search anything…" className="input" aria-label="Search leads" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search leads, values, URL…"
+            className="input"
+            aria-label="Search leads"
+          />
         </label>
-      </div>
-
-      <div style={{ marginTop: '10px', padding: '14px', border: '1px solid rgba(0,0,0,0.08)', borderRadius: '12px', background: 'rgba(0,0,0,0.02)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginBottom: '10px', flexWrap: 'wrap' }}>
-          <strong style={{ fontSize: '13px' }}>Advanced filters</strong>
-          <button type="button" onClick={clearLeadFilters} className="button-secondary compact">Clear all filters</button>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px' }}>
-          <label><span className="cell-sub">Submitted from</span><input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="input" /></label>
-          <label><span className="cell-sub">Submitted to</span><input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="input" /></label>
-          <label><span className="cell-sub">Time from</span><input type="time" value={timeFrom} onChange={(e) => setTimeFrom(e.target.value)} className="input" /></label>
-          <label><span className="cell-sub">Time to</span><input type="time" value={timeTo} onChange={(e) => setTimeTo(e.target.value)} className="input" /></label>
-          <label><span className="cell-sub">Name</span><input type="text" value={nameFilter} onChange={(e) => setNameFilter(e.target.value)} placeholder="Lead name" className="input" /></label>
-          <label><span className="cell-sub">Phone</span><input type="text" value={phoneFilter} onChange={(e) => setPhoneFilter(e.target.value)} placeholder="Phone number" className="input" /></label>
-          <label><span className="cell-sub">Email</span><input type="text" value={emailFilter} onChange={(e) => setEmailFilter(e.target.value)} placeholder="Email address" className="input" /></label>
-          <label><span className="cell-sub">Book a Visit from</span><input type="date" value={bookVisitFrom} onChange={(e) => setBookVisitFrom(e.target.value)} className="input" /></label>
-          <label><span className="cell-sub">Book a Visit to</span><input type="date" value={bookVisitTo} onChange={(e) => setBookVisitTo(e.target.value)} className="input" /></label>
-        </div>
-        <div style={{ marginTop: '10px', fontSize: '12px', opacity: 0.7 }}>
-          Showing <strong>{filteredLeads.length}</strong> of <strong>{leads.length}</strong> leads
-        </div>
       </div>
 
       <div className="leads-stat-grid">
@@ -1364,73 +992,33 @@ export default function Leads() {
         </div>
       )}
 
-      {selectedLeadIds.size > 0 && (
-        <div
-          className="leads-bulk-bar"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '12px',
-            marginBottom: '12px',
-            padding: '10px 14px',
-            border: '1px solid rgba(91,61,245,0.16)',
-            borderRadius: '12px',
-            background: 'rgba(91,61,245,0.05)',
-          }}
-        >
-          <span style={{ fontSize: '13px', fontWeight: 600 }}>
-            {selectedLeadIds.size} lead{selectedLeadIds.size === 1 ? '' : 's'} selected
-          </span>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button
-              type="button"
-              onClick={() => setSelectedLeadIds(new Set())}
-              className="button-secondary compact"
-            >
-              Clear selection
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsBulkDeleteConfirmOpen(true)}
-              className="button-danger compact"
-            >
-              <Trash2 />
-              Delete selected
-            </button>
-          </div>
-        </div>
-      )}
-
       <div className="table-card">
         <div className="table-scroll">
           <table className="data-table">
             <thead>
               <tr>
-                <th style={{ width: '44px' }}>
-                  <input
-                    type="checkbox"
-                    checked={filteredLeads.length > 0 && filteredLeads.every((lead) => selectedLeadIds.has(lead.id))}
-                    onChange={toggleSelectAllVisible}
-                    aria-label="Select all visible leads"
-                    title="Select all visible leads"
-                    onClick={(event) => event.stopPropagation()}
-                  />
-                </th>
-                <th>Date &amp; Time</th>
-                <th>Name</th>
-                <th>Email</th>
-                <th>Phone Number</th>
-                <th>Project</th>
-                <th>Book a Site Visit</th>
-                <th className="cell-right">Details</th>
+                <th>Submitted</th>
+                <th>Chatbot</th>
+
+                {dynamicColumnLabels.length > 0 ? (
+                  dynamicColumnLabels.map((label) => (
+                    <th key={label}>{label}</th>
+                  ))
+                ) : (
+                  <th>Captured fields</th>
+                )}
+
+                <th>Source page</th>
+                <th>Status</th>
+                <th>Sheet sync</th>
+                <th className="cell-right">Action</th>
               </tr>
             </thead>
 
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8}>
+                  <td colSpan={dynamicColumnLabels.length + 6}>
                     <div className="loading-state is-inline">
                       <Loader2 className="animate-spin" />
                       <span>Loading leads…</span>
@@ -1439,7 +1027,7 @@ export default function Leads() {
                 </tr>
               ) : filteredLeads.length === 0 ? (
                 <tr>
-                  <td colSpan={8}>
+                  <td colSpan={dynamicColumnLabels.length + 6}>
                     <div className="loading-state is-inline">
                       <span>No leads match your current filters.</span>
                     </div>
@@ -1447,44 +1035,167 @@ export default function Leads() {
                 </tr>
               ) : (
                 filteredLeads.map((lead) => {
+                  const botId = lead.botId || lead.flowId || '';
+                  const botName =
+                    botNames[botId] ||
+                    lead.botName ||
+                    lead.flowName ||
+                    lead.clientName ||
+                    'Chatbot';
+
+                  const fieldEntries = getLeadFieldEntries(lead);
+                  const fieldMap = new Map(
+                    fieldEntries.map((field) => [
+                      field.label,
+                      field.value,
+                    ]),
+                  );
+
+                  const syncStatus =
+                    lead.googleSheetSyncStatus || 'synced';
+                  const currentStatus = lead.status || 'New';
                   const date = getLeadDate(lead);
-                  const name = getLeadName(lead);
-                  const email = getLeadEmail(lead);
-                  const phone = getLeadPhone(lead);
-                  const project = getLeadProject(lead);
-                  const bookVisit = getLeadBookVisit(lead);
 
                   return (
-                    <tr key={lead.id}>
-                      <td onClick={(event) => event.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          checked={selectedLeadIds.has(lead.id)}
-                          onChange={() => toggleLeadSelection(lead.id)}
-                          aria-label={`Select lead ${lead.id}`}
-                        />
-                      </td>
+                    <tr
+                      key={lead.id}
+                      onClick={() => setSelectedLead(lead)}
+                      style={{ cursor: 'pointer' }}
+                    >
                       <td>
                         <span className="cell-title block whitespace-nowrap">
-                          {date ? format(date, 'MMM d, yyyy') : '—'}
+                          {date ? format(date, 'MMM d, yyyy') : 'Recently'}
                         </span>
                         <span className="cell-sub">
-                          {date ? format(date, 'HH:mm:ss') : ''}
+                          {date ? format(date, 'HH:mm') : ''}
                         </span>
                       </td>
-                      <td><span className="cell-title">{name || '—'}</span></td>
-                      <td className="max-w-[220px] truncate">{email || '—'}</td>
-                      <td className="whitespace-nowrap">{phone || '—'}</td>
-                      <td className="max-w-[200px] truncate">{project || '—'}</td>
-                      <td className="max-w-[210px] truncate">{bookVisit || '—'}</td>
+
+                      <td>
+                        <span className="tag">
+                          <Bot />
+                          {botName}
+                        </span>
+                      </td>
+
+                      {dynamicColumnLabels.length > 0 ? (
+                        dynamicColumnLabels.map((label) => {
+                          const value = String(fieldMap.get(label) ?? '');
+
+                          return (
+                            <td
+                              key={label}
+                              className="max-w-[200px] truncate"
+                            >
+                              {value || (
+                                <span className="cell-empty">—</span>
+                              )}
+                            </td>
+                          );
+                        })
+                      ) : (
+                        <td>
+                          <div className="flex flex-wrap gap-1.5">
+                            {fieldEntries.slice(0, 3).map((field, index) => (
+                              <span
+                                key={`${field.label}-${index}`}
+                                className="tag"
+                              >
+                                {field.label}: {field.value}
+                              </span>
+                            ))}
+                            {fieldEntries.length === 0 && (
+                              <span className="cell-empty">No fields</span>
+                            )}
+                          </div>
+                        </td>
+                      )}
+
+                      <td className="max-w-[190px] truncate">
+                        {lead.sourceUrl ? (
+                          <a
+                            href={lead.sourceUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(event) => event.stopPropagation()}
+                            className="text-accent inline-flex items-center gap-1"
+                          >
+                            <span className="truncate">
+                              {(() => {
+                                try {
+                                  return new URL(lead.sourceUrl).hostname;
+                                } catch {
+                                  return lead.sourceUrl;
+                                }
+                              })()}
+                            </span>
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
+                        ) : (
+                          <span className="cell-empty">Direct embed</span>
+                        )}
+                      </td>
+
+                      <td onClick={(event) => event.stopPropagation()}>
+                        <select
+                          value={currentStatus}
+                          onChange={(event) =>
+                            void handleUpdateStatus(
+                              lead.id,
+                              event.target.value,
+                            )
+                          }
+                          className="input"
+                          aria-label={`Update status for ${lead.id}`}
+                        >
+                          <option value="New">New</option>
+                          <option value="Contacted">Contacted</option>
+                          <option value="Qualified">Qualified</option>
+                          <option value="Converted">Converted</option>
+                          <option value="Lost">Lost</option>
+                        </select>
+                      </td>
+
+                      <td>
+                        {syncStatus === 'synced' ? (
+                          <span className="status-pill tone-green">
+                            <CheckCircle2 />
+                            Synced
+                          </span>
+                        ) : syncStatus === 'failed' ? (
+                          <span className="status-pill tone-red">
+                            <AlertCircle />
+                            Failed
+                          </span>
+                        ) : (
+                          <span className="status-pill tone-yellow">
+                            <Clock />
+                            Pending
+                          </span>
+                        )}
+                      </td>
+
                       <td className="cell-right">
-                        <div className="row-actions">
+                        <div
+                          className="row-actions"
+                          onClick={(event) => event.stopPropagation()}
+                        >
                           <button
                             type="button"
                             onClick={() => setSelectedLead(lead)}
                             className="button-secondary compact"
                           >
                             Details
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setDeletingLead(lead)}
+                            className="icon-button danger"
+                            title="Delete lead"
+                            aria-label="Delete lead"
+                          >
+                            <Trash2 />
                           </button>
                         </div>
                       </td>
@@ -1574,10 +1285,6 @@ export default function Leads() {
               <p className="modal-section-title">Submission metadata</p>
 
               <dl className="meta-grid">
-                <div>
-                  <dt>Project</dt>
-                  <dd>{getLeadProject(selectedLead) || 'Not specified'}</dd>
-                </div>
                 <div>
                   <dt>Submitted</dt>
                   <dd>
@@ -1802,48 +1509,6 @@ export default function Leads() {
                 <span>
                   {isDeletingLead ? 'Deleting…' : 'Delete lead'}
                 </span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isBulkDeleteConfirmOpen && (
-        <div className="modal-backdrop">
-          <div
-            className="app-modal is-centered"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="bulk-delete-leads-title"
-          >
-            <div className="modal-danger-icon">
-              <AlertTriangle />
-            </div>
-
-            <h3 id="bulk-delete-leads-title">Delete selected leads?</h3>
-            <p className="mt-1.5">
-              You are about to permanently delete <strong>{selectedLeadIds.size}</strong> selected lead{selectedLeadIds.size === 1 ? '' : 's'}.
-            </p>
-            <p className="modal-note">This action cannot be undone.</p>
-
-            <div className="modal-actions">
-              <button
-                type="button"
-                onClick={() => setIsBulkDeleteConfirmOpen(false)}
-                disabled={isDeletingBulk}
-                className="button-secondary flex-1"
-              >
-                Cancel
-              </button>
-
-              <button
-                type="button"
-                onClick={() => void confirmDeleteSelectedLeads()}
-                disabled={isDeletingBulk}
-                className="button-danger flex-1"
-              >
-                {isDeletingBulk ? <Loader2 className="animate-spin" /> : <Trash2 />}
-                <span>{isDeletingBulk ? 'Deleting…' : 'Delete selected'}</span>
               </button>
             </div>
           </div>

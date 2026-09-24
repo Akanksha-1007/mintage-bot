@@ -577,6 +577,14 @@ export default function Integrations() {
     }
 
     setBotLoading(prev => ({ ...prev, [botId]: true }));
+    const existingBot = bots.find(b => b.id === botId);
+    const ownerId =
+      getGoogleOwnerId() ||
+      existingBot?.googleOwnerId ||
+      effectiveUserId ||
+      auth.currentUser?.uid ||
+      'demo_user';
+
     try {
       // Update in Firestore
       try {
@@ -593,13 +601,6 @@ export default function Integrations() {
       // This is the important path for Drive-picked spreadsheets: the selected
       // spreadsheet is saved against THIS bot, not just as a global sheet.
       try {
-        const existingBot = bots.find(b => b.id === botId);
-        const ownerId =
-          getGoogleOwnerId() ||
-          existingBot?.googleOwnerId ||
-          effectiveUserId ||
-          'demo_user';
-
         const linkRes = await fetch('/api/sheets/link-bot', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -631,13 +632,13 @@ export default function Integrations() {
       if (localBotsRaw) {
         try {
           const parsed: BotInfo[] = JSON.parse(localBotsRaw);
-          const updated = parsed.map(b => b.id === botId ? { ...b, spreadsheetId: cleanId } : b);
+          const updated = parsed.map(b => b.id === botId ? { ...b, spreadsheetId: cleanId, googleOwnerId: ownerId } : b);
           localStorage.setItem('mintage_bots', JSON.stringify(updated));
         } catch { }
       }
 
       // Update state
-      setBots(prev => prev.map(b => b.id === botId ? { ...b, spreadsheetId: cleanId } : b));
+      setBots(prev => prev.map(b => b.id === botId ? { ...b, spreadsheetId: cleanId, googleOwnerId: ownerId } : b));
       setBotInputs(prev => ({ ...prev, [botId]: cleanId }));
 
       // Immediately sync only this bot's pending leads to the newly linked
@@ -743,13 +744,14 @@ export default function Integrations() {
         if (localBotsRaw) {
           try {
             const parsed: BotInfo[] = JSON.parse(localBotsRaw);
-            const updated = parsed.map(b => b.id === botId ? { ...b, spreadsheetId: newSheetId } : b);
+            const ownerId = getGoogleOwnerId() || bots.find(b => b.id === botId)?.googleOwnerId || effectiveUserId || 'demo_user';
+            const updated = parsed.map(b => b.id === botId ? { ...b, spreadsheetId: newSheetId, googleOwnerId: ownerId } : b);
             localStorage.setItem('mintage_bots', JSON.stringify(updated));
           } catch { }
         }
 
         // Update state
-        setBots(prev => prev.map(b => b.id === botId ? { ...b, spreadsheetId: newSheetId } : b));
+        setBots(prev => prev.map(b => b.id === botId ? { ...b, spreadsheetId: newSheetId, googleOwnerId: getGoogleOwnerId() || b.googleOwnerId || effectiveUserId || 'demo_user' } : b));
         setBotInputs(prev => ({ ...prev, [botId]: newSheetId }));
 
         fetchUserSheets(googleTokens);
