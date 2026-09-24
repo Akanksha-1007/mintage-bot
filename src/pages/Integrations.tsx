@@ -18,7 +18,7 @@ interface BotInfo {
 }
 
 export default function Integrations() {
-  const { effectiveUserId, isAdmin, impersonatedClient } = useAuth();
+  const { effectiveUserId, isAdmin } = useAuth();
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [globalSpreadsheetId, setGlobalSpreadsheetId] = useState('');
@@ -100,10 +100,9 @@ export default function Integrations() {
       let resolvedTokens: any = null;
       let resolvedSpreadsheetId: string = '';
 
-      const workspaceUserId = effectiveUserId || auth.currentUser?.uid || '';
-      if (workspaceUserId) {
+      if (auth.currentUser) {
         try {
-          const userDocRef = doc(db, 'users', workspaceUserId);
+          const userDocRef = doc(db, 'users', auth.currentUser.uid);
           const docSnap = await getDoc(userDocRef);
           if (docSnap.exists()) {
             const data = docSnap.data();
@@ -143,11 +142,11 @@ export default function Integrations() {
       // Fetch user's bots from Firestore
       const fetchedBotMap = new Map<string, BotInfo>();
 
-      if (workspaceUserId) {
+      if (auth.currentUser) {
         try {
           const botsQ = query(
             collection(db, 'bot_configurations'),
-            where('createdBy', '==', workspaceUserId)
+            where('createdBy', '==', auth.currentUser.uid)
           );
           const botsSnap = await getDocs(botsQ);
           botsSnap.docs.forEach(d => {
@@ -173,7 +172,11 @@ export default function Integrations() {
           const sData = await sRes.json();
           if (sData.success && Array.isArray(sData.bots)) {
             sData.bots.forEach((b: any) => {
-              if (b && b.id && !deletedIds.includes(b.id) && !fetchedBotMap.has(b.id)) {
+              if (!b || !b.id || deletedIds.includes(b.id)) return;
+
+              const existing = fetchedBotMap.get(b.id);
+
+              if (!existing) {
                 fetchedBotMap.set(b.id, {
                   id: b.id,
                   name: b.name || 'Unnamed Bot',
@@ -181,6 +184,22 @@ export default function Integrations() {
                   createdBy: b.createdBy,
                   googleOwnerId: b.googleOwnerId || b.createdBy || ''
                 });
+                return;
+              }
+
+              // Firestore and the Express server are both persistence sources.
+              // Merge them instead of ignoring the server record when Firestore
+              // already contains the bot. This is important when the spreadsheet
+              // was linked through the Integrations page and the two stores are
+              // briefly out of sync.
+              if (b.spreadsheetId && !existing.spreadsheetId) {
+                existing.spreadsheetId = b.spreadsheetId;
+              }
+              if (!existing.createdBy && b.createdBy) {
+                existing.createdBy = b.createdBy;
+              }
+              if (!existing.googleOwnerId && b.googleOwnerId) {
+                existing.googleOwnerId = b.googleOwnerId;
               }
             });
           }
@@ -195,22 +214,29 @@ export default function Integrations() {
         try {
           const parsed: BotInfo[] = JSON.parse(localBotsRaw);
           parsed.forEach(b => {
-            if (b && b.id && !deletedIds.includes(b.id)) {
-              if (!fetchedBotMap.has(b.id)) {
-                fetchedBotMap.set(b.id, {
-                  id: b.id,
-                  name: b.name || 'Unnamed Bot',
-                  spreadsheetId: b.spreadsheetId || '',
-                  createdBy: b.createdBy,
-                  googleOwnerId: b.googleOwnerId || b.createdBy || ''
-                });
-              } else {
-                // Update spreadsheet ID if set in localStorage
-                const existing = fetchedBotMap.get(b.id)!;
-                if (b.spreadsheetId && !existing.spreadsheetId) {
-                  existing.spreadsheetId = b.spreadsheetId;
-                }
-              }
+            if (!b || !b.id || deletedIds.includes(b.id)) return;
+
+            const existing = fetchedBotMap.get(b.id);
+
+            if (!existing) {
+              fetchedBotMap.set(b.id, {
+                id: b.id,
+                name: b.name || 'Unnamed Bot',
+                spreadsheetId: b.spreadsheetId || '',
+                createdBy: b.createdBy,
+                googleOwnerId: b.googleOwnerId || b.createdBy || ''
+              });
+              return;
+            }
+
+            if (b.spreadsheetId && !existing.spreadsheetId) {
+              existing.spreadsheetId = b.spreadsheetId;
+            }
+            if (!existing.createdBy && b.createdBy) {
+              existing.createdBy = b.createdBy;
+            }
+            if (!existing.googleOwnerId && b.googleOwnerId) {
+              existing.googleOwnerId = b.googleOwnerId;
             }
           });
         } catch { }
@@ -251,11 +277,9 @@ export default function Integrations() {
     // Realtime Firestore Snapshot Listener
     let unsubscribeBots: (() => void) | null = null;
     try {
-      const workspaceUserId = effectiveUserId || auth.currentUser?.uid || '';
-      if (workspaceUserId) {
-        const botsQuery = query(collection(db, 'bot_configurations'), where('createdBy', '==', workspaceUserId));
-        unsubscribeBots = onSnapshot(botsQuery, () => { loadData(); }, () => { });
-      }
+      unsubscribeBots = onSnapshot(collection(db, 'bot_configurations'), () => {
+        loadData();
+      }, () => { });
     } catch { }
 
     // SSE Listener from backend
@@ -877,8 +901,8 @@ export default function Integrations() {
       <div className="space-y-4">
         <div className="flex justify-between items-center">
           <div>
-            <h2 className="text-3xl font-extrabold text-ink tracking-tight">Integrations & Website Embed</h2>
-            <p className="text-muted text-sm mt-1">Connect your chatbots to websites, custom apps, and Google Sheets easily.</p>
+            <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight">Integrations & Website Embed</h2>
+            <p className="text-gray-500 text-sm mt-1">Connect your chatbots to websites, custom apps, and Google Sheets easily.</p>
           </div>
 
           {isConnected && activeTab === 'sheets' && (
@@ -897,7 +921,7 @@ export default function Integrations() {
           <button
             onClick={() => setActiveTab('embed')}
             className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${activeTab === 'embed'
-              ? 'bg-slate-900 !text-white shadow-md'
+              ? 'bg-slate-900 text-white shadow-md'
               : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
               }`}
           >
@@ -908,7 +932,7 @@ export default function Integrations() {
           <button
             onClick={() => setActiveTab('sheets')}
             className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${activeTab === 'sheets'
-              ? 'bg-emerald-700 !text-white shadow-md'
+              ? 'bg-emerald-700 text-white shadow-md'
               : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
               }`}
           >
@@ -1184,7 +1208,7 @@ export default function Integrations() {
                   <button
                     onClick={handleConnect}
                     disabled={isConnecting}
-                    className="px-6 py-2.5 bg-[#5B3DF5] !text-white text-xs font-bold rounded-xl hover:bg-[#4A2FE0] transition-all shadow-md shadow-[#E8E3FF] disabled:opacity-50"
+                    className="px-6 py-2.5 bg-[#5B3DF5] text-white text-xs font-bold rounded-xl hover:bg-[#4A2FE0] transition-all shadow-md shadow-[#E8E3FF] disabled:opacity-50"
                   >
                     {isConnecting ? 'Connecting...' : 'Connect Google Account'}
                   </button>
@@ -1208,7 +1232,7 @@ export default function Integrations() {
                       <p className="text-[11px] text-gray-400 mt-1 mb-4">Create your first chatbot to start linking Google Sheets.</p>
                       <Link
                         to="/builder/new"
-                        className="px-4 py-2 bg-[#5B3DF5] !text-white text-xs font-bold rounded-xl hover:bg-[#4A2FE0] transition-all inline-block shadow-sm"
+                        className="px-4 py-2 bg-[#5B3DF5] text-white text-xs font-bold rounded-xl hover:bg-[#4A2FE0] transition-all inline-block shadow-sm"
                       >
                         + Create New Chatbot
                       </Link>
@@ -1415,7 +1439,7 @@ export default function Integrations() {
                   <button
                     onClick={handleConnect}
                     disabled={isConnecting}
-                    className="px-6 py-2.5 bg-[#5B3DF5] !text-white text-xs font-bold rounded-xl hover:bg-[#4A2FE0] transition-all shadow-md"
+                    className="px-6 py-2.5 bg-[#5B3DF5] text-white text-xs font-bold rounded-xl hover:bg-[#4A2FE0] transition-all shadow-md"
                   >
                     Connect Google Account Now
                   </button>
@@ -1427,7 +1451,7 @@ export default function Integrations() {
           {/* SECTION 3: Integration Documentation / Guidance */}
           <div className="space-y-6">
             <div className="mintage-feature-card bg-gradient-to-br from-[#2D1B69] via-[#18151F] to-[#1E123F] p-7 rounded-[32px] text-white shadow-xl shadow-[#E8E3FF]">
-              <h3 className="text-lg font-bold !text-white mb-3 flex items-center gap-2">
+              <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
                 <Sparkles className="w-5 h-5 text-[#BDB4FF]" />
                 Flexible Google Sheets Integration
               </h3>
