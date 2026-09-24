@@ -1179,30 +1179,16 @@ async function startServer() {
       const spreadsheetId = response.data.spreadsheetId;
       const spreadsheetUrl = response.data.spreadsheetUrl;
 
-      if (!spreadsheetId) {
-        throw new Error('Google did not return a spreadsheet ID.');
-      }
-
-      // Add the six-column header row. The previous implementation used A1:E1
-      // while sending six values, which makes the Google Sheets API reject the
-      // request after the spreadsheet has already been created. That is why the
-      // UI showed "Failed to create Google Sheet" and the bot was never linked.
-      try {
+      if (spreadsheetId) {
+        // Add header row to new sheet
         await sheets.spreadsheets.values.update({
           spreadsheetId,
           range: 'Sheet1!A1:F1',
           valueInputOption: 'USER_ENTERED',
           requestBody: {
-            values: [['Timestamp', 'Project', 'Name', 'Email', 'Phone', 'All Captured Fields']],
+            values: [['Date', 'Project', 'Name', 'Phone Number', 'Email', 'Book a Visit']],
           },
         });
-      } catch (headerError: any) {
-        // Do not throw away a successfully-created spreadsheet just because the
-        // optional header write failed. The client can still link the sheet.
-        console.error(
-          'Google Sheet created but header initialization failed:',
-          headerError?.response?.data || headerError?.message || headerError
-        );
       }
 
       res.json({
@@ -1212,20 +1198,8 @@ async function startServer() {
         title: sheetTitle
       });
     } catch (error: any) {
-      const googleMessage =
-        error?.response?.data?.error?.message ||
-        error?.response?.data?.error_description ||
-        error?.message ||
-        'Unknown Google API error';
-
-      console.error(
-        'Error creating Google Sheet:',
-        error?.response?.data || error?.message || error
-      );
-
-      res.status(400).json({
-        error: `Failed to create Google Sheet: ${googleMessage}`
-      });
+      console.error('Error creating Google Sheet:', error?.message || error);
+      res.status(400).json({ error: 'Failed to create Google Sheet. Please reconnect your Google account.' });
     }
   });
 
@@ -1425,6 +1399,175 @@ async function startServer() {
       botId: id,
       projectSheetMappings: cleanedMappings
     });
+  });
+
+
+  // Link and verify a Google Drive spreadsheet to a specific bot.
+  // This endpoint is used by the Integrations Drive picker. It verifies that
+  // the authenticated Google account can access the selected spreadsheet,
+  // persists the bot-specific spreadsheet ID, and starts a pending-lead sync.
+  app.post('/api/sheets/link-bot', async (req, res) => {
+    const {
+      botId,
+      name,
+      createdBy,
+      spreadsheetId: rawSpreadsheetId,
+      googleOwnerId,
+      tokens
+    } = req.body || {};
+
+    const cleanBotId = String(botId || '').trim();
+    const spreadsheetId = extractSpreadsheetId(String(rawSpreadsheetId || '').trim());
+    const ownerId = String(googleOwnerId || createdBy || '').trim();
+
+    if (!cleanBotId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bot ID is required.'
+      });
+    }
+
+    if (!spreadsheetId) {
+      return res.status(400).json({
+        success: false,
+        error: 'A Google Spreadsheet must be selected.'
+      });
+    }
+
+    if (!tokens) {
+      return res.status(401).json({
+        success: false,
+        error: 'Google Account is not connected. Please re-authorize Google.'
+      });
+    }
+
+    try {
+      // 1. Verify the selected Drive spreadsheet is accessible with the
+      //    currently authorized Google account.
+      const auth = createOAuth2Client(tokens);
+      const sheets = google.sheets({ version: 'v4', auth });
+
+      const spreadsheetResponse = await sheets.spreadsheets.get({
+        spreadsheetId,
+        fields: 'spreadsheetId,spreadsheetUrl,properties.title,sheets.properties(sheetId,title)'
+      });
+
+      const spreadsheetTitle =
+        spreadsheetResponse.data.properties?.title || 'Google Sheet';
+
+      // 2. Persist the spreadsheet against THIS bot on the server.
+      loadBotsFromFile();
+
+      const existing = serverBotsMap.get(cleanBotId);
+
+      const botObj = {
+        ...(existing || {}),
+        id: cleanBotId,
+        name: name || existing?.name || 'Unnamed Bot',
+        spreadsheetId,
+        worksheetName: existing?.worksheetName || 'Lead Data',
+        createdBy:
+          createdBy ||
+          existing?.createdBy ||
+          existing?.clientId ||
+          existing?.ownerId ||
+          'guest_user',
+        googleOwnerId:
+          ownerId ||
+          existing?.googleOwnerId ||
+          createdBy ||
+          existing?.createdBy ||
+          '',
+        updatedAt: new Date().toISOString()
+      };
+
+      serverBotsMap.set(cleanBotId, botObj);
+      saveBotsToFile();
+
+      // 3. Persist the same bot-specific connection in Firestore.
+      if (db) {
+        await setDoc(
+          doc(db, 'bot_configurations', cleanBotId),
+          {
+            spreadsheetId,
+            worksheetName: botObj.worksheetName,
+            googleOwnerId: botObj.googleOwnerId || null,
+            updatedAt: new Date().toISOString()
+          },
+          { merge: true }
+        ).catch((err) => {
+          console.warn(
+            '[GOOGLE_SHEET_LINK_FIRESTORE_WARNING]',
+            err?.message || err
+          );
+        });
+      }
+
+      // 4. Immediately retry pending leads for THIS bot.
+      autoSyncPendingLeads(cleanBotId).catch((err) => {
+        console.warn(
+          '[GOOGLE_SHEET_LINK_AUTOSYNC_WARNING]',
+          err?.message || err
+        );
+      });
+
+      broadcastEvent('BOT_SHEET_LINKED', {
+        botId: cleanBotId,
+        spreadsheetId,
+        googleOwnerId: botObj.googleOwnerId || ''
+      });
+
+      res.json({
+        success: true,
+        botId: cleanBotId,
+        spreadsheetId,
+        spreadsheetUrl:
+          spreadsheetResponse.data.spreadsheetUrl ||
+          `https://docs.google.com/spreadsheets/d/${spreadsheetId}`,
+        title: spreadsheetTitle,
+        worksheetName: botObj.worksheetName
+      });
+    } catch (error: any) {
+      const message = String(error?.message || error);
+      const lower = message.toLowerCase();
+
+      console.error('[GOOGLE_SHEET_LINK_FAILED]', {
+        botId: cleanBotId,
+        spreadsheetId,
+        error: message
+      });
+
+      if (
+        lower.includes('invalid_grant') ||
+        lower.includes('unauthorized_client') ||
+        lower.includes('invalid_client') ||
+        lower.includes('invalid credentials')
+      ) {
+        return res.status(401).json({
+          success: false,
+          error:
+            'Google Account authorization expired. Please re-authorize your Google account.'
+        });
+      }
+
+      if (
+        lower.includes('permission') ||
+        lower.includes('forbidden') ||
+        lower.includes('not found')
+      ) {
+        return res.status(403).json({
+          success: false,
+          error:
+            'This Google Drive spreadsheet cannot be accessed by the connected Google account. Make sure the sheet belongs to that account or has been shared with it.'
+        });
+      }
+
+      return res.status(400).json({
+        success: false,
+        error:
+          'Could not access the selected Google Drive spreadsheet. Please reconnect Google and try again.'
+      });
+    }
   });
 
   // Get Bot Configuration by ID

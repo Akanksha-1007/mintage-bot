@@ -172,11 +172,7 @@ export default function Integrations() {
           const sData = await sRes.json();
           if (sData.success && Array.isArray(sData.bots)) {
             sData.bots.forEach((b: any) => {
-              if (!b || !b.id || deletedIds.includes(b.id)) return;
-
-              const existing = fetchedBotMap.get(b.id);
-
-              if (!existing) {
+              if (b && b.id && !deletedIds.includes(b.id) && !fetchedBotMap.has(b.id)) {
                 fetchedBotMap.set(b.id, {
                   id: b.id,
                   name: b.name || 'Unnamed Bot',
@@ -184,22 +180,6 @@ export default function Integrations() {
                   createdBy: b.createdBy,
                   googleOwnerId: b.googleOwnerId || b.createdBy || ''
                 });
-                return;
-              }
-
-              // Firestore and the Express server are both persistence sources.
-              // Merge them instead of ignoring the server record when Firestore
-              // already contains the bot. This is important when the spreadsheet
-              // was linked through the Integrations page and the two stores are
-              // briefly out of sync.
-              if (b.spreadsheetId && !existing.spreadsheetId) {
-                existing.spreadsheetId = b.spreadsheetId;
-              }
-              if (!existing.createdBy && b.createdBy) {
-                existing.createdBy = b.createdBy;
-              }
-              if (!existing.googleOwnerId && b.googleOwnerId) {
-                existing.googleOwnerId = b.googleOwnerId;
               }
             });
           }
@@ -214,29 +194,22 @@ export default function Integrations() {
         try {
           const parsed: BotInfo[] = JSON.parse(localBotsRaw);
           parsed.forEach(b => {
-            if (!b || !b.id || deletedIds.includes(b.id)) return;
-
-            const existing = fetchedBotMap.get(b.id);
-
-            if (!existing) {
-              fetchedBotMap.set(b.id, {
-                id: b.id,
-                name: b.name || 'Unnamed Bot',
-                spreadsheetId: b.spreadsheetId || '',
-                createdBy: b.createdBy,
-                googleOwnerId: b.googleOwnerId || b.createdBy || ''
-              });
-              return;
-            }
-
-            if (b.spreadsheetId && !existing.spreadsheetId) {
-              existing.spreadsheetId = b.spreadsheetId;
-            }
-            if (!existing.createdBy && b.createdBy) {
-              existing.createdBy = b.createdBy;
-            }
-            if (!existing.googleOwnerId && b.googleOwnerId) {
-              existing.googleOwnerId = b.googleOwnerId;
+            if (b && b.id && !deletedIds.includes(b.id)) {
+              if (!fetchedBotMap.has(b.id)) {
+                fetchedBotMap.set(b.id, {
+                  id: b.id,
+                  name: b.name || 'Unnamed Bot',
+                  spreadsheetId: b.spreadsheetId || '',
+                  createdBy: b.createdBy,
+                  googleOwnerId: b.googleOwnerId || b.createdBy || ''
+                });
+              } else {
+                // Update spreadsheet ID if set in localStorage
+                const existing = fetchedBotMap.get(b.id)!;
+                if (b.spreadsheetId && !existing.spreadsheetId) {
+                  existing.spreadsheetId = b.spreadsheetId;
+                }
+              }
             }
           });
         } catch { }
@@ -594,8 +567,8 @@ export default function Integrations() {
   const getGoogleOwnerId = () => auth.currentUser?.uid || '';
 
   // Link specific Bot to a Spreadsheet ID/URL
-  const handleLinkBotToSheet = async (botId: string) => {
-    const rawInput = botInputs[botId] || '';
+  const handleLinkBotToSheet = async (botId: string, selectedSpreadsheetId?: string) => {
+    const rawInput = selectedSpreadsheetId || botInputs[botId] || '';
     const cleanId = extractSpreadsheetId(rawInput);
 
     if (!cleanId) {
@@ -616,22 +589,41 @@ export default function Integrations() {
         console.warn('Firestore update warning, persisting locally:', e);
       }
 
-      // Update in Server API
+      // Update Server API and VERIFY the selected Drive spreadsheet is writable.
+      // This is the important path for Drive-picked spreadsheets: the selected
+      // spreadsheet is saved against THIS bot, not just as a global sheet.
       try {
         const existingBot = bots.find(b => b.id === botId);
-        await fetch('/api/bots/save', {
+        const ownerId =
+          getGoogleOwnerId() ||
+          existingBot?.googleOwnerId ||
+          effectiveUserId ||
+          'demo_user';
+
+        const linkRes = await fetch('/api/sheets/link-bot', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            id: botId,
+            botId,
             name: existingBot?.name || 'Chatbot',
             createdBy: existingBot?.createdBy || effectiveUserId || 'demo_user',
             spreadsheetId: cleanId,
-            googleOwnerId: getGoogleOwnerId() || existingBot?.googleOwnerId || effectiveUserId || 'demo_user'
+            googleOwnerId: ownerId,
+            tokens: googleTokens
           })
         });
-      } catch (e) {
-        console.warn('Server bot save error:', e);
+
+        const linkData = await linkRes.json().catch(() => ({}));
+
+        if (!linkRes.ok || !linkData.success) {
+          throw new Error(
+            linkData.error ||
+            'The selected Google Drive spreadsheet could not be linked.'
+          );
+        }
+      } catch (e: any) {
+        console.warn('Server Google Sheet link error:', e);
+        throw e;
       }
 
       // Update in Local Storage
@@ -648,19 +640,53 @@ export default function Integrations() {
       setBots(prev => prev.map(b => b.id === botId ? { ...b, spreadsheetId: cleanId } : b));
       setBotInputs(prev => ({ ...prev, [botId]: cleanId }));
 
-      // Immediately trigger background sync for all leads of this bot
-      fetch('/api/leads/sync-all', {
+      // Immediately sync only this bot's pending leads to the newly linked
+      // spreadsheet. Future leads will use the same bot-specific spreadsheet.
+      const syncRes = await fetch('/api/leads/sync-all', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId: effectiveUserId || 'demo_user' })
-      }).catch(() => null);
+        body: JSON.stringify({
+          clientId: effectiveUserId || 'demo_user',
+          googleOwnerId:
+            getGoogleOwnerId() ||
+            bots.find(b => b.id === botId)?.googleOwnerId ||
+            effectiveUserId ||
+            'demo_user',
+          botId
+        })
+      });
 
-      showToast('Google Sheet linked to Chatbot successfully!');
+      const syncData = await syncRes.json().catch(() => ({}));
+
+      if (!syncRes.ok) {
+        console.warn('Existing lead sync warning:', syncData);
+      }
+
+      showToast(
+        syncData?.synced > 0
+          ? `Google Sheet linked. ${syncData.synced} existing lead(s) synced.`
+          : 'Google Sheet linked to Chatbot successfully. New leads will be saved automatically.'
+      );
     } catch (err: any) {
       showToast(`Failed to link sheet: ${err.message}`, 'error');
     } finally {
       setBotLoading(prev => ({ ...prev, [botId]: false }));
     }
+  };
+
+  // Link a spreadsheet selected directly from Google Drive.
+  // The dropdown stores the Drive file ID, then uses the same verified
+  // bot-linking path as a manually pasted URL/ID.
+  const handleSelectDriveSheet = async (botId: string, spreadsheetId: string) => {
+    if (!spreadsheetId) return;
+
+    setBotInputs(prev => ({
+      ...prev,
+      [botId]: spreadsheetId
+    }));
+
+    // Link immediately so selecting a Drive file is enough to configure the bot.
+    await handleLinkBotToSheet(botId, spreadsheetId);
   };
 
   // Create New Dedicated Sheet for Bot
@@ -1288,21 +1314,47 @@ export default function Integrations() {
                                 <label className="block text-[11px] font-bold text-gray-600 mb-1">
                                   Choose from your Google Drive Spreadsheets:
                                 </label>
-                                <select
-                                  onChange={(e) => {
-                                    if (e.target.value) {
-                                      setBotInputs(prev => ({ ...prev, [bot.id]: e.target.value }));
-                                    }
-                                  }}
-                                  className="w-full text-xs px-3 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#6D4AFF] font-sans text-gray-700 outline-none"
-                                >
-                                  <option value="">-- Select a Google Sheet from Drive --</option>
-                                  {userSheets.map((s) => (
-                                    <option key={s.id} value={s.id}>
-                                      📊 {s.name} ({s.id.slice(0, 10)}...)
-                                    </option>
-                                  ))}
-                                </select>
+                                <div className="flex flex-wrap gap-2">
+                                  <select
+                                    value={currentInput}
+                                    onChange={(e) => {
+                                      const selectedId = e.target.value;
+                                      setBotInputs(prev => ({
+                                        ...prev,
+                                        [bot.id]: selectedId
+                                      }));
+
+                                      if (selectedId) {
+                                        handleSelectDriveSheet(bot.id, selectedId);
+                                      }
+                                    }}
+                                    disabled={isBusy}
+                                    className="flex-1 min-w-[260px] text-xs px-3 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#6D4AFF] font-sans text-gray-700 outline-none disabled:opacity-50"
+                                  >
+                                    <option value="">-- Select a Google Sheet from Drive --</option>
+                                    {userSheets.map((s) => (
+                                      <option key={s.id} value={s.id}>
+                                        📊 {s.name} ({s.id.slice(0, 10)}...)
+                                      </option>
+                                    ))}
+                                  </select>
+
+                                  {currentInput && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleLinkBotToSheet(bot.id, currentInput)}
+                                      disabled={isBusy}
+                                      className="px-4 py-2 bg-[#5B3DF5] hover:bg-[#4A2FE0] text-white text-xs font-bold rounded-xl transition-all shadow-xs flex items-center gap-1.5 disabled:opacity-50"
+                                    >
+                                      {isBusy ? (
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                      ) : (
+                                        <Link2 className="w-3.5 h-3.5" />
+                                      )}
+                                      <span>Save Drive Sheet</span>
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                             )}
 
