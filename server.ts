@@ -382,13 +382,18 @@ async function startServer() {
 
     const url = client.generateAuthUrl({
       access_type: 'offline',
+      include_granted_scopes: false,
+      prompt: 'consent select_account',
       scope: [
+        // Required because the application must read/write an existing
+        // spreadsheet selected from the user's Google Drive.
         'https://www.googleapis.com/auth/spreadsheets',
+        // Required to list the user's spreadsheets in the Drive picker.
         'https://www.googleapis.com/auth/drive.readonly',
+        // Allows per-file Drive access for files used with this application.
         'https://www.googleapis.com/auth/drive.file',
         'https://www.googleapis.com/auth/userinfo.email'
-      ],
-      prompt: 'consent'
+      ]
     });
     res.json({ url });
   });
@@ -403,6 +408,21 @@ async function startServer() {
       try {
         const client = createOAuth2Client();
         const { tokens } = await client.getToken(code as string);
+
+        // Verify the newly issued access token contains the Sheets scope.
+        // This gives a useful error instead of allowing a later link request
+        // to fail with a generic 7 PERMISSION_DENIED message.
+        if (tokens.access_token) {
+          try {
+            const tokenInfo = await client.getTokenInfo(tokens.access_token);
+            const scopes = String(tokenInfo.scopes || '');
+            if (!scopes.includes('https://www.googleapis.com/auth/spreadsheets')) {
+              console.warn('[GOOGLE_OAUTH_MISSING_SHEETS_SCOPE]', { scopes });
+            }
+          } catch (scopeError: any) {
+            console.warn('[GOOGLE_OAUTH_SCOPE_CHECK_WARNING]', scopeError?.message || scopeError);
+          }
+        }
 
         console.log('[GOOGLE_OAUTH_RECONNECT]', { tokenReceived: true });
 
@@ -1289,8 +1309,14 @@ async function startServer() {
         });
       }
 
-      // Persist the mapping in Firestore. This is what the lead sync resolver
-      // reads when a public widget creates a lead.
+      // The browser already writes the bot mapping to Firestore using the
+      // authenticated Firebase client. The server uses a Firebase client SDK
+      // without the browser user's auth context, so a direct Firestore write
+      // here can be rejected by Firestore security rules with:
+      // "7 PERMISSION_DENIED: Missing or insufficient permissions".
+      // Never make a successful Google Sheet link fail because of that optional
+      // server-side Firestore cache write. The server-side bot cache below is
+      // still persisted for lead-sync after the request completes.
       if (db) {
         await setDoc(doc(db, 'bot_configurations', cleanBotId), {
           id: cleanBotId,
@@ -1300,7 +1326,12 @@ async function startServer() {
           spreadsheetId: verifiedSpreadsheetId,
           worksheetName: worksheetName || 'Sheet1',
           updatedAt: new Date().toISOString()
-        }, { merge: true });
+        }, { merge: true }).catch((firestoreError: any) => {
+          console.warn(
+            '[GOOGLE_SHEET_LINK_FIRESTORE_WARNING]',
+            firestoreError?.message || firestoreError
+          );
+        });
       }
 
       // Keep the server-side bot cache in sync as well.

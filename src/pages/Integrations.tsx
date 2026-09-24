@@ -577,30 +577,45 @@ export default function Integrations() {
     }
 
     setBotLoading(prev => ({ ...prev, [botId]: true }));
-    const existingBot = bots.find(b => b.id === botId);
-    const ownerId =
-      getGoogleOwnerId() ||
-      existingBot?.googleOwnerId ||
-      effectiveUserId ||
-      auth.currentUser?.uid ||
-      'demo_user';
-
     try {
-      // Update in Firestore
+      // Save the bot -> Google owner -> spreadsheet mapping with the
+      // authenticated browser Firebase client. This is the authoritative
+      // Firestore write; the server does not rely on an unauthenticated
+      // Firestore write anymore.
+      const authenticatedOwnerId =
+        auth.currentUser?.uid ||
+        getGoogleOwnerId() ||
+        bots.find(b => b.id === botId)?.googleOwnerId ||
+        effectiveUserId ||
+        'demo_user';
+
       try {
         await setDoc(doc(db, 'bot_configurations', botId), {
+          id: botId,
           spreadsheetId: cleanId,
-          googleOwnerId: getGoogleOwnerId() || bots.find(b => b.id === botId)?.googleOwnerId || effectiveUserId || 'demo_user',
+          googleOwnerId: authenticatedOwnerId,
+          createdBy: bots.find(b => b.id === botId)?.createdBy || authenticatedOwnerId,
           updatedAt: serverTimestamp()
         }, { merge: true });
-      } catch (e) {
-        console.warn('Firestore update warning, persisting locally:', e);
+      } catch (firestoreError: any) {
+        console.error('Firestore bot mapping failed:', firestoreError);
+        throw new Error(
+          'Could not save the bot Google Sheet mapping. Please make sure you are signed in to the correct client workspace.'
+        );
       }
 
       // Update Server API and VERIFY the selected Drive spreadsheet is writable.
       // This is the important path for Drive-picked spreadsheets: the selected
       // spreadsheet is saved against THIS bot, not just as a global sheet.
       try {
+        const existingBot = bots.find(b => b.id === botId);
+        const ownerId =
+          auth.currentUser?.uid ||
+          getGoogleOwnerId() ||
+          existingBot?.googleOwnerId ||
+          effectiveUserId ||
+          'demo_user';
+
         const linkRes = await fetch('/api/sheets/link-bot', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -632,13 +647,22 @@ export default function Integrations() {
       if (localBotsRaw) {
         try {
           const parsed: BotInfo[] = JSON.parse(localBotsRaw);
-          const updated = parsed.map(b => b.id === botId ? { ...b, spreadsheetId: cleanId, googleOwnerId: ownerId } : b);
+          const updated = parsed.map(b => b.id === botId ? { ...b, spreadsheetId: cleanId } : b);
           localStorage.setItem('mintage_bots', JSON.stringify(updated));
         } catch { }
       }
 
       // Update state
-      setBots(prev => prev.map(b => b.id === botId ? { ...b, spreadsheetId: cleanId, googleOwnerId: ownerId } : b));
+      const linkedOwnerId =
+        auth.currentUser?.uid ||
+        getGoogleOwnerId() ||
+        effectiveUserId ||
+        'demo_user';
+      setBots(prev => prev.map(b =>
+        b.id === botId
+          ? { ...b, spreadsheetId: cleanId, googleOwnerId: linkedOwnerId }
+          : b
+      ));
       setBotInputs(prev => ({ ...prev, [botId]: cleanId }));
 
       // Immediately sync only this bot's pending leads to the newly linked
@@ -744,14 +768,13 @@ export default function Integrations() {
         if (localBotsRaw) {
           try {
             const parsed: BotInfo[] = JSON.parse(localBotsRaw);
-            const ownerId = getGoogleOwnerId() || bots.find(b => b.id === botId)?.googleOwnerId || effectiveUserId || 'demo_user';
-            const updated = parsed.map(b => b.id === botId ? { ...b, spreadsheetId: newSheetId, googleOwnerId: ownerId } : b);
+            const updated = parsed.map(b => b.id === botId ? { ...b, spreadsheetId: newSheetId } : b);
             localStorage.setItem('mintage_bots', JSON.stringify(updated));
           } catch { }
         }
 
         // Update state
-        setBots(prev => prev.map(b => b.id === botId ? { ...b, spreadsheetId: newSheetId, googleOwnerId: getGoogleOwnerId() || b.googleOwnerId || effectiveUserId || 'demo_user' } : b));
+        setBots(prev => prev.map(b => b.id === botId ? { ...b, spreadsheetId: newSheetId } : b));
         setBotInputs(prev => ({ ...prev, [botId]: newSheetId }));
 
         fetchUserSheets(googleTokens);
