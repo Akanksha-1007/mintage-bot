@@ -13,11 +13,14 @@ import {
   AlertCircle,
   AlertTriangle,
   Bot,
+  Building2,
+  Calendar,
   CheckCircle2,
   Clock,
   Download,
   ExternalLink,
   FileText,
+  FilterX,
   Layers,
   Loader2,
   MessageSquare,
@@ -118,7 +121,11 @@ export default function Leads() {
   const [botNames, setBotNames] = useState<Record<string, string>>({});
 
   const [selectedBotFilter, setSelectedBotFilter] = useState('ALL');
+  const [selectedProjectFilter, setSelectedProjectFilter] = useState('ALL');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState('ALL');
+  const [datePresetFilter, setDatePresetFilter] = useState('ALL');
+  const [startDateFilter, setStartDateFilter] = useState('');
+  const [endDateFilter, setEndDateFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
@@ -759,14 +766,106 @@ export default function Leads() {
     [leads],
   );
 
+  const getLeadProject = (lead: Lead): string => {
+    if (lead.project) return String(lead.project).trim();
+    if ((lead as any).selectedProject) return String((lead as any).selectedProject).trim();
+    if ((lead as any).projectName) return String((lead as any).projectName).trim();
+    const data = (lead.data && typeof lead.data === 'object' ? lead.data : {}) as Record<string, any>;
+    if (data.project) return String(data.project).trim();
+    if (data.selectedProject) return String(data.selectedProject).trim();
+    if (data.projectName) return String(data.projectName).trim();
+    if (data.Project) return String(data.Project).trim();
+    if (data['Project Name']) return String(data['Project Name']).trim();
+    return '';
+  };
+
+  const uniqueProjectsList = useMemo(() => {
+    const projects = new Set<string>();
+    leads.forEach((lead) => {
+      const proj = getLeadProject(lead);
+      if (proj && proj.toUpperCase() !== 'DSR') {
+        projects.add(proj);
+      }
+    });
+    return Array.from(projects).sort();
+  }, [leads]);
+
+  const hasActiveFilters = useMemo(() => {
+    return (
+      selectedBotFilter !== 'ALL' ||
+      selectedProjectFilter !== 'ALL' ||
+      selectedStatusFilter !== 'ALL' ||
+      datePresetFilter !== 'ALL' ||
+      Boolean(startDateFilter) ||
+      Boolean(endDateFilter) ||
+      Boolean(searchQuery.trim())
+    );
+  }, [
+    selectedBotFilter,
+    selectedProjectFilter,
+    selectedStatusFilter,
+    datePresetFilter,
+    startDateFilter,
+    endDateFilter,
+    searchQuery,
+  ]);
+
+  const resetFilters = () => {
+    setSelectedBotFilter('ALL');
+    setSelectedProjectFilter('ALL');
+    setSelectedStatusFilter('ALL');
+    setDatePresetFilter('ALL');
+    setStartDateFilter('');
+    setEndDateFilter('');
+    setSearchQuery('');
+  };
+
   const filteredLeads = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
+
+    // Calculate date boundaries for filtering
+    const now = new Date();
+    let minDate: Date | null = null;
+    let maxDate: Date | null = null;
+
+    if (datePresetFilter === 'TODAY') {
+      minDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+      maxDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    } else if (datePresetFilter === 'YESTERDAY') {
+      const yest = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+      minDate = new Date(yest.getFullYear(), yest.getMonth(), yest.getDate(), 0, 0, 0, 0);
+      maxDate = new Date(yest.getFullYear(), yest.getMonth(), yest.getDate(), 23, 59, 59, 999);
+    } else if (datePresetFilter === 'LAST_7_DAYS') {
+      const d7 = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
+      minDate = new Date(d7.getFullYear(), d7.getMonth(), d7.getDate(), 0, 0, 0, 0);
+      maxDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    } else if (datePresetFilter === 'LAST_30_DAYS') {
+      const d30 = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29);
+      minDate = new Date(d30.getFullYear(), d30.getMonth(), d30.getDate(), 0, 0, 0, 0);
+      maxDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    } else if (datePresetFilter === 'THIS_MONTH') {
+      minDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+      maxDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    } else if (datePresetFilter === 'CUSTOM') {
+      if (startDateFilter) {
+        minDate = new Date(`${startDateFilter}T00:00:00`);
+      }
+      if (endDateFilter) {
+        maxDate = new Date(`${endDateFilter}T23:59:59.999`);
+      }
+    }
 
     return leads.filter((lead) => {
       const botId = lead.botId || lead.flowId || '';
       const currentStatus = lead.status || 'New';
+      const project = getLeadProject(lead);
+      const leadDate = getLeadDate(lead);
 
       if (selectedBotFilter !== 'ALL' && botId !== selectedBotFilter) {
+        return false;
+      }
+
+      if (selectedProjectFilter !== 'ALL' && project !== selectedProjectFilter) {
         return false;
       }
 
@@ -775,6 +874,12 @@ export default function Leads() {
         currentStatus !== selectedStatusFilter
       ) {
         return false;
+      }
+
+      if (minDate || maxDate) {
+        if (!leadDate) return false;
+        if (minDate && leadDate < minDate) return false;
+        if (maxDate && leadDate > maxDate) return false;
       }
 
       if (!query) return true;
@@ -796,20 +901,26 @@ export default function Leads() {
       const urlMatch = (lead.sourceUrl || '').toLowerCase().includes(query);
       const idMatch = lead.id.toLowerCase().includes(query);
       const statusMatch = currentStatus.toLowerCase().includes(query);
+      const projectMatch = project.toLowerCase().includes(query);
 
       return (
         botName.includes(query) ||
         fieldMatch ||
         urlMatch ||
         idMatch ||
-        statusMatch
+        statusMatch ||
+        projectMatch
       );
     });
   }, [
     leads,
     searchQuery,
     selectedBotFilter,
+    selectedProjectFilter,
     selectedStatusFilter,
+    datePresetFilter,
+    startDateFilter,
+    endDateFilter,
     botNames,
   ]);
 
@@ -967,6 +1078,68 @@ export default function Leads() {
         </label>
 
         <label className="inline-select">
+          <Building2 />
+          <select
+            value={selectedProjectFilter}
+            onChange={(event) => setSelectedProjectFilter(event.target.value)}
+            aria-label="Filter by project"
+          >
+            <option value="ALL">All projects ({uniqueProjectsList.length > 0 ? uniqueProjectsList.length : 'All'})</option>
+            {uniqueProjectsList.map((proj) => (
+              <option key={proj} value={proj}>
+                {proj}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="inline-select">
+          <Calendar />
+          <select
+            value={datePresetFilter}
+            onChange={(event) => {
+              const val = event.target.value;
+              setDatePresetFilter(val);
+              if (val !== 'CUSTOM') {
+                setStartDateFilter('');
+                setEndDateFilter('');
+              }
+            }}
+            aria-label="Filter by date range"
+          >
+            <option value="ALL">All time</option>
+            <option value="TODAY">Today</option>
+            <option value="YESTERDAY">Yesterday</option>
+            <option value="LAST_7_DAYS">Last 7 days</option>
+            <option value="LAST_30_DAYS">Last 30 days</option>
+            <option value="THIS_MONTH">This month</option>
+            <option value="CUSTOM">Custom date range…</option>
+          </select>
+        </label>
+
+        {datePresetFilter === 'CUSTOM' && (
+          <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-xl px-2.5 py-1.5 text-xs shadow-sm">
+            <span className="text-gray-500 font-medium">From:</span>
+            <input
+              type="date"
+              value={startDateFilter}
+              onChange={(e) => setStartDateFilter(e.target.value)}
+              className="bg-transparent border-none text-xs font-semibold text-gray-700 outline-none"
+              aria-label="Start Date"
+            />
+            <span className="text-gray-400">—</span>
+            <span className="text-gray-500 font-medium">To:</span>
+            <input
+              type="date"
+              value={endDateFilter}
+              onChange={(e) => setEndDateFilter(e.target.value)}
+              className="bg-transparent border-none text-xs font-semibold text-gray-700 outline-none"
+              aria-label="End Date"
+            />
+          </div>
+        )}
+
+        <label className="inline-select">
           <Tag />
           <select
             value={selectedStatusFilter}
@@ -994,11 +1167,23 @@ export default function Leads() {
             type="text"
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Search leads, values, URL…"
+            placeholder="Search leads, project, values…"
             className="input"
             aria-label="Search leads"
           />
         </label>
+
+        {hasActiveFilters && (
+          <button
+            type="button"
+            onClick={resetFilters}
+            className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold text-xs rounded-xl transition-all flex items-center gap-1.5 border border-gray-200 shadow-sm"
+            title="Reset all active filters"
+          >
+            <FilterX className="w-3.5 h-3.5" />
+            <span>Clear filters</span>
+          </button>
+        )}
       </div>
 
       <div className="leads-stat-grid">
