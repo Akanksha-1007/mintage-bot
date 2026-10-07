@@ -642,6 +642,11 @@ async function startServer() {
   }
 
   function resolveProjectNameForLead(lead: any, resolvedBot?: any): string {
+    const botName = String(resolvedBot?.botName || lead?.botName || lead?.data?.sourceBot || lead?.data?.botName || '').trim();
+    if (botName && botName.toUpperCase() !== 'DSR' && botName.toLowerCase() !== 'chatbot' && botName.toLowerCase() !== 'unnamed bot' && botName.toLowerCase() !== 'my new bot') {
+      return botName;
+    }
+
     let candidate = String(
       lead?.project ??
       lead?.projectName ??
@@ -685,15 +690,6 @@ async function startServer() {
       return candidate;
     }
 
-    const botName = String(resolvedBot?.botName || lead?.botName || lead?.data?.sourceBot || lead?.data?.botName || '').trim();
-    if (botName && botName.toUpperCase() !== 'DSR' && botName.toLowerCase() !== 'chatbot' && botName.toLowerCase() !== 'unnamed bot' && botName.toLowerCase() !== 'my new bot') {
-      const bnLower = botName.toLowerCase();
-      if (bnLower.includes('altitudes')) return 'DSR Altitudes';
-      if (bnLower.includes('skymarq')) return 'DSR Skymarq';
-      if (/\bdsr[\s_-]*w\b/i.test(botName) || /\bw\b/i.test(botName)) return 'DSR W';
-      return botName;
-    }
-
     const fullText = `${lead?.botId || ''} ${lead?.flowId || ''} ${botName} ${lead?.sourceUrl || ''} ${lead?.referrer || ''} ${JSON.stringify(lead?.data || {})}`.toLowerCase();
 
     if (fullText.includes('altitudes')) return 'DSR Altitudes';
@@ -714,7 +710,7 @@ async function startServer() {
     if (botName && botName.toUpperCase() !== 'DSR') return botName;
     if (candidate) return candidate;
 
-    if (fullText.includes('dsr')) return 'DSR Project';
+    if (fullText.includes('dsr')) return 'DSR Altitudes';
     return 'Chatbot Lead';
   }
 
@@ -876,12 +872,13 @@ async function startServer() {
           throw err;
         }
 
+        const resolvedBot = await resolveBotAndOwner(lead.botId || lead.flowId);
         // Extract managed fields including Project Name
         const selectedFields = {
           name: String(lead?.name ?? lead?.data?.name ?? lead?.data?.Name ?? '').trim(),
           phone: String(lead?.phone ?? lead?.data?.phone ?? lead?.data?.Phone ?? lead?.data?.['Phone Number'] ?? '').trim(),
           email: String(lead?.email ?? lead?.data?.email ?? lead?.data?.Email ?? '').trim(),
-          project: resolveProjectNameForLead(lead),
+          project: resolveProjectNameForLead(lead, resolvedBot),
           bookVisit: normalizeBookVisitValue(
             lead?.bookVisit ??
             lead?.book_a_visit ??
@@ -927,7 +924,7 @@ async function startServer() {
 
         // Fallback for project name if still empty or plain DSR
         if (!selectedFields.project || selectedFields.project.toUpperCase() === 'DSR') {
-          selectedFields.project = resolveProjectNameForLead(lead);
+          selectedFields.project = resolveProjectNameForLead(lead, resolvedBot);
         }
 
         // Also inspect direct properties on field objects
