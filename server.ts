@@ -641,6 +641,83 @@ async function startServer() {
     };
   }
 
+  function resolveProjectNameForLead(lead: any, resolvedBot?: any): string {
+    let candidate = String(
+      lead?.project ??
+      lead?.projectName ??
+      lead?.selectedProject ??
+      lead?.data?.project ??
+      lead?.data?.projectName ??
+      lead?.data?.['Project Name'] ??
+      lead?.data?.['Project'] ??
+      lead?.data?.selectedProject ??
+      ''
+    ).trim();
+
+    if (candidate && candidate.toUpperCase() !== 'DSR' && candidate.toLowerCase() !== 'chatbot' && candidate.toLowerCase() !== 'unnamed bot') {
+      return candidate;
+    }
+
+    if (Array.isArray(lead?.fields)) {
+      for (const field of lead.fields) {
+        const label = String(field?.label ?? '').replace(/\s+/g, ' ').trim();
+        const key = String(field?.fieldKey ?? field?.key ?? field?.leadKey ?? '').replace(/\s+/g, ' ').trim();
+        const type = String(field?.type ?? field?.componentType ?? '').trim().toLowerCase();
+        const value = field?.value == null ? '' : String(field.value).trim();
+        if (!value) continue;
+
+        const valLower = value.toLowerCase();
+        if (valLower.includes('altitudes')) return 'DSR Altitudes';
+        if (valLower.includes('skymarq')) return 'DSR Skymarq';
+        if (/\bdsr[\s_-]*w\b/i.test(value) || (valLower.includes('w') && (valLower.includes('site visit') || valLower.includes('book')))) return 'DSR W';
+        if (valLower.includes('risinia')) return 'Risinia Builders';
+        if (valLower.includes('river')) return 'River Scape Residences';
+
+        const haystack = `${label} ${key}`.toLowerCase();
+        const isProject = type === 'project' || /\b(project|property|community|development|residence|which project|choose project|select project)\b/i.test(haystack);
+        if (isProject && value.toUpperCase() !== 'DSR' && value.toLowerCase() !== 'chatbot') {
+          candidate = value;
+        }
+      }
+    }
+
+    if (candidate && candidate.toUpperCase() !== 'DSR' && candidate.toLowerCase() !== 'chatbot') {
+      return candidate;
+    }
+
+    const botName = String(resolvedBot?.botName || lead?.botName || lead?.data?.sourceBot || lead?.data?.botName || '').trim();
+    if (botName && botName.toUpperCase() !== 'DSR' && botName.toLowerCase() !== 'chatbot' && botName.toLowerCase() !== 'unnamed bot' && botName.toLowerCase() !== 'my new bot') {
+      const bnLower = botName.toLowerCase();
+      if (bnLower.includes('altitudes')) return 'DSR Altitudes';
+      if (bnLower.includes('skymarq')) return 'DSR Skymarq';
+      if (/\bdsr[\s_-]*w\b/i.test(botName) || /\bw\b/i.test(botName)) return 'DSR W';
+      return botName;
+    }
+
+    const fullText = `${lead?.botId || ''} ${lead?.flowId || ''} ${botName} ${lead?.sourceUrl || ''} ${lead?.referrer || ''} ${JSON.stringify(lead?.data || {})}`.toLowerCase();
+
+    if (fullText.includes('altitudes')) return 'DSR Altitudes';
+    if (fullText.includes('skymarq')) return 'DSR Skymarq';
+    if (fullText.includes('dsr_w') || fullText.includes('dsr-w') || fullText.includes('dsr w') || fullText.includes('w')) return 'DSR W';
+    if (fullText.includes('risinia')) return 'Risinia Builders';
+    if (fullText.includes('river')) return 'River Scape Residences';
+
+    const projectConfig = getProjectSpreadsheetConfig(
+      lead?.botId || lead?.flowId || resolvedBot?.botId,
+      botName,
+      lead?.spreadsheetId
+    );
+    if (projectConfig?.project) {
+      return projectConfig.project;
+    }
+
+    if (botName && botName.toUpperCase() !== 'DSR') return botName;
+    if (candidate) return candidate;
+
+    if (fullText.includes('dsr')) return 'DSR Project';
+    return 'Chatbot Lead';
+  }
+
   // Per-process lead/sheet lock. This serializes concurrent sync calls for the same
   // lead on a Render instance, which prevents the read->append race that was creating
   // multiple identical rows. The frontend also has a submission guard.
@@ -804,20 +881,7 @@ async function startServer() {
           name: String(lead?.name ?? lead?.data?.name ?? lead?.data?.Name ?? '').trim(),
           phone: String(lead?.phone ?? lead?.data?.phone ?? lead?.data?.Phone ?? lead?.data?.['Phone Number'] ?? '').trim(),
           email: String(lead?.email ?? lead?.data?.email ?? lead?.data?.Email ?? '').trim(),
-          project: String(
-            lead?.project ??
-            lead?.projectName ??
-            lead?.selectedProject ??
-            lead?.data?.project ??
-            lead?.data?.projectName ??
-            lead?.data?.['Project Name'] ??
-            lead?.data?.['Project'] ??
-            lead?.data?.selectedProject ??
-            lead?.botName ??
-            lead?.data?.sourceBot ??
-            lead?.data?.botName ??
-            ''
-          ).trim(),
+          project: resolveProjectNameForLead(lead),
           bookVisit: normalizeBookVisitValue(
             lead?.bookVisit ??
             lead?.book_a_visit ??
@@ -855,17 +919,15 @@ async function startServer() {
             if (isName && !selectedFields.name) selectedFields.name = value;
             if (isPhone && !selectedFields.phone) selectedFields.phone = value;
             if (isEmail && !selectedFields.email) selectedFields.email = value;
-            if (isProject && !selectedFields.project) selectedFields.project = value;
+            if (isProject && (!selectedFields.project || selectedFields.project.toUpperCase() === 'DSR')) {
+              selectedFields.project = value;
+            }
           }
         }
 
-        // Fallback for project name if still empty
-        if (!selectedFields.project) {
-          const legacyData = lead?.data && typeof lead.data === 'object' ? lead.data : {};
-          selectedFields.project = String(
-            legacyData.project ?? legacyData.projectName ?? legacyData.selectedProject ??
-            lead?.botName ?? legacyData.sourceBot ?? legacyData.botName ?? ''
-          ).trim();
+        // Fallback for project name if still empty or plain DSR
+        if (!selectedFields.project || selectedFields.project.toUpperCase() === 'DSR') {
+          selectedFields.project = resolveProjectNameForLead(lead);
         }
 
         // Also inspect direct properties on field objects
@@ -2350,6 +2412,13 @@ async function startServer() {
       flattenedData.book_a_visit = extractedBookVisit;
     }
 
+    const resolvedProjectName = resolveProjectNameForLead(
+      { ...leadPayload, botName, fields: mergedFields, data: { ...(existingLead?.data || {}), ...flattenedData } },
+      resolvedBot
+    );
+    flattenedData['Project Name'] = resolvedProjectName;
+    flattenedData.project = resolvedProjectName;
+
     const leadRecord: any = {
       id: leadId,
       botId,
@@ -2359,8 +2428,10 @@ async function startServer() {
       googleOwnerId: resolvedBot?.googleOwnerId || existingLead?.googleOwnerId || '',
       userId: userId || existingLead?.userId || '',
       conversationId: conversationId || existingLead?.conversationId || '',
-      botName,
-      clientName: botName,
+      botName: (botName && botName.toUpperCase() !== 'DSR' && botName.toLowerCase() !== 'chatbot') ? botName : resolvedProjectName,
+      clientName: (botName && botName.toUpperCase() !== 'DSR' && botName.toLowerCase() !== 'chatbot') ? botName : resolvedProjectName,
+      project: resolvedProjectName,
+      projectName: resolvedProjectName,
       name: extractedName || leadPayload.name || existingLead?.name || '',
       email: extractedEmail || leadPayload.email || existingLead?.email || '',
       phone: extractedPhone || leadPayload.phone || existingLead?.phone || '',
@@ -2949,6 +3020,7 @@ async function startServer() {
     console.log('[GOOGLE_SHEET_RETRY_SYNC]', { leadId, spreadsheetId: sheetConfig.spreadsheetId, worksheet: sheetConfig.worksheetName });
 
     try {
+      lead.project = resolveProjectNameForLead(lead, resolvedBot);
       const syncResult = await syncLeadToGoogleSheets(sheetConfig.googleTokens, sheetConfig.spreadsheetId, sheetConfig.worksheetName, lead);
       lead.googleSheetSyncStatus = 'synced';
       lead.googleSheetSyncAction = syncResult?.action || 'synced';
@@ -3083,6 +3155,7 @@ async function startServer() {
       }
 
       try {
+        lead.project = resolveProjectNameForLead(lead, resolvedBot);
         const syncResult = await syncLeadToGoogleSheets(sheetConfig.googleTokens, sheetConfig.spreadsheetId, sheetConfig.worksheetName, lead);
         lead.googleSheetSyncStatus = 'synced';
         lead.googleSheetSyncAction = syncResult?.action || 'synced';
