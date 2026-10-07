@@ -1055,6 +1055,7 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
       chatUserId,
       conversationId: stableConversationId,
       fields: normalizedFieldEntries,
+      isUpdate: true,
       name: topLevelName || data?.name || data?.full_name || data?.fullname || '',
       phone: topLevelPhone || data?.phone || data?.phone_number || '',
       email: topLevelEmail || data?.email || data?.email_address || '',

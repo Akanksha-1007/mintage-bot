@@ -301,9 +301,46 @@ export default function Dashboard() {
         });
 
         /*
+         * Deduplicate leads so half-leads are merged into full-details leads.
+         */
+        const deduplicatedMap = new Map<string, Lead>();
+
+        const calculateLeadScore = (l: Lead): number => {
+          let score = 0;
+          if (getLeadName(l) && getLeadName(l).toLowerCase() !== 'anonymous lead') score += 10;
+          if (getLeadEmail(l)) score += 10;
+          if (getLeadPhone(l)) score += 25;
+          const proj = getLeadProject(l);
+          if (proj && proj.toUpperCase() !== 'DSR') score += 25;
+          if ((l as any).bookVisit || (l as any).book_a_visit || (l.data as any)?.book_a_visit) score += 30;
+          return score;
+        };
+
+        clientLeads.forEach((lead) => {
+          const email = getLeadEmail(lead).toLowerCase().trim();
+          const convId = String((lead as any).conversationId || '').trim();
+          const botId = String((lead as any).botId || (lead as any).flowId || '').trim();
+
+          let groupKey = `id:${lead.id}`;
+          if (convId) groupKey = `conv:${botId}:${convId}`;
+          else if (email) groupKey = `email:${botId}:${email}`;
+
+          if (deduplicatedMap.has(groupKey)) {
+            const existing = deduplicatedMap.get(groupKey)!;
+            if (calculateLeadScore(lead) > calculateLeadScore(existing)) {
+              deduplicatedMap.set(groupKey, { ...existing, ...lead });
+            }
+          } else {
+            deduplicatedMap.set(groupKey, lead);
+          }
+        });
+
+        const finalLeads = Array.from(deduplicatedMap.values());
+
+        /*
          * Newest first.
          */
-        clientLeads.sort((a, b) => {
+        finalLeads.sort((a, b) => {
           const dateA = getTimestampValue(
             a.timestamp || a.createdAt
           );
@@ -315,7 +352,7 @@ export default function Dashboard() {
           return dateB - dateA;
         });
 
-        setLeads(clientLeads);
+        setLeads(finalLeads);
         setLoadingLeads(false);
       },
       (error) => {

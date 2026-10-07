@@ -1122,16 +1122,25 @@ async function startServer() {
         existingRows.slice(1).forEach((row: any[], index: number) => {
           const rowNumber = index + 2;
           const rowLeadId = String(row?.[6] ?? row?.[5] ?? '').trim();
+          const rowPhone = normalizeLeadPhone(row?.[2] ?? '');
+          const rowEmail = normalizeLeadEmail(row?.[3] ?? '');
 
-          // Only match if the exact internal leadId is retried to avoid duplicate rows on retry sync.
-          // Never overwrite existing rows based on phone, email or name.
           const leadIdMatch = Boolean(leadKey && rowLeadId && leadKey === rowLeadId);
+          const emailMatch = Boolean(wantedEmail && rowEmail && wantedEmail === rowEmail);
+          const phoneMatch = Boolean(wantedPhone && rowPhone && wantedPhone.length >= 10 && wantedPhone === rowPhone);
+          const isRowIncomplete = !rowPhone || !row?.[4] || String(row?.[4]).trim().toUpperCase() === 'DSR' || !row?.[5];
 
           if (leadIdMatch) {
             matchingRows.push({
               rowNumber,
               row,
               score: 1000 + row.slice(1, 6).filter((v: any) => String(v ?? '').trim() !== '').length
+            });
+          } else if ((emailMatch || phoneMatch) && isRowIncomplete) {
+            matchingRows.push({
+              rowNumber,
+              row,
+              score: 500 + row.slice(1, 6).filter((v: any) => String(v ?? '').trim() !== '').length
             });
           }
         });
@@ -2178,6 +2187,103 @@ async function startServer() {
     return null;
   };
 
+  // Helper to deduplicate leads and keep the most complete lead record per conversation/user session
+  function deduplicateLeadsList(leadsList: any[]): any[] {
+    if (!Array.isArray(leadsList) || leadsList.length <= 1) return leadsList || [];
+
+    const result: any[] = [];
+    const removedIds = new Set<string>();
+
+    const calculateScore = (l: any) => {
+      const email = normalizeLeadEmail(l.email || l.data?.email || l.data?.Email);
+      const phone = normalizeLeadPhone(l.phone || l.data?.phone || l.data?.Phone || l.data?.['Phone Number']);
+      const project = String(l.project || l.projectName || l.selectedProject || l.data?.project || l.data?.projectName || '').trim();
+      const bookVisit = String(l.bookVisit || l.book_a_visit || l.data?.book_a_visit || l.data?.['Book a Visit'] || '').trim();
+      const name = String(l.name || l.data?.name || l.data?.Name || '').trim();
+
+      let score = 0;
+      if (email) score += 10;
+      if (name && name.toLowerCase() !== 'anonymous lead') score += 10;
+      if (phone) score += 25;
+      if (project && project.toUpperCase() !== 'DSR') score += 25;
+      if (bookVisit) score += 30;
+      return score;
+    };
+
+    const sorted = [...leadsList].sort((a, b) => calculateScore(b) - calculateScore(a));
+
+    for (const lead of sorted) {
+      if (!lead || !lead.id || removedIds.has(lead.id)) continue;
+
+      const bot = String(lead.botId || lead.flowId || '').trim();
+      const conv = String(lead.conversationId || '').trim();
+      const user = String(lead.userId || lead.chatUserId || '').trim();
+      const email = normalizeLeadEmail(lead.email || lead.data?.email || lead.data?.Email);
+      const phone = normalizeLeadPhone(lead.phone || lead.data?.phone || lead.data?.Phone || lead.data?.['Phone Number']);
+
+      const duplicateIndex = result.findIndex(existing => {
+        const exBot = String(existing.botId || existing.flowId || '').trim();
+        const exConv = String(existing.conversationId || '').trim();
+        const exUser = String(existing.userId || existing.chatUserId || '').trim();
+        const exEmail = normalizeLeadEmail(existing.email || existing.data?.email || existing.data?.Email);
+        const exPhone = normalizeLeadPhone(existing.phone || existing.data?.phone || existing.data?.Phone || existing.data?.['Phone Number']);
+
+        if (bot && exBot && bot !== exBot) return false;
+
+        if (conv && exConv && conv === exConv) return true;
+        if (user && exUser && user === exUser) return true;
+        if (email && exEmail && email === exEmail) return true;
+        if (phone && exPhone && phone.length >= 10 && phone === exPhone) return true;
+
+        return false;
+      });
+
+      if (duplicateIndex !== -1) {
+        const primary = result[duplicateIndex];
+        removedIds.add(lead.id);
+
+        primary.name = primary.name || lead.name || '';
+        primary.email = primary.email || lead.email || '';
+        primary.phone = primary.phone || lead.phone || '';
+        primary.project = (primary.project && primary.project.toUpperCase() !== 'DSR') ? primary.project : (lead.project || primary.project || '');
+        primary.projectName = primary.project;
+        primary.bookVisit = primary.bookVisit || lead.bookVisit || primary.book_a_visit || lead.book_a_visit || '';
+        primary.book_a_visit = primary.bookVisit;
+
+        if (!primary.conversationId && lead.conversationId) primary.conversationId = lead.conversationId;
+        if (!primary.userId && lead.userId) primary.userId = lead.userId;
+
+        primary.data = { ...(lead.data || {}), ...(primary.data || {}) };
+
+        const fieldMap = new Map<string, any>();
+        (lead.fields || []).forEach((f: any) => { if (f?.label) fieldMap.set(String(f.label).toLowerCase(), f); });
+        (primary.fields || []).forEach((f: any) => { if (f?.label) fieldMap.set(String(f.label).toLowerCase(), f); });
+        primary.fields = Array.from(fieldMap.values());
+      } else {
+        result.push(lead);
+      }
+    }
+
+    if (removedIds.size > 0) {
+      let fileNeedsSave = false;
+      for (let i = serverLeadsList.length - 1; i >= 0; i--) {
+        if (removedIds.has(serverLeadsList[i]?.id)) {
+          const dupId = serverLeadsList[i].id;
+          serverLeadsList.splice(i, 1);
+          fileNeedsSave = true;
+          if (db) {
+            deleteDoc(doc(db, 'leads', dupId)).catch(() => null);
+          }
+        }
+      }
+      if (fileNeedsSave) {
+        saveLeadsToFile();
+      }
+    }
+
+    return result;
+  }
+
   // Backend Lead Storage & Retrieval
   app.post('/api/leads', async (req, res) => {
     const leadPayload = req.body || {};
@@ -2276,22 +2382,43 @@ async function startServer() {
     const incomingEmail = normalizeEmail(extractedEmail || leadPayload.email);
     const incomingPhone = normalizePhone(extractedPhone || leadPayload.phone);
 
-    // Each new lead capture request creates a separate lead record.
-    // Overwriting by phone, email, conversationId, or userId is disabled so every lead
-    // is preserved as a new record in the Dashboard and a new row in Google Sheets.
+    // Look up existing lead for this conversation / user session / lead ID / email
+    // to merge with full details instead of creating duplicate half-lead records.
     let existingLead: any = null;
     let leadId = leadPayload.id;
 
-    if (leadPayload.isUpdate && leadId) {
+    if (leadId) {
       existingLead = serverLeadsList.find(l => l.id === leadId);
-      if (!existingLead && db) {
-        try {
+    }
+    if (!existingLead && conversationId) {
+      existingLead = serverLeadsList.find(l => l.conversationId === conversationId && (l.botId === botId || l.flowId === botId));
+    }
+    if (!existingLead && userId) {
+      existingLead = serverLeadsList.find(l => l.userId === userId && (l.botId === botId || l.flowId === botId));
+    }
+    if (!existingLead && incomingEmail) {
+      existingLead = serverLeadsList.find(l =>
+        (l.botId === botId || l.flowId === botId) &&
+        normalizeEmail(l.email) === incomingEmail
+      );
+    }
+
+    if (!existingLead && db) {
+      try {
+        if (leadId) {
           const lSnap = await getDoc(doc(db, 'leads', leadId)).catch(() => null);
           if (lSnap && lSnap.exists()) {
             existingLead = { id: lSnap.id, ...lSnap.data() };
           }
-        } catch (e) { }
-      }
+        }
+        if (!existingLead && conversationId) {
+          const q = query(collection(db, 'leads'), where('conversationId', '==', conversationId));
+          const snap = await getDocs(q).catch(() => null);
+          if (snap && !snap.empty) {
+            existingLead = { id: snap.docs[0].id, ...snap.docs[0].data() };
+          }
+        }
+      } catch (e) { }
     }
 
     const nowIso = new Date().toISOString();
@@ -2300,7 +2427,7 @@ async function startServer() {
     if (existingLead) {
       leadId = existingLead.id;
     } else {
-      leadId = `lead_${botId}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      leadId = leadPayload.id || `lead_${botId}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     }
 
     // Merge old and new fields instead of replacing the array. This is critical
@@ -2716,6 +2843,8 @@ async function startServer() {
     } catch (backfillErr) {
       console.warn('[CHATBOT_LEAD_BACKFILL_GET_WARNING]', backfillErr);
     }
+
+    allLeads = deduplicateLeadsList(allLeads);
 
     // Auto-sync any unsynced leads in background when dashboard loads/fetches leads
     if (allLeads.some(l => l && l.googleSheetSyncStatus !== 'synced')) {

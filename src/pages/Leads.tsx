@@ -183,14 +183,51 @@ export default function Leads() {
     firestoreLeads: Lead[],
   ): Lead[] => {
     const deletedIds = new Set(getDeletedLeadIds());
-    const map = new Map<string, Lead>();
+    const groupMap = new Map<string, Lead>();
+
+    const calculateLeadScore = (l: Lead): number => {
+      let score = 0;
+      if (l.name) score += 10;
+      const data = (l.data && typeof l.data === 'object' ? l.data : l) as Record<string, any>;
+      const email = String(l.email || data.email || data.Email || '').trim();
+      const phone = String(l.phone || data.phone || data.Phone || data['Phone Number'] || '').trim();
+      const project = String(l.project || l.selectedProject || l.projectName || data.project || data.projectName || '').trim();
+      const visit = String((l as any).bookVisit || (l as any).book_a_visit || data.book_a_visit || data['Book a Visit'] || '').trim();
+
+      if (email) score += 10;
+      if (phone) score += 25;
+      if (project && project.toUpperCase() !== 'DSR') score += 25;
+      if (visit) score += 30;
+      return score;
+    };
 
     [...localLeads, ...serverLeads, ...firestoreLeads].forEach((lead) => {
       if (!lead?.id || deletedIds.has(lead.id)) return;
-      map.set(lead.id, lead);
+
+      const botId = String(lead.botId || lead.flowId || '').trim();
+      const convId = String(lead.conversationId || '').trim();
+      const data = (lead.data && typeof lead.data === 'object' ? lead.data : lead) as Record<string, any>;
+      const email = String(lead.email || data.email || data.Email || '').trim().toLowerCase();
+
+      let groupKey = `id:${lead.id}`;
+      if (convId) groupKey = `conv:${botId}:${convId}`;
+      else if (email) groupKey = `email:${botId}:${email}`;
+
+      if (groupMap.has(groupKey)) {
+        const existing = groupMap.get(groupKey)!;
+        if (calculateLeadScore(lead) > calculateLeadScore(existing)) {
+          groupMap.set(groupKey, {
+            ...existing,
+            ...lead,
+            fields: [...(existing.fields || []), ...(lead.fields || [])]
+          });
+        }
+      } else {
+        groupMap.set(groupKey, lead);
+      }
     });
 
-    return Array.from(map.values());
+    return Array.from(groupMap.values());
   };
 
   const updateBotNames = async (items: Lead[]) => {
