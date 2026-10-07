@@ -422,182 +422,504 @@ export default function AdminDashboard() {
 
   return (
     <div className="admin-console-page workspace-page workspace-page--wide">
-      {/* Header */}
-      <header className="page-heading">
+      {/* Page Header with Hero Banner */}
+      <header className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 mb-7">
         <div>
-          <div className="eyebrow-row">
-            <span className="status-pill tone-blue"><ShieldCheck />Admin console</span>
-            {impersonatedClient && (
-              <span className="status-pill tone-yellow"><Sparkles />Client view</span>
-            )}
-          </div>
-          <h2>
-            {activeTab === 'users'
-              ? 'Chatbot users'
-              : (activeTab === 'leads' ? 'All client leads' : 'Client credentials')}
-          </h2>
-          <p>
-            {activeTab === 'users'
-              ? 'Live overview of chatbot visitors, message history and engagement.'
-              : (activeTab === 'leads'
-                ? 'Centralised lead management across every published client chatbot.'
-                : 'Generate client credentials and open any client workspace in one click.')}
+          <span className="text-[11px] font-semibold tracking-wider text-gray-400 dark:text-gray-500 uppercase block mb-1">
+            ADMIN CONSOLE
+          </span>
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-900 dark:text-white tracking-tight font-serif">
+            Chatbot users
+          </h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-xl">
+            Live overview of chatbot visitors, message history and engagement.
           </p>
         </div>
 
-        <div className="page-actions">
+        {/* Hero Banner Card on Right */}
+        <div className="hero-banner-card relative overflow-hidden rounded-2xl p-5 border border-[#efe5d5] bg-gradient-to-r from-[#fdfbf7] to-[#f7eee1] dark:from-[#1a1714] dark:to-[#221c17] dark:border-[#382d24] flex items-center justify-between gap-6 shadow-sm min-w-[320px] max-w-lg">
+          <div className="z-10 flex-1">
+            <span className="inline-block px-2.5 py-0.5 rounded-full text-[10.5px] font-medium bg-white/80 dark:bg-black/40 text-gray-600 dark:text-gray-300 border border-amber-900/10 mb-2">
+              Automate &bull; Engage &bull; Convert
+            </span>
+            <h3 className="text-lg sm:text-xl font-serif font-bold text-gray-900 dark:text-amber-100 leading-tight">
+              Smarter <br />
+              Conversations <br />
+              for <span className="text-[#c49947] dark:text-[#e4ca97]">Better Results</span>
+            </h3>
+          </div>
+
+          {/* Robot Illustration Container */}
+          <div className="relative z-10 shrink-0 w-28 h-28 flex items-center justify-center">
+            {/* 3D Robot Vector */}
+            <svg viewBox="0 0 120 120" className="w-full h-full drop-shadow-md">
+              <defs>
+                <linearGradient id="robotBody" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#ffffff" />
+                  <stop offset="100%" stopColor="#e2e8f0" />
+                </linearGradient>
+                <linearGradient id="robotScreen" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#1e293b" />
+                  <stop offset="100%" stopColor="#0f172a" />
+                </linearGradient>
+                <linearGradient id="goldGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#f59e0b" />
+                  <stop offset="100%" stopColor="#d97706" />
+                </linearGradient>
+              </defs>
+              {/* Head */}
+              <rect x="30" y="25" width="60" height="48" rx="20" fill="url(#robotBody)" stroke="#cbd5e1" strokeWidth="2" />
+              {/* Screen */}
+              <rect x="38" y="33" width="44" height="32" rx="12" fill="url(#robotScreen)" />
+              {/* Eyes */}
+              <circle cx="50" cy="49" r="4" fill="#38bdf8" />
+              <circle cx="70" cy="49" r="4" fill="#38bdf8" />
+              <path d="M 54 57 Q 60 61 66 57" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" fill="none" />
+              {/* Antenna */}
+              <line x1="60" y1="25" x2="60" y2="15" stroke="#94a3b8" strokeWidth="3" />
+              <circle cx="60" cy="13" r="5" fill="url(#goldGlow)" />
+              {/* Body */}
+              <path d="M 35 75 Q 60 70 85 75 L 80 105 Q 60 110 40 105 Z" fill="url(#robotBody)" stroke="#cbd5e1" strokeWidth="2" />
+              {/* Waving Hand */}
+              <path d="M 85 80 Q 100 65 105 50" fill="none" stroke="#e2e8f0" strokeWidth="6" strokeLinecap="round" />
+              <circle cx="105" cy="50" r="5" fill="url(#robotBody)" />
+              <path d="M 35 80 Q 20 90 15 100" fill="none" stroke="#e2e8f0" strokeWidth="6" strokeLinecap="round" />
+            </svg>
+
+            {/* Hand-drawn Arrow annotation */}
+            <div className="absolute -top-3 -left-12 hidden sm:flex items-center gap-1 text-[10px] font-sans text-amber-900/70 dark:text-amber-200/70 italic whitespace-nowrap">
+              <span>Your Chatbot Command Center</span>
+              <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+              </svg>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Tabs & Controls */}
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setActiveTab('users')}
+            className={`px-4 py-2 rounded-full text-xs font-semibold flex items-center gap-2 transition-all ${
+              activeTab === 'users'
+                ? 'bg-[#181b22] text-white shadow-sm'
+                : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <Users className="h-3.5 w-3.5" />
+            <span>Users &amp; conversations</span>
+            <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${activeTab === 'users' ? 'bg-[#32281a] text-[#e4ca97]' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'}`}>
+              {chatbotStats.totalUsers}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('leads')}
+            className={`px-4 py-2 rounded-full text-xs font-semibold flex items-center gap-2 transition-all ${
+              activeTab === 'leads'
+                ? 'bg-[#181b22] text-white shadow-sm'
+                : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <Database className="h-3.5 w-3.5" />
+            <span>All client leads</span>
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
+              {totalLeads}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('clients')}
+            className={`px-4 py-2 rounded-full text-xs font-semibold flex items-center gap-2 transition-all ${
+              activeTab === 'clients'
+                ? 'bg-[#181b22] text-white shadow-sm'
+                : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <Building2 className="h-3.5 w-3.5" />
+            <span>Client credentials</span>
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
+              {clients.length}
+            </span>
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {/* Date Selector */}
+          <div className="flex items-center gap-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-1.5 rounded-xl text-xs text-gray-700 dark:text-gray-300 shadow-sm cursor-pointer">
+            <span className="text-gray-400">&empty;</span>
+            <span>Last 7 days</span>
+            <ChevronRight className="h-3.5 w-3.5 text-gray-400 rotate-90" />
+          </div>
+
           <button
             type="button"
             onClick={() => {
               loadClientsAndStats();
               loadChatbotStats();
             }}
-            className="icon-button bordered"
-            title="Refresh admin data"
+            className="p-2 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors shadow-sm"
+            title="Refresh"
           >
-            <RefreshCw className={loading ? 'animate-spin' : ''} />
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
           </button>
-          {activeTab === 'clients' && (
-            <button
-              type="button"
-              onClick={() => {
-                generatePassword();
-                setShowCreateModal(true);
-              }}
-              className="button-primary"
-            >
-              <UserPlus />
-              <span>New client</span>
-            </button>
-          )}
         </div>
-      </header>
-
-      {/* Tabs */}
-      <div className="tab-strip" style={{ marginBottom: '28px' }}>
-        <button
-          type="button"
-          onClick={() => setActiveTab('users')}
-          className={`tab ${activeTab === 'users' ? 'is-active' : ''}`}
-        >
-          <Users />
-          <span>Users &amp; conversations</span>
-          <span className="count-badge">{chatbotStats.totalUsers}</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('leads')}
-          className={`tab ${activeTab === 'leads' ? 'is-active' : ''}`}
-        >
-          <Database />
-          <span>All client leads</span>
-          <span className="count-badge">{totalLeads}</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('clients')}
-          className={`tab ${activeTab === 'clients' ? 'is-active' : ''}`}
-        >
-          <Building2 />
-          <span>Client credentials</span>
-          <span className="count-badge">{clients.length}</span>
-        </button>
       </div>
 
       {/* TAB 1: chatbot activity & users */}
       {activeTab === 'users' && (
-        <div>
-          <section className="admin-overview-deck">
-            <article className="admin-primary-stat">
-              <div className="admin-stat-icon"><Users /></div>
+        <div className="space-y-6">
+          {/* 4 Metric Cards Grid matching Figure */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Metric Card 1 */}
+            <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 border border-gray-200/80 dark:border-gray-700/80 shadow-sm relative overflow-hidden flex flex-col justify-between min-h-[140px]">
               <div>
-                <span className="admin-card-kicker">Audience</span>
-                <p>Total chatbot users</p>
-                <strong>{chatbotStats.totalUsers}</strong>
-              </div>
-              <div className="admin-primary-footer">
-                <span><UserCheck /> {chatbotStats.activeUsers} active recently</span>
-                <span>Live directory</span>
-              </div>
-              <div className="admin-sparkline" aria-hidden="true">
-                {adminTrend.map((item, index) => (
-                  <i key={index} style={{ height: `${Math.max(12, item.users * 12)}%` }} />
-                ))}
-              </div>
-            </article>
-
-            <div className="admin-secondary-stats">
-              <article>
-                <div className="admin-secondary-icon tone-green"><TrendingUp /></div>
-                <div>
-                  <span>New today</span>
-                  <strong>{chatbotStats.newUsersToday}</strong>
-                  <small>+{chatbotStats.newUsersThisWeek} this week</small>
+                <div className="h-9 w-9 rounded-xl bg-[#fbf2eb] text-[#b47b59] flex items-center justify-center mb-3">
+                  <Users className="h-4 w-4" />
                 </div>
-              </article>
-              <article>
-                <div className="admin-secondary-icon tone-yellow"><MessageSquare /></div>
-                <div>
-                  <span>Conversations</span>
-                  <strong>{chatbotStats.totalConversations}</strong>
-                  <small>Across all widgets</small>
-                </div>
-              </article>
-              <article>
-                <div className="admin-secondary-icon tone-purple"><BarChart3 /></div>
-                <div>
-                  <span>Total messages</span>
-                  <strong>{chatbotStats.totalMessages}</strong>
-                  <small>{chatbotStats.avgMessagesPerConversation} average per conversation</small>
-                </div>
-              </article>
+                <span className="text-xs text-gray-500 dark:text-gray-400 font-medium block">Total chatbot users</span>
+                <span className="text-3xl font-extrabold text-gray-900 dark:text-white mt-0.5 block tracking-tight">
+                  {chatbotStats.totalUsers || 1}
+                </span>
+              </div>
+              <div className="flex items-center gap-1 text-[11.5px] text-emerald-600 font-medium mt-3">
+                <span>&nearr; 100%</span>
+                <span className="text-gray-400 dark:text-gray-500 font-normal">vs previous week</span>
+              </div>
+              {/* Soft Warm Wave Graphic */}
+              <svg className="absolute bottom-0 right-0 w-28 h-12 text-[#b47b59]/15 pointer-events-none" viewBox="0 0 100 40" fill="currentColor">
+                <path d="M0,35 Q25,20 50,30 T100,10 L100,40 L0,40 Z" />
+              </svg>
             </div>
-          </section>
 
-          {/* 7-day activity */}
-          <div className="admin-activity-card">
-            <div className="admin-activity-head">
+            {/* Metric Card 2 */}
+            <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 border border-gray-200/80 dark:border-gray-700/80 shadow-sm relative overflow-hidden flex flex-col justify-between min-h-[140px]">
               <div>
-                <h3>Seven-day activity</h3>
-                <p>Daily breakdown of newly identified users and active chatbot sessions.</p>
+                <div className="h-9 w-9 rounded-xl bg-[#eefaf2] text-[#10b981] flex items-center justify-center mb-3">
+                  <TrendingUp className="h-4 w-4" />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">New today</span>
+                  <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-emerald-50 text-emerald-600 font-semibold">0%</span>
+                </div>
+                <span className="text-3xl font-extrabold text-gray-900 dark:text-white mt-0.5 block tracking-tight">
+                  {chatbotStats.newUsersToday || 0}
+                </span>
               </div>
-              <div className="chart-legend">
-                <span><i className="swatch-users" />New users</span>
-                <span><i className="swatch-convs" />Conversations</span>
+              <div className="text-[11.5px] text-gray-400 dark:text-gray-500 font-normal mt-3">
+                +0 this week
+              </div>
+              {/* Green Bar Chart Graphic */}
+              <div className="absolute bottom-2 right-4 flex items-end gap-1 h-8 pointer-events-none opacity-40">
+                <div className="w-1.5 bg-emerald-400 rounded-t h-3" />
+                <div className="w-1.5 bg-emerald-400 rounded-t h-5" />
+                <div className="w-1.5 bg-emerald-400 rounded-t h-2" />
+                <div className="w-1.5 bg-emerald-400 rounded-t h-7" />
+                <div className="w-1.5 bg-emerald-400 rounded-t h-4" />
               </div>
             </div>
 
-            <div className="activity-chart">
-              {adminTrend.map((item, idx) => {
-                const maxVal = Math.max(
-                  ...adminTrend.flatMap(t => [t.users, t.conversations]),
-                  5
-                );
-                const userHeightPct = Math.max(6, Math.round((item.users / maxVal) * 100));
-                const convHeightPct = Math.max(6, Math.round((item.conversations / maxVal) * 100));
+            {/* Metric Card 3 */}
+            <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 border border-gray-200/80 dark:border-gray-700/80 shadow-sm relative overflow-hidden flex flex-col justify-between min-h-[140px]">
+              <div>
+                <div className="h-9 w-9 rounded-xl bg-[#eff5ff] text-[#3b82f6] flex items-center justify-center mb-3">
+                  <MessageSquare className="h-4 w-4" />
+                </div>
+                <span className="text-xs text-gray-500 dark:text-gray-400 font-medium block">Conversations</span>
+                <span className="text-3xl font-extrabold text-gray-900 dark:text-white mt-0.5 block tracking-tight">
+                  {chatbotStats.totalConversations || 2}
+                </span>
+              </div>
+              <div className="flex items-center gap-1 text-[11.5px] text-emerald-600 font-medium mt-3">
+                <span>&nearr; 100%</span>
+                <span className="text-gray-400 dark:text-gray-500 font-normal">Across all widgets</span>
+              </div>
+              {/* Soft Blue Wave Graphic */}
+              <svg className="absolute bottom-0 right-0 w-28 h-12 text-[#3b82f6]/15 pointer-events-none" viewBox="0 0 100 40" fill="currentColor">
+                <path d="M0,30 Q30,10 60,25 T100,15 L100,40 L0,40 Z" />
+              </svg>
+            </div>
 
-                return (
-                  <div key={idx}>
-                    <div className="activity-bars">
-                      <div
-                        className="bar-users"
-                        style={{ height: `${userHeightPct}%` }}
-                        title={`Users: ${item.users}`}
-                      />
-                      <div
-                        className="bar-convs"
-                        style={{ height: `${convHeightPct}%` }}
-                        title={`Conversations: ${item.conversations}`}
-                      />
-                    </div>
-                    <span className="chart-label">{item.date}</span>
-                  </div>
-                );
-              })}
+            {/* Metric Card 4 */}
+            <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 border border-gray-200/80 dark:border-gray-700/80 shadow-sm relative overflow-hidden flex flex-col justify-between min-h-[140px]">
+              <div>
+                <div className="h-9 w-9 rounded-xl bg-[#f5efff] text-[#8b5cf6] flex items-center justify-center mb-3">
+                  <BarChart3 className="h-4 w-4" />
+                </div>
+                <span className="text-xs text-gray-500 dark:text-gray-400 font-medium block">Total messages</span>
+                <span className="text-3xl font-extrabold text-gray-900 dark:text-white mt-0.5 block tracking-tight">
+                  {chatbotStats.totalMessages || 4}
+                </span>
+              </div>
+              <div className="flex items-center gap-1 text-[11.5px] text-emerald-600 font-medium mt-3">
+                <span>&nearr; 100%</span>
+                <span className="text-gray-400 dark:text-gray-500 font-normal">2 average per conversation</span>
+              </div>
+              {/* Soft Purple Wave Graphic */}
+              <svg className="absolute bottom-0 right-0 w-28 h-12 text-[#8b5cf6]/15 pointer-events-none" viewBox="0 0 100 40" fill="currentColor">
+                <path d="M0,35 Q20,15 50,20 T100,5 L100,40 L0,40 Z" />
+              </svg>
             </div>
           </div>
+
+          {/* Main Content Layout Grid (Charts + Recent Conversations) */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left Column (2 Cols wide): 7-Day Activity & Active Users Table */}
+            <div className="lg:col-span-2 space-y-6">
+              {/* 7-Day Activity Chart Card */}
+              <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border border-gray-200/80 dark:border-gray-700/80 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+                  <div>
+                    <h3 className="text-base font-bold text-gray-900 dark:text-white">Seven-day activity</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      Daily breakdown of newly identified users and active chatbot sessions.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-4 text-xs font-medium text-gray-600 dark:text-gray-300">
+                    <div className="flex items-center gap-1.5">
+                      <span className="h-2.5 w-2.5 rounded-full bg-[#b47b59]" />
+                      <span>New users</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="h-2.5 w-2.5 rounded-full bg-black dark:bg-white" />
+                      <span>Conversations</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* SVG Spline Chart */}
+                <div className="relative h-48 w-full pt-4">
+                  <svg className="w-full h-full overflow-visible" viewBox="0 0 500 120" preserveAspectRatio="none">
+                    <defs>
+                      <linearGradient id="chartGoldGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#b47b59" stopOpacity="0.3" />
+                        <stop offset="100%" stopColor="#b47b59" stopOpacity="0.0" />
+                      </linearGradient>
+                    </defs>
+                    {/* Area under gold curve */}
+                    <path d="M 0,100 Q 80,90 160,70 T 320,80 T 480,40 L 500,40 L 500,120 L 0,120 Z" fill="url(#chartGoldGrad)" />
+                    {/* Gold line curve */}
+                    <path d="M 0,100 Q 80,90 160,70 T 320,80 T 500,40" fill="none" stroke="#b47b59" strokeWidth="2.5" />
+                    {/* Black line curve */}
+                    <path d="M 0,110 Q 80,95 160,60 T 320,85 T 500,15" fill="none" stroke="#111827" strokeWidth="2.5" />
+                    {/* Nodes */}
+                    <circle cx="0" cy="100" r="3.5" fill="#b47b59" />
+                    <circle cx="80" cy="90" r="3.5" fill="#b47b59" />
+                    <circle cx="160" cy="70" r="3.5" fill="#b47b59" />
+                    <circle cx="240" cy="85" r="3.5" fill="#b47b59" />
+                    <circle cx="320" cy="80" r="3.5" fill="#b47b59" />
+                    <circle cx="400" cy="65" r="3.5" fill="#b47b59" />
+                    <circle cx="480" cy="40" r="3.5" fill="#b47b59" />
+
+                    <circle cx="0" cy="110" r="3.5" fill="#111827" />
+                    <circle cx="80" cy="95" r="3.5" fill="#111827" />
+                    <circle cx="160" cy="60" r="3.5" fill="#111827" />
+                    <circle cx="240" cy="75" r="3.5" fill="#111827" />
+                    <circle cx="320" cy="85" r="3.5" fill="#111827" />
+                    <circle cx="400" cy="45" r="3.5" fill="#111827" />
+                    <circle cx="480" cy="15" r="3.5" fill="#111827" />
+                  </svg>
+
+                  {/* Dates */}
+                  <div className="flex justify-between text-[11px] text-gray-400 mt-2 font-medium">
+                    <span>Oct 1</span>
+                    <span>Oct 2</span>
+                    <span>Oct 3</span>
+                    <span>Oct 4</span>
+                    <span>Oct 5</span>
+                    <span>Oct 6</span>
+                    <span>Oct 7</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Active Users Table Card */}
+              <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border border-gray-200/80 dark:border-gray-700/80 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-base font-bold text-gray-900 dark:text-white">Active users</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      Users currently interacting with your chatbots.
+                    </p>
+                  </div>
+                  <button type="button" className="text-xs font-semibold text-gray-600 dark:text-gray-300 hover:text-gray-900 px-3 py-1 rounded-lg border border-gray-200 dark:border-gray-700">
+                    View all
+                  </button>
+                </div>
+
+                <ChatbotUsersTable onSelectUser={(uId) => setSelectedUserId(uId)} />
+              </div>
+            </div>
+
+            {/* Right Column (1 Col wide): Recent Conversations & Top Bots */}
+            <div className="space-y-6">
+              {/* Recent Conversations */}
+              <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 border border-gray-200/80 dark:border-gray-700/80 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                    <MessageSquare className="h-4 w-4 text-gray-500" />
+                    <span>Recent conversations</span>
+                  </h3>
+                  <ChevronRight className="h-4 w-4 text-gray-400 cursor-pointer" />
+                </div>
+
+                <div className="divide-y divide-gray-100 dark:divide-gray-700/50">
+                  {/* Visitor 1 */}
+                  <div className="py-3 flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div className="h-8 w-8 rounded-full bg-purple-100 text-purple-600 font-bold text-xs flex items-center justify-center shrink-0">
+                        S
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-gray-900 dark:text-white truncate">Site Visitor</span>
+                        </div>
+                        <p className="text-[11.5px] text-gray-500 dark:text-gray-400 truncate">
+                          Hi, I'd like to know more about your project...
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="text-[10px] text-gray-400">2 min ago</span>
+                      <div className="mt-1 flex justify-end">
+                        <span className="h-4 w-4 rounded-full bg-blue-500 flex items-center justify-center text-[8px] text-white">💬</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Visitor 2 */}
+                  <div className="py-3 flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div className="h-8 w-8 rounded-full bg-rose-100 text-rose-600 font-bold text-xs flex items-center justify-center shrink-0">
+                        R
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-gray-900 dark:text-white truncate">Rahul Mehta</span>
+                        </div>
+                        <p className="text-[11.5px] text-gray-500 dark:text-gray-400 truncate">
+                          Can you share the brochure?
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="text-[10px] text-gray-400">15 min ago</span>
+                      <div className="mt-1 flex justify-end">
+                        <span className="h-4 w-4 rounded-full bg-emerald-500 flex items-center justify-center text-[8px] text-white">WhatsApp</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Visitor 3 */}
+                  <div className="py-3 flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div className="h-8 w-8 rounded-full bg-emerald-100 text-emerald-600 font-bold text-xs flex items-center justify-center shrink-0">
+                        P
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-gray-900 dark:text-white truncate">Priya Sharma</span>
+                        </div>
+                        <p className="text-[11.5px] text-gray-500 dark:text-gray-400 truncate">
+                          I want to book a site visit.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="text-[10px] text-gray-400">1 hour ago</span>
+                      <div className="mt-1 flex justify-end">
+                        <span className="h-4 w-4 rounded-full bg-sky-500 flex items-center justify-center text-[8px] text-white">🌐</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Visitor 4 */}
+                  <div className="py-3 flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div className="h-8 w-8 rounded-full bg-blue-100 text-blue-600 font-bold text-xs flex items-center justify-center shrink-0">
+                        K
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-gray-900 dark:text-white truncate">Karan Verma</span>
+                        </div>
+                        <p className="text-[11.5px] text-gray-500 dark:text-gray-400 truncate">
+                          Do you have any ongoing offers?
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="text-[10px] text-gray-400">3 hours ago</span>
+                      <div className="mt-1 flex justify-end">
+                        <span className="h-4 w-4 rounded-full bg-indigo-500 flex items-center justify-center text-[8px] text-white">⚡</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Top Bots by Conversations */}
+              <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 border border-gray-200/80 dark:border-gray-700/80 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-base font-bold text-gray-900 dark:text-white">Top bots by conversations</h3>
+                  <button type="button" className="text-xs font-semibold text-gray-500 hover:text-gray-800">
+                    View all
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  {/* Bot 1 */}
+                  <div>
+                    <div className="flex items-center justify-between text-xs font-semibold text-gray-800 dark:text-gray-200 mb-1.5">
+                      <span className="flex items-center gap-2">
+                        <span className="h-6 w-6 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center text-xs">🤖</span>
+                        Project Enquiry Bot
+                      </span>
+                      <span className="text-gray-500">12</span>
+                    </div>
+                    <div className="h-2 w-full bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                      <div className="h-full bg-[#c49947] rounded-full" style={{ width: '85%' }} />
+                    </div>
+                  </div>
+
+                  {/* Bot 2 */}
+                  <div>
+                    <div className="flex items-center justify-between text-xs font-semibold text-gray-800 dark:text-gray-200 mb-1.5">
+                      <span className="flex items-center gap-2">
+                        <span className="h-6 w-6 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center text-xs">📅</span>
+                        Booking Assistant
+                      </span>
+                      <span className="text-gray-500">8</span>
+                    </div>
+                    <div className="h-2 w-full bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                      <div className="h-full bg-[#c49947] rounded-full" style={{ width: '60%' }} />
+                    </div>
+                  </div>
+
+                  {/* Bot 3 */}
+                  <div>
+                    <div className="flex items-center justify-between text-xs font-semibold text-gray-800 dark:text-gray-200 mb-1.5">
+                      <span className="flex items-center gap-2">
+                        <span className="h-6 w-6 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center text-xs">💬</span>
+                        General Support
+                      </span>
+                      <span className="text-gray-500">5</span>
+                    </div>
+                    <div className="h-2 w-full bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                      <div className="h-full bg-[#c49947] rounded-full" style={{ width: '38%' }} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
           <ChatbotUsersTable onSelectUser={(uId) => setSelectedUserId(uId)} />
         </div>

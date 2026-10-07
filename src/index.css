@@ -35,27 +35,27 @@
   color-scheme: light;
 
   /* Surfaces */
-  --bg: #f5f5f3;
-  --bg-sunken: #f5f5f3;
-  --bg-sidebar: #fafafa;
+  --bg: #f9f8f4;
+  --bg-sunken: #f7f6f0;
+  --bg-sidebar: #0e1117;
   --surface: #ffffff;
-  --surface-soft: #fafafa;
-  --surface-hover: #f1f1ee;
-  --surface-active: #e8e8e5;
-  --surface-inverse: #111111;
+  --surface-soft: #fcfbf8;
+  --surface-hover: #f3f2ec;
+  --surface-active: #e9e8e1;
+  --surface-inverse: #0e1117;
   --on-inverse: #ffffff;
 
   /* Text */
-  --text: #222220;
-  --text-strong: #111110;
-  --text-secondary: #666663;
-  --text-tertiary: #8e8e8a;
+  --text: #1f232b;
+  --text-strong: #0f1217;
+  --text-secondary: #636b78;
+  --text-tertiary: #9299a6;
   --text-on-accent: #ffffff;
 
   /* Lines */
-  --line: #e6e6e2;
-  --line-soft: #efefe9;
-  --line-strong: #d8d8d3;
+  --line: #eae8df;
+  --line-soft: #f2f0e8;
+  --line-strong: #d8d5ca;
 
   /* Accent: Solid Monochrome Black / Neutral */
   --accent: #000000;
@@ -1754,65 +1754,57 @@ kbd,
    12. App chrome: sidebar, topbar, theme toggle
    ========================================================================== */
 
+/* ==========================================================================
+   12. App chrome: sidebar, topbar, theme toggle
+   ========================================================================== */
+
 .app-sidebar {
   width: var(--sidebar-w);
-  border-right: 1px solid var(--line);
-  background: var(--bg-sidebar);
+  border-right: 1px solid #1a1e27;
+  background: #0e1117;
+  color: #9ca3af;
+  position: relative;
   transition: background var(--dur-slow) var(--ease), border-color var(--dur-slow) var(--ease);
 }
 
-.workspace-switcher {
-  display: flex;
+/* Gold wave graphic overlay at bottom left of sidebar */
+.app-sidebar::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
   width: 100%;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  border: 0;
-  border-radius: var(--r-md);
-  background: transparent;
-  padding: 6px 8px;
-  text-align: left;
-  cursor: pointer;
-  transition: background var(--dur) var(--ease);
-}
-
-.workspace-switcher:hover {
-  background: var(--surface-hover);
-}
-
-.workspace-switcher>svg {
-  width: 14px;
-  height: 14px;
-  color: var(--text-tertiary);
-  stroke-width: 1.75;
-  flex: none;
+  height: 180px;
+  background: radial-gradient(circle at 10% 90%, rgba(212, 175, 55, 0.08) 0%, transparent 70%);
+  pointer-events: none;
 }
 
 .sidebar-section-label {
-  padding: 10px 8px 4px;
-  color: var(--text-tertiary);
-  font-size: 11px;
+  padding: 12px 10px 6px;
+  color: #6b7280;
+  font-size: 10.5px;
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .sidebar-link {
   display: flex;
-  min-height: 30px;
+  min-height: 36px;
   width: 100%;
   align-items: center;
-  gap: 9px;
-  border: 0;
+  gap: 10px;
+  border: 1px solid transparent;
   border-radius: var(--r-md);
   background: transparent;
-  padding: 4px 8px;
-  color: var(--text-secondary);
+  padding: 6px 10px;
+  color: #9ca3af;
   font-size: 13.5px;
   font-weight: 500;
   line-height: 1.3;
   text-align: left;
   cursor: pointer;
-  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  transition: all var(--dur-fast) var(--ease);
 }
 
 .sidebar-link svg {
@@ -1823,83 +1815,111 @@ kbd,
 }
 
 .sidebar-link:hover {
-  background: var(--surface-hover);
-  color: var(--text-strong);
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
 }
 
+/* Active item gold pill highlight matching figure */
 .sidebar-link.is-active {
-  background: var(--surface);
-  color: var(--text-strong);
+  background: linear-gradient(90deg, #2b2216 0%, #1f1910 100%);
+  color: #f3e4c4;
   font-weight: 600;
-  border: 1px solid var(--line-soft);
-  box-shadow: var(--shadow-xs);
+  border: 1px solid rgba(212, 168, 83, 0.4);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
 }
 
-.sidebar-badge {
-  margin-left: auto;
-  border-radius: var(--r-sm);
-  background: var(--surface-soft);
-  border: 1px solid var(--line-soft);
-  padding: 1px 5px;
-  color: var(--text-secondary);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+.sidebar-link.is-active svg {
+  color: #eed49b;
 }
 
-.sidebar-workspace-card {
-  margin: 0 4px;
-  border: 1px solid var(--line);
+.sidebar-upgrade-card {
+  margin: 12px 4px;
+  border: 1px solid #282d38;
+  border-radius: var(--r-xl);
+  background: #181b22;
+  padding: 14px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.sidebar-upgrade-btn {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  border: 0;
   border-radius: var(--r-md);
-  background: var(--surface);
-  padding: 9px 11px;
-  box-shadow: var(--shadow-xs);
-}
-
-.sidebar-workspace-card strong {
-  display: block;
-  overflow: hidden;
-  color: var(--text-strong);
+  background: linear-gradient(135deg, #e4ca97 0%, #c49947 100%);
+  padding: 8px 12px;
+  color: #17120a;
   font-size: 12.5px;
-  font-weight: 550;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-weight: 650;
+  cursor: pointer;
+  transition: transform var(--dur) var(--ease), opacity var(--dur) var(--ease);
 }
 
-.sidebar-workspace-card span {
-  display: block;
-  overflow: hidden;
-  margin-top: 1px;
-  color: var(--text-tertiary);
-  font-size: 11.5px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sidebar-divider {
-  height: 1px;
-  background: var(--line);
-  margin: 8px 12px;
+.sidebar-upgrade-btn:hover {
+  opacity: 0.94;
+  transform: translateY(-0.5px);
 }
 
 .sidebar-footer {
-  border-top: 1px solid var(--line);
-  padding: 8px;
+  border-top: 1px solid #1a1e27;
+  padding: 10px;
 }
 
 .workspace-topbar {
   display: flex;
-  height: var(--topbar-h);
+  height: 56px;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   border-bottom: 1px solid var(--line);
-  background: rgba(245, 245, 243, 0.82);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  padding: 0 16px;
+  background: var(--bg);
+  padding: 0 24px;
   transition: background var(--dur-slow) var(--ease), border-color var(--dur-slow) var(--ease);
+}
+
+.topbar-search-input {
+  width: 100%;
+  border: 1px solid #e3dec9;
+  border-radius: var(--r-pill);
+  background: #f1efe7;
+  padding: 6px 40px 6px 36px;
+  color: #1f232b;
+  font-size: 12.5px;
+  outline: none;
+  transition: all var(--dur) var(--ease);
+}
+
+[data-theme="dark"] .topbar-search-input {
+  background: #1f232b;
+  border-color: #323743;
+  color: #ffffff;
+}
+
+.topbar-search-input:focus {
+  border-color: #c49947;
+  box-shadow: 0 0 0 3px rgba(196, 153, 71, 0.15);
+}
+
+.topbar-kbd {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 1px solid #e0dbca;
+  border-radius: 4px;
+  background: #ffffff;
+  padding: 1px 5px;
+  color: #888888;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+[data-theme="dark"] .topbar-kbd {
+  background: #2b303c;
+  border-color: #3e4454;
+  color: #aaaaaa;
 }
 
 [data-theme="dark"] .workspace-topbar {

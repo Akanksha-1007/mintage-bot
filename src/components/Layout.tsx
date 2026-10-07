@@ -2,8 +2,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
+  Bell,
   Bot,
-  ChevronsUpDown,
+  ChevronLeft,
+  ChevronDown,
+  Crown,
   Database,
   GitBranch,
   LayoutDashboard,
@@ -11,8 +14,11 @@ import {
   Menu,
   MessageSquare,
   Search,
+  Settings,
   ShieldCheck,
   Sparkles,
+  Users,
+  Briefcase,
   X,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -46,31 +52,34 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     return items;
   }, [clientUser, impersonatedClient, isAdmin]);
 
+  const manageItems = [
+    { name: 'Users', path: '/admin', icon: Users },
+    { name: 'Clients', path: '/admin', icon: Briefcase },
+    { name: 'Settings', path: '#', icon: Settings },
+  ];
+
   useEffect(() => setMobileNavOpen(false), [location.pathname]);
-
-  const activeItem = navItems.find((item) =>
-    item.path === '/builder'
-      ? location.pathname.startsWith('/builder')
-      : location.pathname === item.path,
-  );
-
-  const workspaceName = impersonatedClient?.name || clientUser?.name || (isAdmin ? 'Admin workspace' : 'Mintage workspace');
-  const workspaceDetail = impersonatedClient?.email || clientUser?.email || (isAdmin ? 'Administrator' : 'Personal workspace');
 
   const sidebar = (
     <aside className="app-sidebar flex h-full shrink-0 flex-col">
-      <div className="px-2 pt-2">
-        <button type="button" className="workspace-switcher">
+      {/* Top Header Logo */}
+      <div className="flex items-center justify-between px-4 py-4">
+        <div className="flex items-center gap-2.5">
           <MintageLogo size="sm" />
-          <ChevronsUpDown />
+        </div>
+        <button
+          type="button"
+          className="icon-button-subtle text-gray-400 hover:text-white"
+          title="Collapse sidebar"
+        >
+          <ChevronLeft className="h-4 w-4" />
         </button>
       </div>
 
-      <div className="sidebar-divider" />
-
-      <nav className="flex-1 overflow-y-auto px-2 pb-4">
+      {/* Navigation */}
+      <nav className="flex-1 overflow-y-auto px-3 py-2">
         <p className="sidebar-section-label">Workspace</p>
-        <div className="flex flex-col gap-0.5">
+        <div className="flex flex-col gap-1 mb-6">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = item.path === '/builder'
@@ -79,28 +88,54 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
             return (
               <Link
-                key={item.path}
+                key={item.name}
                 to={item.path}
                 className={`sidebar-link ${isActive ? 'is-active' : ''}`}
               >
-                <Icon />
+                <Icon className="h-4 w-4 shrink-0" />
                 <span className="truncate">{item.name}</span>
-                {item.path === '/admin' && <span className="sidebar-badge">Admin</span>}
               </Link>
             );
           })}
         </div>
 
-        <p className="sidebar-section-label">Workspace details</p>
-        <div className="sidebar-workspace-card">
-          <strong>{workspaceName}</strong>
-          <span>{workspaceDetail}</span>
+        <p className="sidebar-section-label">MANAGE</p>
+        <div className="flex flex-col gap-1 mb-6">
+          {manageItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.name}
+                to={item.path}
+                className="sidebar-link"
+              >
+                <Icon className="h-4 w-4 shrink-0" />
+                <span className="truncate">{item.name}</span>
+              </Link>
+            );
+          })}
+        </div>
+
+        {/* Upgrade to Pro Card */}
+        <div className="sidebar-upgrade-card">
+          <div className="flex items-center gap-2 text-[#d4af37] font-semibold text-xs mb-1">
+            <Crown className="h-4 w-4 fill-[#d4af37]" />
+            <span>Upgrade to Pro</span>
+          </div>
+          <p className="text-[11.5px] text-gray-400 leading-snug mb-3">
+            Unlock advanced analytics, more bots and integrations.
+          </p>
+          <button type="button" className="sidebar-upgrade-btn">
+            <span>Upgrade plan</span>
+            <span>&rarr;</span>
+          </button>
         </div>
       </nav>
 
-      <div className="sidebar-footer">
-        <button type="button" onClick={handleLogout} className="sidebar-link">
-          <LogOut />
+      {/* Footer Log out */}
+      <div className="sidebar-footer px-3 py-3">
+        <button type="button" onClick={handleLogout} className="sidebar-link text-gray-400 hover:text-white">
+          <LogOut className="h-4 w-4 shrink-0" />
           <span>Log out</span>
         </button>
       </div>
@@ -145,7 +180,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 type="button"
                 aria-label="Close navigation"
                 onClick={() => setMobileNavOpen(false)}
-                className="icon-button absolute right-2 top-2"
+                className="icon-button absolute right-2 top-2 text-white"
               >
                 <X />
               </button>
@@ -154,29 +189,53 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         )}
 
         <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          {/* Topbar matching figure */}
           <header className="workspace-topbar shrink-0">
-            <div className="flex min-w-0 items-center gap-1.5">
+            <div className="flex items-center gap-2 md:hidden">
               <button
                 type="button"
                 aria-label="Open navigation"
                 onClick={() => setMobileNavOpen(true)}
-                className="icon-button md:hidden"
+                className="icon-button"
               >
                 <Menu />
               </button>
-              <div className="breadcrumb">
-                <span className="crumb-root hidden sm:inline">Mintage</span>
-                <span className="crumb-sep hidden sm:inline">/</span>
-                <span className="crumb-current">{activeItem?.name || 'Workspace'}</span>
+            </div>
+
+            {/* Central Search Bar */}
+            <div className="topbar-search-container flex-1 max-w-lg mx-auto">
+              <div className="relative flex items-center">
+                <Search className="absolute left-3.5 h-4 w-4 text-gray-400 pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Search bots, users, leads or conversations..."
+                  className="topbar-search-input"
+                />
+                <kbd className="topbar-kbd">⌘K</kbd>
               </div>
             </div>
-            <div className="flex items-center gap-1">
-              <button type="button" className="topbar-search hidden sm:inline-flex">
-                <Search />
-                <span>Search workspace</span>
-                <kbd>⌘K</kbd>
-              </button>
+
+            {/* Right Profile & Notifications */}
+            <div className="flex items-center gap-3">
               <ThemeToggle />
+
+              {/* Notification Bell */}
+              <button type="button" className="relative p-1.5 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors">
+                <Bell className="h-5 w-5" />
+                <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-red-500 border border-white" />
+              </button>
+
+              {/* Admin Avatar & Label */}
+              <div className="flex items-center gap-2.5 pl-2 border-l border-gray-200 dark:border-gray-800">
+                <div className="h-8 w-8 rounded-full bg-[#0e1117] text-white flex items-center justify-center font-bold text-xs">
+                  A
+                </div>
+                <div className="hidden sm:flex flex-col text-left">
+                  <span className="text-xs font-bold leading-none text-gray-900 dark:text-white">Admin</span>
+                  <span className="text-[10.5px] text-gray-500 dark:text-gray-400 mt-0.5">Administrator</span>
+                </div>
+                <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
+              </div>
             </div>
           </header>
 
@@ -188,3 +247,4 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
+
