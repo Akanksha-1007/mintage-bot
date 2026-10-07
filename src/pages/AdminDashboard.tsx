@@ -14,6 +14,7 @@ import {
   Building2,
   Check,
   CheckCircle2,
+  ChevronRight,
   Copy,
   Database,
   Eye,
@@ -921,10 +922,6 @@ export default function AdminDashboard() {
         </div>
       )}
 
-          <ChatbotUsersTable onSelectUser={(uId) => setSelectedUserId(uId)} />
-        </div>
-      )}
-
       {/* TAB 2: all client leads */}
       {activeTab === 'leads' && <Leads />}
 
@@ -1355,43 +1352,41 @@ export default function AdminDashboard() {
       )}
 
       {/* Modal 3: delete client */}
-      {
-        clientToDelete && (
-          <div className="modal-backdrop">
-            <div className="app-modal is-centered">
-              <div className="modal-danger-icon">
-                <AlertTriangle />
-              </div>
+      {clientToDelete && (
+        <div className="modal-backdrop">
+          <div className="app-modal is-centered">
+            <div className="modal-danger-icon">
+              <AlertTriangle />
+            </div>
 
-              <h3>Delete client credentials?</h3>
-              <p className="mt-1.5">
-                <strong>{clientToDelete.name}</strong> ({clientToDelete.email}) will lose access to their
-                workspace. This cannot be undone.
-              </p>
+            <h3>Delete client credentials?</h3>
+            <p className="mt-1.5">
+              <strong>{clientToDelete.name}</strong> ({clientToDelete.email}) will lose access to their
+              workspace. This cannot be undone.
+            </p>
 
-              <div className="modal-actions">
-                <button
-                  type="button"
-                  onClick={() => setClientToDelete(null)}
-                  disabled={isDeleting}
-                  className="button-secondary flex-1"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={confirmDeleteClient}
-                  disabled={isDeleting}
-                  className="button-danger flex-1"
-                >
-                  {isDeleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
-                  <span>{isDeleting ? 'Deleting…' : 'Delete client'}</span>
-                </button>
-              </div>
+            <div className="modal-actions">
+              <button
+                type="button"
+                onClick={() => setClientToDelete(null)}
+                disabled={isDeleting}
+                className="button-secondary flex-1"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteClient}
+                disabled={isDeleting}
+                className="button-danger flex-1"
+              >
+                {isDeleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
+                <span>{isDeleting ? 'Deleting…' : 'Delete client'}</span>
+              </button>
             </div>
           </div>
-        )
-      }
-    </div >
+        </div>
+      )}
+    </div>
   );
 }

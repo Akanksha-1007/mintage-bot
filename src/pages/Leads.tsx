@@ -53,6 +53,13 @@ interface Lead {
   spreadsheetId?: string;
   worksheetName?: string;
   name?: string;
+  email?: string;
+  phone?: string;
+  project?: string;
+  selectedProject?: string;
+  projectName?: string;
+  bookVisit?: string;
+  book_a_visit?: string;
   status?: string;
   conversationId?: string;
   fields?: DynamicField[];
