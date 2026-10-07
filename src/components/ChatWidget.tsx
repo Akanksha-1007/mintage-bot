@@ -75,10 +75,19 @@ export default function ChatWidget({ botId }: ChatWidgetProps) {
   // Google Maps, phone numbers, email and WhatsApp links.
   const isAllowedLink = (value: string) => /^(https?:\/\/|mailto:|tel:|whatsapp:)/i.test(String(value || '').trim());
   const renderHeaderAvatar = () => {
-    if (design.avatarUrl) {
-      return <img src={design.avatarUrl} alt={design.botTitle || botTitle} className="w-full h-full object-cover" />;
+    const customImg = design.avatarUrl || clientLogo;
+    if (customImg) {
+      return <img src={customImg} alt={design.botTitle || botTitle} className="w-full h-full object-cover" />;
     }
-    return <Bot className="w-5 h-5" />;
+    const preset = design.avatarPreset || 'robot';
+    switch (preset) {
+      case 'agent': return <User className="w-5 h-5 text-white" />;
+      case 'sparkles': return <Sparkles className="w-5 h-5 text-white" />;
+      case 'support': return <Headphones className="w-5 h-5 text-white" />;
+      case 'robot':
+      default:
+        return <Bot className="w-5 h-5 text-white" />;
+    }
   };
 
   const renderCtaIcon = (icon: string) => {

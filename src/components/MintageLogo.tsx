@@ -15,16 +15,29 @@ export default function MintageLogo({
   showSubtitle = false,
 }: MintageLogoProps) {
   const sizeMap = {
-    sm: { mark: 'h-[26px] w-[26px]', title: 'text-[14.5px]', sub: 'text-[10.5px]' },
-    md: { mark: 'h-[30px] w-[30px]', title: 'text-[15px]', sub: 'text-[11px]' },
-    lg: { mark: 'h-[36px] w-[36px]', title: 'text-[17px]', sub: 'text-[11.5px]' },
-    xl: { mark: '', title: '', sub: '' },
+    sm: { mark: 'h-[30px] w-[30px] p-0.5', title: 'text-[15px]', sub: 'text-[10.5px]' },
+    md: { mark: 'h-[36px] w-[36px] p-1', title: 'text-[17px]', sub: 'text-[11px]' },
+    lg: { mark: 'h-[44px] w-[44px] p-1.5', title: 'text-[20px]', sub: 'text-[12px]' },
+    xl: { mark: 'h-[56px] w-[56px] p-2', title: 'text-[26px]', sub: 'text-[13.5px]' },
   };
 
   if (size === 'xl') {
     return (
-      <div className={`full-brand-lockup ${className}`}>
-        <img src={mintageLockup} alt="Mintage — refreshing brands" />
+      <div className={`flex flex-col items-center gap-3 ${className}`}>
+        <div className="relative group">
+          <div className="absolute -inset-1 rounded-2xl bg-gradient-to-r from-[#5B3DF5] via-[#8B74FF] to-[#E83E9B] opacity-75 blur-md group-hover:opacity-100 transition duration-300"></div>
+          <div className="relative flex items-center justify-center h-16 w-16 rounded-2xl bg-white p-2 shadow-xl border border-purple-100">
+            <img src={mintageMark} alt="Mintage Logo" className="h-full w-full object-contain" />
+          </div>
+        </div>
+        <div className="flex flex-col items-center">
+          <span className="text-2xl font-extrabold tracking-tight bg-gradient-to-r from-[#5B3DF5] via-[#7B4DFF] to-[#E83E9B] bg-clip-text text-transparent">
+            Mintage
+          </span>
+          <span className="text-xs font-semibold text-gray-500 uppercase tracking-widest mt-0.5">
+            Chatbot Workspace
+          </span>
+        </div>
       </div>
     );
   }
@@ -33,13 +46,21 @@ export default function MintageLogo({
 
   return (
     <div className={`flex min-w-0 items-center gap-2.5 ${className}`}>
-      <span className={`brand-mark ${currentSize.mark}`} aria-hidden="true">
-        <img src={mintageMark} alt="" />
-      </span>
+      <div className="relative shrink-0">
+        <span className={`inline-flex items-center justify-center rounded-xl bg-gradient-to-br from-[#5B3DF5] via-[#7B4DFF] to-[#E83E9B] p-[1.5px] shadow-sm ${currentSize.mark}`}>
+          <span className="flex h-full w-full items-center justify-center rounded-[10px] bg-white p-0.5 overflow-hidden">
+            <img src={mintageMark} alt="Mintage" className="h-full w-full object-contain" />
+          </span>
+        </span>
+      </div>
       <span className="flex min-w-0 flex-col leading-none">
-        <span className={`brand-name ${currentSize.title}`}>Mintage</span>
+        <span className={`font-extrabold tracking-tight text-gray-900 ${currentSize.title}`}>
+          Mintage
+        </span>
         {showSubtitle && (
-          <span className={`brand-sub ${currentSize.sub}`}>Chatbot workspace</span>
+          <span className={`font-medium text-gray-500 mt-0.5 ${currentSize.sub}`}>
+            Chatbot workspace
+          </span>
         )}
       </span>
     </div>

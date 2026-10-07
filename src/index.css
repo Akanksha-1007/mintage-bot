@@ -4984,15 +4984,12 @@ kbd,
 }
 
 /* ==========================================================================
-   Monochrome application UI
-   The admin/dashboard/builder/login interface is intentionally black, white,
-   and neutral grayscale only. The public widget route keeps its bot design
-   configuration unchanged.
+   Vibrant Colorful Application UI
+   Full color design with rich gradients, modern theme accents, and vibrant logos
    ========================================================================== */
 .monochrome-ui {
-  filter: grayscale(1);
-  background: #ffffff;
-  color: #111111;
+  background: var(--bg);
+  color: var(--text);
   min-height: 100%;
 }
 
@@ -5000,10 +4997,10 @@ kbd,
 .monochrome-ui textarea,
 .monochrome-ui select,
 .monochrome-ui button {
-  accent-color: #000000;
+  accent-color: var(--accent);
 }
 
 .monochrome-ui ::selection {
-  background: #111111;
+  background: var(--accent);
   color: #ffffff;
 }

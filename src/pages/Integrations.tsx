@@ -1165,53 +1165,127 @@ export default function Integrations() {
             </div>
           </div>
 
-          {/* Platform Step-by-Step Installation Guides */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white p-6 rounded-3xl border border-gray-200 space-y-3">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-[#F1EEFF] text-[#5B3DF5] rounded-xl font-bold text-xs">HTML</div>
-                <h4 className="text-sm font-bold text-gray-900">Standard HTML Website</h4>
-              </div>
-              <ol className="text-xs text-gray-600 space-y-2 list-decimal pl-4 leading-relaxed">
-                <li>Open your HTML file (e.g., <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-800">index.html</code>).</li>
-                <li>Scroll down to the bottom of the file right before the closing <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-800">&lt;/body&gt;</code> tag.</li>
-                <li>Paste the copied <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-800">&lt;script&gt;</code> tag and save your file.</li>
-              </ol>
+          {/* Colorful Supported Platform Logos & Guides */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-extrabold text-gray-900 tracking-tight flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-[#5B3DF5]" />
+                Supported Web & App Platforms
+              </h3>
+              <span className="text-xs font-bold text-gray-500 bg-gray-100 px-3 py-1 rounded-full">12+ Live Integrations</span>
             </div>
 
-            <div className="bg-white p-6 rounded-3xl border border-gray-200 space-y-3">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-[#F1EEFF] text-[#5B3DF5] rounded-xl font-bold text-xs">WP</div>
-                <h4 className="text-sm font-bold text-gray-900">WordPress</h4>
+            {/* Platform Logos Row */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
+              <div className="bg-white p-3.5 rounded-2xl border border-gray-200 shadow-2xs flex items-center gap-2.5 hover:shadow-md transition-all group">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center text-white font-black text-xs shadow-xs group-hover:scale-105 transition-transform">
+                  HTML5
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-gray-900 block leading-none">HTML5</span>
+                  <span className="text-[10px] text-gray-400 font-medium">Standard Web</span>
+                </div>
               </div>
-              <ol className="text-xs text-gray-600 space-y-2 list-decimal pl-4 leading-relaxed">
-                <li>Log in to your WordPress Dashboard.</li>
-                <li>Go to <strong>Plugins &gt; Add New</strong> and install "Insert Headers and Footers" or "WPCode".</li>
-                <li>Paste the script tag into the <strong>Footer Scripts</strong> section and save changes.</li>
-              </ol>
+
+              <div className="bg-white p-3.5 rounded-2xl border border-gray-200 shadow-2xs flex items-center gap-2.5 hover:shadow-md transition-all group">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-cyan-700 flex items-center justify-center text-white font-black text-xs shadow-xs group-hover:scale-105 transition-transform">
+                  WP
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-gray-900 block leading-none">WordPress</span>
+                  <span className="text-[10px] text-gray-400 font-medium">Plugins & Code</span>
+                </div>
+              </div>
+
+              <div className="bg-white p-3.5 rounded-2xl border border-gray-200 shadow-2xs flex items-center gap-2.5 hover:shadow-md transition-all group">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-black text-xs shadow-xs group-hover:scale-105 transition-transform">
+                  WF
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-gray-900 block leading-none">Webflow</span>
+                  <span className="text-[10px] text-gray-400 font-medium">Custom Code</span>
+                </div>
+              </div>
+
+              <div className="bg-white p-3.5 rounded-2xl border border-gray-200 shadow-2xs flex items-center gap-2.5 hover:shadow-md transition-all group">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center text-white font-black text-xs shadow-xs group-hover:scale-105 transition-transform">
+                  ⚛
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-gray-900 block leading-none">React / Next</span>
+                  <span className="text-[10px] text-gray-400 font-medium">Component</span>
+                </div>
+              </div>
+
+              <div className="bg-white p-3.5 rounded-2xl border border-gray-200 shadow-2xs flex items-center gap-2.5 hover:shadow-md transition-all group">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center text-white font-black text-xs shadow-xs group-hover:scale-105 transition-transform">
+                  🛍️
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-gray-900 block leading-none">Shopify</span>
+                  <span className="text-[10px] text-gray-400 font-medium">E-Commerce</span>
+                </div>
+              </div>
+
+              <div className="bg-white p-3.5 rounded-2xl border border-gray-200 shadow-2xs flex items-center gap-2.5 hover:shadow-md transition-all group">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white font-black text-xs shadow-xs group-hover:scale-105 transition-transform">
+                  💬
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-gray-900 block leading-none">WhatsApp</span>
+                  <span className="text-[10px] text-gray-400 font-medium">Direct Chat</span>
+                </div>
+              </div>
             </div>
 
-            <div className="bg-white p-6 rounded-3xl border border-gray-200 space-y-3">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-cyan-50 text-cyan-600 rounded-xl font-bold text-xs">WF</div>
-                <h4 className="text-sm font-bold text-gray-900">Webflow / Shopify / Wix</h4>
+            {/* Platform Step-by-Step Installation Guides */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-white p-6 rounded-3xl border border-gray-200 space-y-3 hover:border-indigo-200 transition-all shadow-2xs">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-gradient-to-br from-orange-500 to-red-500 text-white rounded-xl font-bold text-xs shadow-xs">HTML</div>
+                  <h4 className="text-sm font-bold text-gray-900">Standard HTML Website</h4>
+                </div>
+                <ol className="text-xs text-gray-600 space-y-2 list-decimal pl-4 leading-relaxed">
+                  <li>Open your HTML file (e.g., <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-800">index.html</code>).</li>
+                  <li>Scroll down to the bottom of the file right before the closing <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-800">&lt;/body&gt;</code> tag.</li>
+                  <li>Paste the copied <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-800">&lt;script&gt;</code> tag and save your file.</li>
+                </ol>
               </div>
-              <ol className="text-xs text-gray-600 space-y-2 list-decimal pl-4 leading-relaxed">
-                <li>Open <strong>Site Settings &gt; Custom Code</strong> or Theme Editor.</li>
-                <li>Locate the <strong>Footer Code</strong> or Custom Head/Body field.</li>
-                <li>Paste the script tag and publish your site.</li>
-              </ol>
-            </div>
 
-            <div className="bg-white p-6 rounded-3xl border border-gray-200 space-y-3">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-[#F1EEFF] text-[#5B3DF5] rounded-xl font-bold text-xs">REACT</div>
-                <h4 className="text-sm font-bold text-gray-900">React / Next.js</h4>
+              <div className="bg-white p-6 rounded-3xl border border-gray-200 space-y-3 hover:border-blue-200 transition-all shadow-2xs">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-gradient-to-br from-blue-600 to-cyan-700 text-white rounded-xl font-bold text-xs shadow-xs">WP</div>
+                  <h4 className="text-sm font-bold text-gray-900">WordPress</h4>
+                </div>
+                <ol className="text-xs text-gray-600 space-y-2 list-decimal pl-4 leading-relaxed">
+                  <li>Log in to your WordPress Dashboard.</li>
+                  <li>Go to <strong>Plugins &gt; Add New</strong> and install "Insert Headers and Footers" or "WPCode".</li>
+                  <li>Paste the script tag into the <strong>Footer Scripts</strong> section and save changes.</li>
+                </ol>
               </div>
-              <ol className="text-xs text-gray-600 space-y-2 list-decimal pl-4 leading-relaxed">
-                <li>In Next.js, place <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-800">&lt;Script src="{activeOrigin}/widget.js" data-bot-id="{activeBotId}" /&gt;</code> in layout.</li>
-                <li>In standard React, add the script tag to <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-800">public/index.html</code>.</li>
-              </ol>
+
+              <div className="bg-white p-6 rounded-3xl border border-gray-200 space-y-3 hover:border-indigo-200 transition-all shadow-2xs">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-gradient-to-br from-blue-500 to-indigo-600 text-white rounded-xl font-bold text-xs shadow-xs">WF</div>
+                  <h4 className="text-sm font-bold text-gray-900">Webflow / Shopify / Wix</h4>
+                </div>
+                <ol className="text-xs text-gray-600 space-y-2 list-decimal pl-4 leading-relaxed">
+                  <li>Open <strong>Site Settings &gt; Custom Code</strong> or Theme Editor.</li>
+                  <li>Locate the <strong>Footer Code</strong> or Custom Head/Body field.</li>
+                  <li>Paste the script tag and publish your site.</li>
+                </ol>
+              </div>
+
+              <div className="bg-white p-6 rounded-3xl border border-gray-200 space-y-3 hover:border-purple-200 transition-all shadow-2xs">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-gradient-to-br from-purple-600 to-[#5B3DF5] text-white rounded-xl font-bold text-xs shadow-xs">REACT</div>
+                  <h4 className="text-sm font-bold text-gray-900">React / Next.js</h4>
+                </div>
+                <ol className="text-xs text-gray-600 space-y-2 list-decimal pl-4 leading-relaxed">
+                  <li>In Next.js, place <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-800">&lt;Script src="{activeOrigin}/widget.js" data-bot-id="{activeBotId}" /&gt;</code> in layout.</li>
+                  <li>In standard React, add the script tag to <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-800">public/index.html</code>.</li>
+                </ol>
+              </div>
             </div>
           </div>
         </div>

@@ -64,13 +64,47 @@ export default function BotDesignEditor({
 
   const renderAvatarIcon = (preset: string, className: string = 'w-5 h-5') => {
     switch (preset) {
-      case 'robot': return <Bot className={className} />;
-      case 'agent': return <User className={className} />;
-      case 'sparkles': return <Sparkles className={className} />;
-      case 'support': return <LifeBuoy className={className} />;
-      default: return <Bot className={className} />;
+      case 'robot':
+        return <div className="p-1.5 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-2xs"><Bot className={className} /></div>;
+      case 'agent':
+        return <div className="p-1.5 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-600 text-white shadow-2xs"><User className={className} /></div>;
+      case 'sparkles':
+        return <div className="p-1.5 rounded-lg bg-gradient-to-br from-pink-500 to-rose-600 text-white shadow-2xs"><Sparkles className={className} /></div>;
+      case 'support':
+        return <div className="p-1.5 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-2xs"><LifeBuoy className={className} /></div>;
+      case 'custom':
+        return <div className="p-1.5 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-2xs"><Upload className={className} /></div>;
+      default:
+        return <div className="p-1.5 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-2xs"><Bot className={className} /></div>;
     }
   };
+
+  const handleAvatarUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      window.alert('Please select an image file for the avatar logo.');
+      event.target.value = '';
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      window.alert('Avatar logo image must be 2 MB or smaller.');
+      event.target.value = '';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const value = String(reader.result || '');
+      if (value) updateConfig({ avatarUrl: value, avatarPreset: 'custom' });
+    };
+    reader.readAsDataURL(file);
+    event.target.value = '';
+  };
+
+  const clearAvatarLogo = () => updateConfig({ avatarUrl: '', avatarPreset: 'robot' });
 
   const handleLauncherLogoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -229,20 +263,43 @@ export default function BotDesignEditor({
                 </div>
               </div>
 
-              {/* Custom Avatar Image URL */}
+              {/* Custom Avatar Image Upload & URL */}
               {config.avatarPreset === 'custom' && (
-                <div className="animate-fadeIn">
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                    Custom Avatar Image URL
+                <div className="animate-fadeIn space-y-3 p-3.5 border border-indigo-100 rounded-2xl bg-indigo-50/30">
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Upload Custom Avatar Logo
                   </label>
+                  
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-xl flex items-center justify-center overflow-hidden border border-slate-200 bg-white shrink-0 shadow-2xs">
+                      {config.avatarUrl ? (
+                        <img src={config.avatarUrl} alt="Avatar logo" className="w-full h-full object-cover" />
+                      ) : (
+                        <Upload className="w-5 h-5 text-indigo-500" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold rounded-xl border border-indigo-200 bg-white text-indigo-600 hover:bg-indigo-50 cursor-pointer shadow-2xs">
+                          <Upload className="w-3.5 h-3.5" />
+                          {config.avatarUrl ? 'Change image' : 'Upload image file'}
+                          <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={handleAvatarUpload} className="hidden" />
+                        </label>
+                        {config.avatarUrl && (
+                          <button type="button" onClick={clearAvatarLogo} className="text-[11px] font-semibold text-red-600 hover:text-red-700">Remove</button>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-slate-500 mt-1">Or paste a direct image URL below:</p>
+                    </div>
+                  </div>
+
                   <input
                     type="url"
                     value={config.avatarUrl}
-                    onChange={(e) => updateConfig({ avatarUrl: e.target.value })}
+                    onChange={(e) => updateConfig({ avatarUrl: e.target.value, avatarPreset: 'custom' })}
                     placeholder="https://example.com/logo.png"
-                    className="w-full px-3.5 py-2 text-sm bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                    className="w-full px-3.5 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-mono"
                   />
-                  <p className="text-[11px] text-slate-400 mt-1">Direct HTTPS image URL (PNG, JPG, or SVG).</p>
                 </div>
               )}
             </div>
