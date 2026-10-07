@@ -1119,34 +1119,19 @@ async function startServer() {
         const wantedEmail = normalizeLeadEmail(selectedFields.email);
 
         const matchingRows: Array<{ rowNumber: number; row: any[]; score: number }> = [];
-        const wantedBookVisit = String(selectedFields.bookVisit || '').trim();
         existingRows.slice(1).forEach((row: any[], index: number) => {
           const rowNumber = index + 2;
           const rowLeadId = String(row?.[6] ?? row?.[5] ?? '').trim();
-          const rowName = normalizeLeadName(row?.[1]);
-          const rowPhone = normalizeLeadPhone(row?.[2]);
-          const rowEmail = normalizeLeadEmail(row?.[3]);
-          const rowProject = String(row?.[4] ?? '').trim();
-          const rowBookVisit = String(row?.[5] ?? row?.[4] ?? '').trim();
 
+          // Only match if the exact internal leadId is retried to avoid duplicate rows on retry sync.
+          // Never overwrite existing rows based on phone, email or name.
           const leadIdMatch = Boolean(leadKey && rowLeadId && leadKey === rowLeadId);
-          const emailMatch = Boolean(wantedEmail && rowEmail && wantedEmail === rowEmail);
-          const phoneMatch = Boolean(wantedPhone && rowPhone && wantedPhone === rowPhone);
-          const nameMatch = Boolean(wantedName && rowName && wantedName === rowName);
-          const exactPlaceholderVisitMatch = Boolean(
-            !wantedName && !wantedPhone && !wantedEmail &&
-            wantedBookVisit && !rowName && !rowPhone && !rowEmail &&
-            rowBookVisit && normalizeSheetValue(rowBookVisit) === normalizeSheetValue(wantedBookVisit)
-          );
 
-          if (leadIdMatch || emailMatch || phoneMatch ||
-            ((!wantedEmail && !wantedPhone) && nameMatch) || exactPlaceholderVisitMatch) {
+          if (leadIdMatch) {
             matchingRows.push({
               rowNumber,
               row,
-              score: (leadIdMatch ? 1000 : 0) + (emailMatch ? 100 : 0) + (phoneMatch ? 80 : 0) +
-                (nameMatch ? 10 : 0) + (exactPlaceholderVisitMatch ? 5 : 0) +
-                row.slice(1, 6).filter((v: any) => String(v ?? '').trim() !== '').length
+              score: 1000 + row.slice(1, 6).filter((v: any) => String(v ?? '').trim() !== '').length
             });
           }
         });
@@ -2291,68 +2276,19 @@ async function startServer() {
     const incomingEmail = normalizeEmail(extractedEmail || leadPayload.email);
     const incomingPhone = normalizePhone(extractedPhone || leadPayload.phone);
 
-    // Deduplication priority:
-    // 1) stable lead ID, 2) conversation ID, 3) same visitor+bot, 4) phone, 5) email.
-    // This also lets a later Book a Visit update an earlier contact submission.
+    // Each new lead capture request creates a separate lead record.
+    // Overwriting by phone, email, conversationId, or userId is disabled so every lead
+    // is preserved as a new record in the Dashboard and a new row in Google Sheets.
     let existingLead: any = null;
     let leadId = leadPayload.id;
 
-    if (leadId) {
+    if (leadPayload.isUpdate && leadId) {
       existingLead = serverLeadsList.find(l => l.id === leadId);
-    }
-    if (!existingLead && conversationId) {
-      existingLead = serverLeadsList.find(l => l.conversationId === conversationId);
-    }
-    if (!existingLead && userId && botId && conversationId) {
-      existingLead = serverLeadsList.find(
-        l => l.userId === userId && l.botId === botId && l.conversationId === conversationId
-      );
-    }
-    if (!existingLead && db && conversationId) {
-      try {
-        const q = query(collection(db, 'leads'), where('conversationId', '==', conversationId));
-        const qSnap = await getDocs(q).catch(() => null);
-        if (qSnap && !qSnap.empty) {
-          existingLead = { id: qSnap.docs[0].id, ...qSnap.docs[0].data() };
-        }
-      } catch (e) { }
-    }
-
-    if (!existingLead && (incomingPhone || incomingEmail)) {
-      // Check the local/server store first. Phone/email are normalized so
-      // +91 98765-43210 and 9876543210 resolve to the same lead.
-      existingLead = serverLeadsList.find((l: any) => {
-        const sameBot = String(l?.botId || l?.flowId || '') === String(botId || '');
-        const sameClient = !clientId || !l?.clientId || String(l.clientId) === String(clientId);
-        const lp = normalizePhone(l?.phone);
-        const le = normalizeEmail(l?.email);
-        return sameBot && sameClient && Boolean(
-          (incomingPhone && lp && incomingPhone === lp) ||
-          (incomingEmail && le && incomingEmail === le)
-        );
-      }) || null;
-
       if (!existingLead && db) {
         try {
-          if (incomingPhone) {
-            const qPhone = query(collection(db, 'leads'), where('phone', '==', extractedPhone || leadPayload.phone));
-            const phoneSnap = await getDocs(qPhone).catch(() => null);
-            const phoneDoc = phoneSnap?.docs?.find((d: any) => {
-              const data = d.data() || {};
-              return String(data.botId || data.flowId || '') === String(botId || '') &&
-                (!clientId || !data.clientId || String(data.clientId) === String(clientId));
-            });
-            if (phoneDoc) existingLead = { id: phoneDoc.id, ...phoneDoc.data() };
-          }
-          if (!existingLead && incomingEmail) {
-            const qEmail = query(collection(db, 'leads'), where('email', '==', incomingEmail));
-            const emailSnap = await getDocs(qEmail).catch(() => null);
-            const emailDoc = emailSnap?.docs?.find((d: any) => {
-              const data = d.data() || {};
-              return String(data.botId || data.flowId || '') === String(botId || '') &&
-                (!clientId || !data.clientId || String(data.clientId) === String(clientId));
-            });
-            if (emailDoc) existingLead = { id: emailDoc.id, ...emailDoc.data() };
+          const lSnap = await getDoc(doc(db, 'leads', leadId)).catch(() => null);
+          if (lSnap && lSnap.exists()) {
+            existingLead = { id: lSnap.id, ...lSnap.data() };
           }
         } catch (e) { }
       }
@@ -2363,8 +2299,8 @@ async function startServer() {
 
     if (existingLead) {
       leadId = existingLead.id;
-    } else if (!leadId) {
-      leadId = (conversationId ? `lead_${botId}_${conversationId}` : `lead_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`);
+    } else {
+      leadId = `lead_${botId}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     }
 
     // Merge old and new fields instead of replacing the array. This is critical
