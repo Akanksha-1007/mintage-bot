@@ -744,7 +744,7 @@ async function startServer() {
       withGoogleSheetWorksheetLock(spreadsheetId, 'Lead Data', async () => {
         const auth = createOAuth2Client(tokens);
         const sheets = google.sheets({ version: 'v4', auth });
-        const requiredHeaders = ['Date', 'Name', 'Phone Number', 'Email', 'Book a Visit', 'Lead ID'];
+        const requiredHeaders = ['Date', 'Name', 'Phone Number', 'Email', 'Project Name', 'Book a Visit', 'Lead ID'];
         let targetWorksheet = 'Lead Data';
         let targetSheetId: number | null = null;
 
@@ -789,12 +789,25 @@ async function startServer() {
           throw err;
         }
 
-        // Extract the four managed fields from both the canonical fields array and
-        // legacy data keys. This makes Book a Visit resilient to older widget payloads.
+        // Extract managed fields including Project Name
         const selectedFields = {
           name: String(lead?.name ?? lead?.data?.name ?? lead?.data?.Name ?? '').trim(),
           phone: String(lead?.phone ?? lead?.data?.phone ?? lead?.data?.Phone ?? lead?.data?.['Phone Number'] ?? '').trim(),
           email: String(lead?.email ?? lead?.data?.email ?? lead?.data?.Email ?? '').trim(),
+          project: String(
+            lead?.project ??
+            lead?.projectName ??
+            lead?.selectedProject ??
+            lead?.data?.project ??
+            lead?.data?.projectName ??
+            lead?.data?.['Project Name'] ??
+            lead?.data?.['Project'] ??
+            lead?.data?.selectedProject ??
+            lead?.botName ??
+            lead?.data?.sourceBot ??
+            lead?.data?.botName ??
+            ''
+          ).trim(),
           bookVisit: normalizeBookVisitValue(
             lead?.bookVisit ??
             lead?.book_a_visit ??
@@ -808,9 +821,7 @@ async function startServer() {
           )
         };
 
-        // Read every field independently. Do not use an else-if chain here: a
-        // date/time node can have a label such as "Visit Date" and must always
-        // be captured as Book a Visit even when another matcher also matches.
+        // Read every field independently
         if (Array.isArray(lead.fields)) {
           for (const field of lead.fields) {
             const label = String(field?.label ?? '').replace(/\s+/g, ' ').trim();
@@ -823,6 +834,7 @@ async function startServer() {
             const isName = type === 'name' || /\b(full\s*name|name)\b/.test(haystack);
             const isPhone = type === 'phone' || /\b(phone|mobile|contact\s*(number|no\.?))\b/.test(haystack);
             const isEmail = type === 'email' || /\bemail\b/.test(haystack);
+            const isProject = type === 'project' || /\b(project|property|community|development|residence|which project|choose project|select project)\b/i.test(haystack);
             const isVisit = isBookVisitField(field) ||
               /\b(book\s*(a\s*)?visit|visit\s*(date|time|slot)?|appointment|date\s*(and|&)\s*time|date[_ -]?time)\b/i.test(haystack) ||
               ['datetime', 'datetime-local', 'appointment', 'dateTime'.toLowerCase()].includes(type);
@@ -833,12 +845,20 @@ async function startServer() {
             if (isName && !selectedFields.name) selectedFields.name = value;
             if (isPhone && !selectedFields.phone) selectedFields.phone = value;
             if (isEmail && !selectedFields.email) selectedFields.email = value;
+            if (isProject && !selectedFields.project) selectedFields.project = value;
           }
         }
 
-        // Also inspect common direct properties on the field object. Some older
-        // flow builders serialize the selected datetime as `dateTime`, `datetime`,
-        // `appointment`, or `selectedDateTime` instead of `value`.
+        // Fallback for project name if still empty
+        if (!selectedFields.project) {
+          const legacyData = lead?.data && typeof lead.data === 'object' ? lead.data : {};
+          selectedFields.project = String(
+            legacyData.project ?? legacyData.projectName ?? legacyData.selectedProject ??
+            lead?.botName ?? legacyData.sourceBot ?? legacyData.botName ?? ''
+          ).trim();
+        }
+
+        // Also inspect direct properties on field objects
         if (!selectedFields.bookVisit && Array.isArray(lead.fields)) {
           for (const field of lead.fields) {
             const candidates = [
@@ -854,7 +874,7 @@ async function startServer() {
           }
         }
 
-        // Legacy payload fallbacks.
+        // Legacy payload fallbacks
         const legacyData = lead?.data && typeof lead.data === 'object' ? lead.data : {};
         if (!selectedFields.name) selectedFields.name = String(legacyData.name ?? legacyData.Name ?? '').trim();
         if (!selectedFields.phone) selectedFields.phone = String(legacyData.phone ?? legacyData.Phone ?? legacyData['Phone Number'] ?? '').trim();
@@ -866,7 +886,6 @@ async function startServer() {
 
         selectedFields.email = normalizeLeadEmail(selectedFields.email);
         selectedFields.phone = String(selectedFields.phone ?? '').trim();
-        // The Date/Time picker stores the visitor's exact local wall-clock value.
         if (selectedFields.bookVisit && parseDateTimeLocal(selectedFields.bookVisit)) {
           const clientOffset = lead.clientTimezoneOffsetMinutes ?? lead.data?.clientTimezoneOffsetMinutes;
           if (!isDateTimeLocalInPresentOrFuture(selectedFields.bookVisit, clientOffset)) {
@@ -874,8 +893,8 @@ async function startServer() {
           }
         }
 
-        // Do not create a row unless at least one of the four requested details exists.
-        if (!selectedFields.name && !selectedFields.phone && !selectedFields.email && !selectedFields.bookVisit) {
+        // Do not create a row unless at least one of the contact/project details exists
+        if (!selectedFields.name && !selectedFields.phone && !selectedFields.email && !selectedFields.bookVisit && !selectedFields.project) {
           return {
             success: true,
             action: 'skipped_no_required_contact_fields',
@@ -890,51 +909,65 @@ async function startServer() {
           .map((h: any) => String(h ?? '').replace(/\s+/g, ' ').trim())
           .filter(Boolean);
 
-        // Migrate the previous four-column Lead Data layout in place.
-        // Existing rows are preserved and simply shifted one column to the right;
-        // their Date remains blank because the old sheet did not store it.
-        const oldFourColumnHeaders = ['Name', 'Phone Number', 'Email', 'Book a Visit'];
         const headersMatch = JSON.stringify(existingHeaders) === JSON.stringify(requiredHeaders);
-        const oldFourColumnMatch = JSON.stringify(existingHeaders) === JSON.stringify(oldFourColumnHeaders);
 
-        if (existingRows.length > 0 && oldFourColumnMatch) {
-          existingRows = existingRows.map((row: any[], index: number) =>
-            index === 0 ? requiredHeaders : ['', ...(row || []).slice(0, 4), '']
-          );
+        // Migrate older 5-column layout ['Date', 'Name', 'Phone Number', 'Email', 'Book a Visit'] to 7 columns
+        const oldFiveColumnHeaders = ['Date', 'Name', 'Phone Number', 'Email', 'Book a Visit'];
+        const oldSixColumnHeaders = ['Date', 'Name', 'Phone Number', 'Email', 'Book a Visit', 'Lead ID'];
+        const oldFourColumnHeaders = ['Name', 'Phone Number', 'Email', 'Book a Visit'];
+
+        const oldFiveMatch = JSON.stringify(existingHeaders) === JSON.stringify(oldFiveColumnHeaders);
+        const oldSixMatch = JSON.stringify(existingHeaders) === JSON.stringify(oldSixColumnHeaders);
+        const oldFourMatch = JSON.stringify(existingHeaders) === JSON.stringify(oldFourColumnHeaders);
+
+        if (existingRows.length > 0 && (oldFiveMatch || oldSixMatch)) {
+          existingRows = existingRows.map((row: any[], index: number) => {
+            if (index === 0) return requiredHeaders;
+            const date = row[0] ?? '';
+            const name = row[1] ?? '';
+            const phone = row[2] ?? '';
+            const email = row[3] ?? '';
+            const bookVisit = row[4] ?? '';
+            const leadId = row[5] ?? '';
+            return [date, name, phone, email, selectedFields.project || '', bookVisit, leadId];
+          });
 
           const lastRow = Math.max(existingRows.length, 1);
           await sheets.spreadsheets.values.update({
             spreadsheetId,
-            range: `'${targetWorksheet}'!A1:F${lastRow}`,
+            range: `'${targetWorksheet}'!A1:G${lastRow}`,
             valueInputOption: 'RAW',
             requestBody: {
               values: existingRows.map(row => [
                 ...(row || []),
-                ...Array(Math.max(0, 6 - (row || []).length)).fill('')
-              ].slice(0, 6))
+                ...Array(Math.max(0, 7 - (row || []).length)).fill('')
+              ].slice(0, 7))
             }
           });
-        } else if (existingRows.length > 0 && existingHeaders.length === 5 &&
-          JSON.stringify(existingHeaders) === JSON.stringify(requiredHeaders.slice(0, 5))) {
-          // Current five-column layout: add the hidden Lead ID column.
-          existingRows = existingRows.map((row: any[], index: number) =>
-            index === 0 ? requiredHeaders : [...(row || []).slice(0, 5), String((row || [])[5] ?? '')]
-          );
+        } else if (existingRows.length > 0 && oldFourMatch) {
+          existingRows = existingRows.map((row: any[], index: number) => {
+            if (index === 0) return requiredHeaders;
+            const name = row[0] ?? '';
+            const phone = row[1] ?? '';
+            const email = row[2] ?? '';
+            const bookVisit = row[3] ?? '';
+            return ['', name, phone, email, selectedFields.project || '', bookVisit, ''];
+          });
+
           const lastRow = Math.max(existingRows.length, 1);
           await sheets.spreadsheets.values.update({
             spreadsheetId,
-            range: `'${targetWorksheet}'!A1:F${lastRow}`,
+            range: `'${targetWorksheet}'!A1:G${lastRow}`,
             valueInputOption: 'RAW',
             requestBody: {
               values: existingRows.map(row => [
                 ...(row || []),
-                ...Array(Math.max(0, 6 - (row || []).length)).fill('')
-              ].slice(0, 6))
+                ...Array(Math.max(0, 7 - (row || []).length)).fill('')
+              ].slice(0, 7))
             }
           });
         } else if (existingRows.length > 0 && !headersMatch) {
           // If Lead Data contains an unrelated legacy/dynamic layout, preserve it
-          // by moving it to a backup tab, then create a clean Lead Data tab.
           const backupBase = 'Lead Data - Old';
           let backupName = backupBase;
           let suffix = 2;
@@ -965,23 +998,22 @@ async function startServer() {
           existingRows = [];
         }
 
-        // Fixed schema: ONLY these five columns.
+        // Schema: ONLY these 6 visible columns + 1 hidden Lead ID column
         await sheets.spreadsheets.values.update({
           spreadsheetId,
-          range: `'${targetWorksheet}'!A1:F1`,
+          range: `'${targetWorksheet}'!A1:G1`,
           valueInputOption: 'USER_ENTERED',
           requestBody: { values: [requiredHeaders] }
         });
 
-        // Column F is an internal stable lead identifier. Keep it hidden so the
-        // client still sees only the requested five columns A:E.
+        // Column G (index 6) is an internal stable lead identifier. Keep it hidden.
         if (targetSheetId !== null) {
           await sheets.spreadsheets.batchUpdate({
             spreadsheetId,
             requestBody: {
               requests: [{
                 updateDimensionProperties: {
-                  range: { sheetId: targetSheetId, dimension: 'COLUMNS', startIndex: 5, endIndex: 6 },
+                  range: { sheetId: targetSheetId, dimension: 'COLUMNS', startIndex: 6, endIndex: 7 },
                   properties: { hiddenByUser: true },
                   fields: 'hiddenByUser'
                 }
@@ -990,15 +1022,13 @@ async function startServer() {
           });
         }
 
-        // Column A stores the lead's submission date/time. Keep it as a real
-        // Google Sheets date-time value so it can be sorted and filtered normally.
+        // Column A stores lead submission date/time
         const leadDateSerial = submittedAtToSheetsSerial(
           lead?.submittedAt,
           lead?.clientTimezoneOffsetMinutes ?? lead?.data?.clientTimezoneOffsetMinutes
         );
 
-        // Keep the exact selected date/time in Book a Visit. Google Sheets receives a
-        // serial value only for this one cell and the number format makes it readable.
+        // Column F stores Book a Visit date/time
         const bookVisitSerial = selectedFields.bookVisit && parseDateTimeLocal(selectedFields.bookVisit)
           ? dateTimeLocalToSheetsSerial(selectedFields.bookVisit)
           : null;
@@ -1008,13 +1038,12 @@ async function startServer() {
           selectedFields.name,
           selectedFields.phone,
           selectedFields.email,
+          selectedFields.project,
           bookVisitSerial ?? selectedFields.bookVisit,
           leadKey
         ];
 
-        // Deduplicate by phone/email/name fallback. Lead identity is handled first
-        // by the backend, while the sheet has no hidden ID column, so contact keys
-        // are used here to find the existing visible row.
+        // Deduplicate
         const normalizeSheetValue = (value: any) => String(value ?? '').trim().toLowerCase();
         const wantedName = normalizeLeadName(selectedFields.name);
         const wantedPhone = normalizeLeadPhone(selectedFields.phone);
@@ -1024,11 +1053,12 @@ async function startServer() {
         const wantedBookVisit = String(selectedFields.bookVisit || '').trim();
         existingRows.slice(1).forEach((row: any[], index: number) => {
           const rowNumber = index + 2;
-          const rowLeadId = String(row?.[5] ?? '').trim();
+          const rowLeadId = String(row?.[6] ?? row?.[5] ?? '').trim();
           const rowName = normalizeLeadName(row?.[1]);
           const rowPhone = normalizeLeadPhone(row?.[2]);
           const rowEmail = normalizeLeadEmail(row?.[3]);
-          const rowBookVisit = String(row?.[4] ?? '').trim();
+          const rowProject = String(row?.[4] ?? '').trim();
+          const rowBookVisit = String(row?.[5] ?? row?.[4] ?? '').trim();
 
           const leadIdMatch = Boolean(leadKey && rowLeadId && leadKey === rowLeadId);
           const emailMatch = Boolean(wantedEmail && rowEmail && wantedEmail === rowEmail);
@@ -1040,10 +1070,6 @@ async function startServer() {
             rowBookVisit && normalizeSheetValue(rowBookVisit) === normalizeSheetValue(wantedBookVisit)
           );
 
-          // Lead ID is the primary identity. Contact fields are the fallback for
-          // older rows created before Lead ID was introduced. A completely empty
-          // placeholder row with the exact same visit slot is also merged, which
-          // fixes the historical "Book a Visit only" duplicates shown in the sheet.
           if (leadIdMatch || emailMatch || phoneMatch ||
             ((!wantedEmail && !wantedPhone) && nameMatch) || exactPlaceholderVisitMatch) {
             matchingRows.push({
@@ -1051,7 +1077,7 @@ async function startServer() {
               row,
               score: (leadIdMatch ? 1000 : 0) + (emailMatch ? 100 : 0) + (phoneMatch ? 80 : 0) +
                 (nameMatch ? 10 : 0) + (exactPlaceholderVisitMatch ? 5 : 0) +
-                row.slice(1, 5).filter((v: any) => String(v ?? '').trim() !== '').length
+                row.slice(1, 6).filter((v: any) => String(v ?? '').trim() !== '').length
             });
           }
         });
@@ -1073,10 +1099,8 @@ async function startServer() {
 
         if (primaryMatch) {
           rowNumber = primaryMatch.rowNumber;
-          updatedRange = `'${targetWorksheet}'!A${rowNumber}:F${rowNumber}`;
+          updatedRange = `'${targetWorksheet}'!A${rowNumber}:G${rowNumber}`;
 
-          // Update the existing lead row. This fills Book a Visit when it arrives
-          // after Name/Phone/Email instead of creating another row.
           await sheets.spreadsheets.values.update({
             spreadsheetId,
             range: updatedRange,
@@ -1084,7 +1108,6 @@ async function startServer() {
             requestBody: { values: [mergedRowValues] }
           });
 
-          // Remove older duplicate rows for this same lead.
           const duplicateMatches = matchingRows.slice(1).sort((a, b) => b.rowNumber - a.rowNumber);
           if (targetSheetId !== null && duplicateMatches.length > 0) {
             await sheets.spreadsheets.batchUpdate({
@@ -1109,7 +1132,7 @@ async function startServer() {
         } else {
           const appendRes = await sheets.spreadsheets.values.append({
             spreadsheetId,
-            range: `'${targetWorksheet}'!A:F`,
+            range: `'${targetWorksheet}'!A:G`,
             valueInputOption: 'RAW',
             insertDataOption: 'INSERT_ROWS',
             requestBody: { values: [rowValues] }
@@ -1118,7 +1141,7 @@ async function startServer() {
           rowNumber = updatedRange ? Number(String(updatedRange).match(/![A-Z]+(\d+)/)?.[1] || 0) || null : null;
         }
 
-        // Format the lead submission date/time cell.
+        // Format submission date/time cell (Column A)
         const finalLeadDate = mergedRowValues[0];
         const finalLeadDateSerial = typeof finalLeadDate === 'number'
           ? finalLeadDate
@@ -1152,15 +1175,15 @@ async function startServer() {
           });
         }
 
-        // Format only the Book a Visit cell for this lead.
-        const finalBookVisit = mergedRowValues[4];
+        // Format Book a Visit cell (Column F / index 5)
+        const finalBookVisit = mergedRowValues[5];
         const finalBookVisitSerial = typeof finalBookVisit === 'number'
           ? finalBookVisit
           : (parseDateTimeLocal(String(finalBookVisit || ''))
             ? dateTimeLocalToSheetsSerial(String(finalBookVisit))
             : null);
 
-        const bookVisitColumnIndex = 4;
+        const bookVisitColumnIndex = 5;
         if (targetSheetId !== null && finalBookVisitSerial !== null && rowNumber !== null) {
           await sheets.spreadsheets.batchUpdate({
             spreadsheetId,
@@ -1197,6 +1220,7 @@ async function startServer() {
           rowNumber,
           updatedRange,
           duplicateRowsRemoved: Math.max(0, matchingRows.length - 1),
+          projectName: selectedFields.project,
           hasBookVisit: Boolean(finalBookVisit)
         });
 
@@ -1207,7 +1231,7 @@ async function startServer() {
           rowNumber,
           spreadsheetId,
           worksheetName: targetWorksheet,
-          fields: requiredHeaders.slice(0, 5).filter((_, i) => mergedRowValues[i] !== '')
+          fields: requiredHeaders.slice(0, 6).filter((_, i) => mergedRowValues[i] !== '')
         };
       })
     );
@@ -1460,10 +1484,10 @@ async function startServer() {
         // Add header row to new sheet
         await sheets.spreadsheets.values.update({
           spreadsheetId,
-          range: 'Sheet1!A1:E1',
+          range: 'Sheet1!A1:F1',
           valueInputOption: 'USER_ENTERED',
           requestBody: {
-            values: [['Timestamp', 'Name', 'Email', 'Phone', 'All Captured Fields']],
+            values: [['Date', 'Name', 'Phone Number', 'Email', 'Project Name', 'Book a Visit']],
           },
         });
       }
