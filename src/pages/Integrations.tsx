@@ -414,6 +414,7 @@ export default function Integrations() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 googleOwnerId,
+                tokens,
                 botIds: bots.map(b => b.id)
               })
             }).catch(err => console.warn('Post-authorize lead sync warning:', err));

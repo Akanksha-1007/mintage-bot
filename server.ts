@@ -614,9 +614,19 @@ async function startServer() {
         };
       }
 
-      // IMPORTANT: do not fall back to the generic spreadsheet for a named
-      // DSR project. A missing project configuration must result in
-      // "not configured", not cross-project lead contamination.
+      // If the project-specific environment variable is missing on server,
+      // check if the bot or user configured a spreadsheet ID in the app UI.
+      if (configuredSpreadsheetId) {
+        const cleanConfigured = extractSpreadsheetId(configuredSpreadsheetId);
+        if (cleanConfigured) {
+          return {
+            spreadsheetId: cleanConfigured,
+            project: matched.project,
+            source: 'bot_config'
+          };
+        }
+      }
+
       return {
         spreadsheetId: '',
         project: matched.project,
@@ -1860,21 +1870,28 @@ async function startServer() {
     botWorksheetName?: string,
     googleOwnerId?: string,
     botId?: string,
-    botName?: string
+    botName?: string,
+    explicitTokens?: any
   ) {
-    let googleTokens: any = null;
+    let googleTokens: any = explicitTokens || null;
     const projectSheetConfig = getProjectSpreadsheetConfig(botId, botName, botSpreadsheetId);
     let spreadsheetId = projectSheetConfig.spreadsheetId;
     let worksheetName = botWorksheetName || 'Sheet1';
     const ownerId = (googleOwnerId || clientId || '').trim();
 
-    if (db && ownerId) {
+    if (explicitTokens) {
+      if (ownerId) userTokens.set(ownerId, explicitTokens);
+      if (clientId) userTokens.set(clientId, explicitTokens);
+      userTokens.set('latest', explicitTokens);
+    }
+
+    if (!googleTokens && db && ownerId) {
       try {
         const ownerDoc = await getDoc(doc(db, 'users', ownerId)).catch(() => null);
         if (ownerDoc?.exists()) {
           const data = ownerDoc.data();
           googleTokens = data.googleTokens || null;
-          if (!spreadsheetId && projectSheetConfig.source !== 'project_env_missing' && data.spreadsheetId) {
+          if (!spreadsheetId && data.spreadsheetId) {
             spreadsheetId = extractSpreadsheetId(data.spreadsheetId);
           }
           if (!botWorksheetName && data.worksheetName) worksheetName = data.worksheetName;
@@ -1884,12 +1901,75 @@ async function startServer() {
       }
     }
 
-    if (!googleTokens && ownerId && userTokens.has(ownerId)) googleTokens = userTokens.get(ownerId);
-    if (!googleTokens && clientId && clientId !== 'demo_user' && clientId !== 'guest_user' && userTokens.has(clientId)) {
-      googleTokens = userTokens.get(clientId);
+    if (!googleTokens && db && clientId && clientId !== ownerId) {
+      try {
+        const clientDoc = await getDoc(doc(db, 'users', clientId)).catch(() => null);
+        if (clientDoc?.exists() && clientDoc.data()?.googleTokens) {
+          googleTokens = clientDoc.data().googleTokens;
+          if (!spreadsheetId && clientDoc.data()?.spreadsheetId) {
+            spreadsheetId = extractSpreadsheetId(clientDoc.data().spreadsheetId);
+          }
+        }
+      } catch (e) { }
     }
 
-    if (!spreadsheetId && projectSheetConfig.source !== 'project_env_missing') {
+    if (!googleTokens && ownerId && userTokens.has(ownerId)) googleTokens = userTokens.get(ownerId);
+    if (!googleTokens && clientId && userTokens.has(clientId)) googleTokens = userTokens.get(clientId);
+    if (!googleTokens && userTokens.has('latest')) googleTokens = userTokens.get('latest');
+
+    // Check all keys in in-memory userTokens map as fallback
+    if (!googleTokens && userTokens.size > 0) {
+      for (const [key, val] of userTokens.entries()) {
+        if (val && (val.access_token || val.refresh_token)) {
+          googleTokens = val;
+          break;
+        }
+      }
+    }
+
+    // Check Firestore users collection if still no tokens found
+    if (!googleTokens && db) {
+      try {
+        const usersSnap = await getDocs(collection(db, 'users')).catch(() => null);
+        if (usersSnap && !usersSnap.empty) {
+          for (const d of usersSnap.docs) {
+            const uData = d.data();
+            if (uData && uData.googleTokens && (uData.googleTokens.access_token || uData.googleTokens.refresh_token)) {
+              googleTokens = uData.googleTokens;
+              if (uData.spreadsheetId && !spreadsheetId) {
+                spreadsheetId = extractSpreadsheetId(uData.spreadsheetId);
+              }
+              break;
+            }
+          }
+        }
+      } catch (e) { }
+    }
+
+    // Fallback spreadsheet ID resolution
+    if (!spreadsheetId && botSpreadsheetId) {
+      spreadsheetId = extractSpreadsheetId(botSpreadsheetId);
+    }
+
+    if (!spreadsheetId && botId) {
+      loadBotsFromFile();
+      if (serverBotsMap.has(botId)) {
+        const b = serverBotsMap.get(botId);
+        if (b && b.spreadsheetId) {
+          spreadsheetId = extractSpreadsheetId(b.spreadsheetId);
+        }
+      }
+      if (!spreadsheetId && db) {
+        try {
+          const bSnap = await getDoc(doc(db, 'bot_configurations', botId)).catch(() => null);
+          if (bSnap && bSnap.exists() && bSnap.data()?.spreadsheetId) {
+            spreadsheetId = extractSpreadsheetId(bSnap.data().spreadsheetId);
+          }
+        } catch (e) { }
+      }
+    }
+
+    if (!spreadsheetId) {
       if (process.env.GOOGLE_SPREADSHEET_ID) {
         spreadsheetId = extractSpreadsheetId(process.env.GOOGLE_SPREADSHEET_ID);
       }
@@ -2858,7 +2938,8 @@ async function startServer() {
       resolvedBot?.worksheetName,
       googleOwnerId || resolvedBot?.googleOwnerId,
       requestedBotId || resolvedBot?.botId,
-      resolvedBot?.botName
+      resolvedBot?.botName,
+      req.body?.tokens
     );
 
     if (!sheetConfig.googleTokens || !sheetConfig.spreadsheetId) {
@@ -2978,7 +3059,8 @@ async function startServer() {
         resolvedBot?.worksheetName || lead.worksheetName,
         targetGoogleOwnerId || resolvedBot?.googleOwnerId || lead.googleOwnerId,
         lead.botId || lead.flowId || resolvedBot?.botId,
-        resolvedBot?.botName
+        resolvedBot?.botName,
+        req.body?.tokens
       );
 
       const hasConfig = !!(sheetConfig.googleTokens && sheetConfig.spreadsheetId);

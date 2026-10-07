@@ -589,6 +589,12 @@ export default function Leads() {
   const handleRetrySync = async (lead: Lead) => {
     setIsRetryingSync(true);
 
+    const localTokensRaw = localStorage.getItem('mintage_google_tokens');
+    let tokens: any = undefined;
+    if (localTokensRaw) {
+      try { tokens = JSON.parse(localTokensRaw); } catch (e) { }
+    }
+
     try {
       const response = await fetch('/api/leads/retry-sync', {
         method: 'POST',
@@ -596,6 +602,7 @@ export default function Leads() {
         body: JSON.stringify({
           leadId: lead.id,
           lead,
+          tokens,
           botId: lead.botId || lead.flowId || '',
           googleOwnerId: auth.currentUser?.uid || effectiveUserId || lead.googleOwnerId || '',
           spreadsheetId: lead.spreadsheetId || ''
@@ -660,6 +667,12 @@ export default function Leads() {
     const targetUserId =
       effectiveUserId || auth.currentUser?.uid || 'demo_user';
 
+    const localTokensRaw = localStorage.getItem('mintage_google_tokens');
+    let tokens: any = undefined;
+    if (localTokensRaw) {
+      try { tokens = JSON.parse(localTokensRaw); } catch (e) { }
+    }
+
     try {
       const response = await fetch('/api/leads/sync-all', {
         method: 'POST',
@@ -667,6 +680,7 @@ export default function Leads() {
         body: JSON.stringify({
           clientId: targetUserId,
           googleOwnerId: auth.currentUser?.uid || effectiveUserId || '',
+          tokens,
           botIds: selectedBotFilter !== 'ALL' ? [selectedBotFilter] : []
         }),
       });
