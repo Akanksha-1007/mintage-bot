@@ -7,12 +7,16 @@ interface MintageLogoProps {
   className?: string;
   size?: 'sm' | 'md' | 'lg' | 'xl';
   showSubtitle?: boolean;
+  variant?: 'light' | 'dark' | 'auto';
+  textColor?: string;
 }
 
 export default function MintageLogo({
   className = '',
   size = 'md',
   showSubtitle = false,
+  variant = 'auto',
+  textColor,
 }: MintageLogoProps) {
   const sizeMap = {
     sm: { mark: 'h-[30px] w-[30px] p-0.5', title: 'text-[15px]', sub: 'text-[10.5px]' },
@@ -34,7 +38,7 @@ export default function MintageLogo({
           <span className="text-2xl font-extrabold tracking-tight bg-gradient-to-r from-[#5B3DF5] via-[#7B4DFF] to-[#E83E9B] bg-clip-text text-transparent">
             Mintage
           </span>
-          <span className="text-xs font-semibold text-gray-500 uppercase tracking-widest mt-0.5">
+          <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-widest mt-0.5">
             Chatbot Workspace
           </span>
         </div>
@@ -43,6 +47,21 @@ export default function MintageLogo({
   }
 
   const currentSize = sizeMap[size];
+
+  let titleColorClass = textColor;
+  let subColorClass = 'text-gray-500 dark:text-gray-400';
+
+  if (!titleColorClass) {
+    if (variant === 'light') {
+      titleColorClass = 'text-white';
+      subColorClass = 'text-gray-400';
+    } else if (variant === 'dark') {
+      titleColorClass = 'text-gray-900';
+      subColorClass = 'text-gray-500';
+    } else {
+      titleColorClass = 'text-gray-900 dark:text-white';
+    }
+  }
 
   return (
     <div className={`flex min-w-0 items-center gap-2.5 ${className}`}>
@@ -54,11 +73,11 @@ export default function MintageLogo({
         </span>
       </div>
       <span className="flex min-w-0 flex-col leading-none">
-        <span className={`font-extrabold tracking-tight text-gray-900 ${currentSize.title}`}>
+        <span className={`font-extrabold tracking-tight ${titleColorClass} ${currentSize.title}`}>
           Mintage
         </span>
         {showSubtitle && (
-          <span className={`font-medium text-gray-500 mt-0.5 ${currentSize.sub}`}>
+          <span className={`font-medium ${subColorClass} mt-0.5 ${currentSize.sub}`}>
             Chatbot workspace
           </span>
         )}

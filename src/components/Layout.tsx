@@ -65,7 +65,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       {/* Top Header Logo */}
       <div className="flex items-center justify-between px-4 py-4">
         <div className="flex items-center gap-2.5">
-          <MintageLogo size="sm" />
+          <MintageLogo size="sm" variant="light" />
         </div>
         <button
           type="button"
