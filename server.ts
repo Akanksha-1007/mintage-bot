@@ -8,6 +8,9 @@ import dotenv from 'dotenv';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, getDoc, setDoc, getDocs, collection, query, where, orderBy, limit, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 
+import admin from 'firebase-admin';
+import type { App } from 'firebase-admin/app';
+
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
@@ -27,6 +30,43 @@ try {
   }
 } catch (err) {
   console.warn('[FIREBASE_INIT_WARNING] Could not initialize Firebase on server:', err);
+}
+
+// Initialize Firebase Admin SDK
+let adminApp: App | null = null;
+try {
+  if (admin.apps.length > 0) {
+    adminApp = admin.apps[0]!;
+  } else if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    try {
+      const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+      adminApp = admin.initializeApp({ credential: admin.credential.cert(sa) });
+      console.log('[FIREBASE_ADMIN] Initialized from FIREBASE_SERVICE_ACCOUNT env var');
+    } catch (e) {
+      console.warn('[FIREBASE_ADMIN] Could not parse FIREBASE_SERVICE_ACCOUNT env var:', e);
+    }
+  } else if (process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL) {
+    const privateKey = process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n');
+    adminApp = admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId: process.env.FIREBASE_PROJECT_ID || 'ai-studio-applet-webapp-8e7fb',
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: privateKey
+      })
+    });
+    console.log('[FIREBASE_ADMIN] Initialized from FIREBASE_PRIVATE_KEY & CLIENT_EMAIL env vars');
+  }
+
+  if (!adminApp && fs.existsSync(firebaseConfigPath)) {
+    try {
+      const firebaseConfig = JSON.parse(fs.readFileSync(firebaseConfigPath, 'utf-8'));
+      const projId = firebaseConfig.projectId || process.env.FIREBASE_PROJECT_ID || 'ai-studio-applet-webapp-8e7fb';
+      adminApp = admin.initializeApp({ projectId: projId });
+      console.log('[FIREBASE_ADMIN] Initialized with default projectId:', projId);
+    } catch (e) {}
+  }
+} catch (err: any) {
+  console.warn('[FIREBASE_ADMIN_WARNING] Firebase Admin SDK initialization notice:', err?.message || err);
 }
 
 
@@ -304,9 +344,213 @@ async function startServer() {
     });
   }
 
+  // Admin Authentication & Verification Middleware
+  const ADMIN_EMAILS = [
+    'admin@mintagemarkcomm.com',
+    'admin@mintagemarkcomm',
+    'akanksha@mintagemarkcomm.com',
+    'admin@mintage.com'
+  ];
+
+  async function verifyAdminMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ success: false, error: 'Unauthorized: Missing or invalid authorization token.' });
+    }
+
+    const idToken = authHeader.split('Bearer ')[1]?.trim();
+    if (!idToken) {
+      return res.status(401).json({ success: false, error: 'Unauthorized: Token missing.' });
+    }
+
+    try {
+      if (adminApp) {
+        const decodedToken = await admin.auth().verifyIdToken(idToken);
+        const email = (decodedToken.email || '').toLowerCase().trim();
+
+        const isEmailAdmin = ADMIN_EMAILS.includes(email);
+        let isRoleAdmin = false;
+
+        if (!isEmailAdmin && db) {
+          try {
+            const userSnap = await getDoc(doc(db, 'users', decodedToken.uid));
+            if (userSnap.exists() && userSnap.data()?.role === 'admin') {
+              isRoleAdmin = true;
+            }
+          } catch (e) {}
+        }
+
+        if (!isEmailAdmin && !isRoleAdmin) {
+          return res.status(403).json({ success: false, error: 'Forbidden: Admin access required.' });
+        }
+
+        (req as any).authenticatedAdmin = decodedToken;
+        return next();
+      } else {
+        return res.status(500).json({ success: false, error: 'Firebase Admin SDK is not initialized on the server.' });
+      }
+    } catch (error: any) {
+      console.error('[ADMIN_AUTH_ERROR]', error?.message || error);
+      return res.status(401).json({ success: false, error: 'Unauthorized: Token verification failed.' });
+    }
+  }
+
   // API Routes
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok' });
+  });
+
+  // Admin Client Creation API
+  app.post('/api/admin/clients', verifyAdminMiddleware, async (req, res) => {
+    const { email, password, displayName, company, notes } = req.body || {};
+
+    const cleanEmail = String(email || '').toLowerCase().trim();
+    const cleanPass = String(password || '').trim();
+    const cleanName = String(displayName || company || cleanEmail.split('@')[0] || 'Client').trim();
+    const cleanCompany = String(company || '').trim();
+    const cleanNotes = String(notes || '').trim();
+
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      return res.status(400).json({ success: false, error: 'Please provide a valid email address.' });
+    }
+
+    if (!cleanPass || cleanPass.length < 6) {
+      return res.status(400).json({ success: false, error: 'Password must be at least 6 characters long.' });
+    }
+
+    if (!adminApp) {
+      return res.status(500).json({ success: false, error: 'Firebase Admin SDK is not initialized on the server.' });
+    }
+
+    try {
+      // 1. Check if user email already exists in Firebase Auth
+      try {
+        const existingUser = await admin.auth().getUserByEmail(cleanEmail);
+        if (existingUser) {
+          return res.status(400).json({ success: false, error: 'This email is already registered.' });
+        }
+      } catch (userErr: any) {
+        if (userErr.code !== 'auth/user-not-found' && userErr.code !== 'auth/invalid-email') {
+          console.warn('[CHECK_USER_WARNING]', userErr?.message || userErr);
+        }
+      }
+
+      // 2. Create user in Firebase Auth
+      const authUser = await admin.auth().createUser({
+        email: cleanEmail,
+        password: cleanPass,
+        displayName: cleanName,
+        emailVerified: true
+      });
+
+      const uid = authUser.uid;
+      const clientId = `client_${uid.substring(0, 10)}`;
+
+      const profileData = {
+        uid,
+        clientId,
+        email: cleanEmail,
+        displayName: cleanName,
+        company: cleanCompany,
+        role: 'client',
+        notes: cleanNotes,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      // 3. Store in Firestore users/{uid} & clients/{clientId}
+      if (db) {
+        try {
+          await setDoc(doc(db, 'users', uid), {
+            email: cleanEmail,
+            displayName: cleanName,
+            company: cleanCompany,
+            role: 'client',
+            clientId,
+            notes: cleanNotes,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          }, { merge: true });
+
+          await setDoc(doc(db, 'clients', clientId), profileData, { merge: true });
+          await setDoc(doc(db, 'clients', uid), profileData, { merge: true });
+        } catch (fsErr) {
+          console.error('[FIRESTORE_PROVISION_ERROR]', fsErr);
+        }
+      }
+
+      try {
+        const adminFirestore = admin.firestore();
+        await adminFirestore.collection('users').doc(uid).set({
+          email: cleanEmail,
+          displayName: cleanName,
+          company: cleanCompany,
+          role: 'client',
+          clientId,
+          notes: cleanNotes,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+
+        await adminFirestore.collection('clients').doc(clientId).set(profileData, { merge: true });
+        await adminFirestore.collection('clients').doc(uid).set(profileData, { merge: true });
+      } catch (e) {}
+
+      console.log('[CLIENT_PROVISIONED]', { uid, clientId, email: cleanEmail });
+      broadcastEvent('CLIENT_CREATED', { uid, clientId, email: cleanEmail });
+
+      return res.json({
+        success: true,
+        client: {
+          uid,
+          clientId,
+          email: cleanEmail,
+          displayName: cleanName,
+          company: cleanCompany,
+          role: 'client'
+        }
+      });
+    } catch (err: any) {
+      console.error('[CLIENT_CREATION_FAILED]', err);
+      if (err.code === 'auth/email-already-exists' || err.code === 'auth/email-already-in-use') {
+        return res.status(400).json({ success: false, error: 'This email is already registered.' });
+      }
+      return res.status(500).json({ success: false, error: err.message || 'Failed to create client account.' });
+    }
+  });
+
+  // Admin Client Deletion API
+  app.post('/api/admin/clients/delete', verifyAdminMiddleware, async (req, res) => {
+    const { clientId, uid } = req.body || {};
+    const targetId = uid || clientId;
+
+    if (!targetId) {
+      return res.status(400).json({ success: false, error: 'Client ID or UID is required.' });
+    }
+
+    try {
+      if (adminApp) {
+        try {
+          await admin.auth().deleteUser(targetId);
+        } catch (e) {}
+      }
+
+      if (db) {
+        try {
+          await deleteDoc(doc(db, 'clients', targetId)).catch(() => null);
+          await deleteDoc(doc(db, 'users', targetId)).catch(() => null);
+          if (clientId && clientId !== targetId) {
+            await deleteDoc(doc(db, 'clients', clientId)).catch(() => null);
+          }
+        } catch (e) {}
+      }
+
+      broadcastEvent('CLIENT_DELETED', { clientId: targetId });
+      return res.json({ success: true, message: 'Client deleted successfully.' });
+    } catch (err: any) {
+      console.error('[DELETE_CLIENT_ERROR]', err);
+      return res.status(500).json({ success: false, error: err.message || 'Failed to delete client.' });
+    }
   });
 
   // Safe Google OAuth Diagnostics Endpoint

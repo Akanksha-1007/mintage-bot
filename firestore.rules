@@ -64,9 +64,10 @@ service cloud.firestore {
     }
 
     // 4. Admin Clients Collection
-    // Admin-only management of client credentials and impersonation accounts.
+    // Admin management of client credentials; Clients can read their own profile.
     match /clients/{clientId} {
-      allow read, write: if isAdmin();
+      allow read: if isAdmin() || (isAuthenticated() && (request.auth.uid == clientId || (resource != null && (resource.data.uid == request.auth.uid || resource.data.clientId == request.auth.uid))));
+      allow write: if isAdmin();
     }
 
     // 5. Captured Leads Collection

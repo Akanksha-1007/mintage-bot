@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../lib/firebase';
-import { Loader2, AlertCircle, ArrowRight } from 'lucide-react';
+import { Loader2, AlertCircle, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import MintageLogo from '../components/MintageLogo';
 import ThemeToggle from '../components/ThemeToggle';
@@ -11,7 +11,9 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
   const navigate = useNavigate();
 
   const getErrorMessage = (code: string) => {
@@ -20,6 +22,7 @@ export default function Login() {
       case 'auth/user-not-found':
       case 'auth/wrong-password':
       case 'auth/invalid-credential': return 'Invalid email or password. Please try again.';
+      case 'auth/user-disabled': return 'Your account has been disabled. Please contact the administrator.';
       case 'auth/too-many-requests': return 'Too many failed attempts. Please try again later.';
       case 'auth/operation-not-allowed': return 'Email/password authentication is not enabled in Firebase.';
       default: return 'Unable to sign in. Please check your credentials and try again.';
@@ -29,6 +32,7 @@ export default function Login() {
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSuccessMsg('');
     setIsLoading(true);
     try {
       await signInWithEmailAndPassword(auth, email.toLowerCase().trim(), password);
@@ -38,6 +42,25 @@ export default function Login() {
       setError(getErrorMessage(err?.code || 'auth/invalid-credential'));
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!email.trim() || !email.includes('@')) {
+      setError('Please enter your email address to reset your password.');
+      return;
+    }
+    setError('');
+    setSuccessMsg('');
+    setIsResetting(true);
+    try {
+      await sendPasswordResetEmail(auth, email.toLowerCase().trim());
+      setSuccessMsg('Password reset link sent! Check your email inbox to reset your password.');
+    } catch (err: any) {
+      console.error('Password reset error:', err);
+      setError(err?.message || 'Unable to send password reset email. Check your email address.');
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -56,7 +79,17 @@ export default function Login() {
               <input id="email" type="email" required disabled={isLoading} placeholder="name@company.com" value={email} onChange={(e) => setEmail(e.target.value)} />
             </div>
             <div className="login-field">
-              <label htmlFor="password">Password</label>
+              <div className="flex items-center justify-between mb-1">
+                <label htmlFor="password" className="!mb-0">Password</label>
+                <button
+                  type="button"
+                  onClick={handleForgotPassword}
+                  disabled={isResetting || isLoading}
+                  className="text-xs text-[#5B3DF5] hover:underline font-medium focus:outline-none"
+                >
+                  {isResetting ? 'Sending...' : 'Forgot password?'}
+                </button>
+              </div>
               <input id="password" type="password" required disabled={isLoading} placeholder="Enter your password" value={password} onChange={(e) => setPassword(e.target.value)} />
             </div>
 
@@ -64,6 +97,11 @@ export default function Login() {
               {error && (
                 <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="login-error">
                   <AlertCircle /><span>{error}</span>
+                </motion.div>
+              )}
+              {successMsg && (
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="login-error !border-emerald-200 !bg-emerald-50 !text-emerald-700">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" /><span>{successMsg}</span>
                 </motion.div>
               )}
             </AnimatePresence>

@@ -289,46 +289,76 @@ export default function AdminDashboard() {
     const pass = clientPassword || 'Client123!';
     const cleanEmail = clientEmail.toLowerCase().trim();
 
-    let provisionedUid = '';
-
     try {
-      // Create the client's Firebase Authentication account in a SECONDARY
-      // Firebase app so the current admin session is never replaced.
-      const secondaryApp = initializeApp(firebaseConfig as any, `client-provision-${Date.now()}`);
-      const secondaryAuth = getAuth(secondaryApp);
+      const idToken = await getAuth().currentUser?.getIdToken();
+      let createdClientData: any = null;
 
       try {
-        const credential = await createUserWithEmailAndPassword(secondaryAuth, cleanEmail, pass);
-        provisionedUid = credential.user.uid;
-      } finally {
-        await signOut(secondaryAuth).catch(() => undefined);
-        await deleteApp(secondaryApp).catch(() => undefined);
+        const res = await fetch('/api/admin/clients', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${idToken}`
+          },
+          body: JSON.stringify({
+            email: cleanEmail,
+            password: pass,
+            displayName: clientName.trim(),
+            company: clientCompany.trim(),
+            notes: clientNotes.trim()
+          })
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+          createdClientData = data.client;
+        } else {
+          throw new Error(data.error || 'Failed to create client on server.');
+        }
+      } catch (apiError: any) {
+        console.warn('API client creation notice, falling back to secondary SDK app:', apiError?.message || apiError);
+
+        // Fallback: Secondary Firebase App SDK creation if server API is unavailable
+        const secondaryApp = initializeApp(firebaseConfig as any, `client-provision-${Date.now()}`);
+        const secondaryAuth = getAuth(secondaryApp);
+        try {
+          const credential = await createUserWithEmailAndPassword(secondaryAuth, cleanEmail, pass);
+          const provisionedUid = credential.user.uid;
+          const cid = `client_${provisionedUid.substring(0, 10)}`;
+
+          const clientData = {
+            name: clientName.trim(),
+            company: clientCompany.trim(),
+            email: cleanEmail,
+            notes: clientNotes.trim(),
+            role: 'client',
+            clientId: cid,
+            uid: provisionedUid,
+            createdAt: serverTimestamp(),
+          };
+
+          await setDoc(doc(db, 'clients', cid), clientData);
+          await setDoc(doc(db, 'clients', provisionedUid), clientData);
+          await setDoc(doc(db, 'users', provisionedUid), {
+            email: cleanEmail,
+            displayName: clientName.trim(),
+            company: clientCompany.trim(),
+            role: 'client',
+            clientId: cid,
+            createdAt: serverTimestamp(),
+          }, { merge: true });
+
+          createdClientData = { uid: provisionedUid, clientId: cid, email: cleanEmail, displayName: clientName.trim(), company: clientCompany.trim() };
+        } finally {
+          await signOut(secondaryAuth).catch(() => undefined);
+          await deleteApp(secondaryApp).catch(() => undefined);
+        }
       }
 
-      const clientData = {
-        name: clientName.trim(),
-        company: clientCompany.trim(),
-        email: cleanEmail,
-        notes: clientNotes.trim(),
-        role: 'client',
-        clientId: provisionedUid,
-        createdAt: serverTimestamp(),
-      };
-
-      await setDoc(doc(db, 'clients', provisionedUid), clientData);
-      await setDoc(doc(db, 'users', provisionedUid), {
-        email: cleanEmail,
-        displayName: clientName.trim(),
-        company: clientCompany.trim(),
-        role: 'client',
-        clientId: provisionedUid,
-        createdAt: serverTimestamp(),
-      }, { merge: true });
-
       const newRecord: ClientRecord = {
-        id: provisionedUid,
-        name: clientName.trim(),
-        company: clientCompany.trim(),
+        id: createdClientData.clientId || createdClientData.uid,
+        name: createdClientData.displayName || clientName.trim(),
+        company: createdClientData.company || clientCompany.trim(),
         email: cleanEmail,
         password: pass,
         notes: clientNotes.trim(),
@@ -336,8 +366,7 @@ export default function AdminDashboard() {
         leadsCount: 0,
       };
 
-      // Credentials are kept only in the admin UI confirmation card. Do not
-      // persist the password in localStorage or Firestore.
+      // Credentials displayed ONCE in confirmation card. Never persisted in Firestore.
       setCreatedCredentialsCard(newRecord);
       setShowCreateModal(false);
 
@@ -350,8 +379,8 @@ export default function AdminDashboard() {
       await loadClientsAndStats();
     } catch (error: any) {
       console.error('Client provisioning failed:', error);
-      const message = error?.code === 'auth/email-already-in-use'
-        ? 'That email already has a Firebase account. Use a different email or provision the existing account manually.'
+      const message = error?.message?.includes('already registered') || error?.message?.includes('already-in-use')
+        ? 'This email is already registered.'
         : error?.message || 'Could not create the client account.';
       alert(message);
     } finally {
@@ -377,6 +406,16 @@ export default function AdminDashboard() {
     }
 
     try {
+      const idToken = await getAuth().currentUser?.getIdToken();
+      await fetch('/api/admin/clients/delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
+        body: JSON.stringify({ clientId, uid: clientToDelete.id })
+      }).catch(() => null);
+
       await deleteDoc(doc(db, 'clients', clientId)).catch(() => null);
       await deleteDoc(doc(db, 'users', clientId)).catch(() => null);
     } catch (error) {
