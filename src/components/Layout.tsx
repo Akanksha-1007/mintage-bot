@@ -52,11 +52,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     return items;
   }, [clientUser, impersonatedClient, isAdmin]);
 
-  const manageItems = [
-    { name: 'Users', path: '/admin', icon: Users },
-    { name: 'Clients', path: '/admin', icon: Briefcase },
-    { name: 'Settings', path: '#', icon: Settings },
-  ];
+  const manageItems = useMemo(() => {
+    if (isAdmin && !impersonatedClient && !clientUser) {
+      return [
+        { name: 'Users', path: '/admin', icon: Users },
+        { name: 'Clients', path: '/admin', icon: Briefcase },
+        { name: 'Settings', path: '/integrations', icon: Settings },
+      ];
+    }
+    return [
+      { name: 'Settings', path: '/integrations', icon: Settings },
+    ];
+  }, [clientUser, impersonatedClient, isAdmin]);
 
   useEffect(() => setMobileNavOpen(false), [location.pathname]);
 
@@ -225,14 +232,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-red-500 border border-white" />
               </button>
 
-              {/* Admin Avatar & Label */}
+              {/* User Avatar & Label */}
               <div className="flex items-center gap-2.5 pl-2 border-l border-gray-200 dark:border-gray-800">
-                <div className="h-8 w-8 rounded-full bg-[#0e1117] text-white flex items-center justify-center font-bold text-xs">
-                  A
+                <div className="h-8 w-8 rounded-full bg-[#0e1117] text-white flex items-center justify-center font-bold text-xs uppercase">
+                  {isAdmin && !impersonatedClient ? 'A' : (clientUser?.name?.[0] || impersonatedClient?.name?.[0] || 'C')}
                 </div>
                 <div className="hidden sm:flex flex-col text-left">
-                  <span className="text-xs font-bold leading-none text-gray-900 dark:text-white">Admin</span>
-                  <span className="text-[10.5px] text-gray-500 dark:text-gray-400 mt-0.5">Administrator</span>
+                  <span className="text-xs font-bold leading-none text-gray-900 dark:text-white">
+                    {isAdmin && !impersonatedClient ? 'Admin' : (clientUser?.name || impersonatedClient?.name || 'Client')}
+                  </span>
+                  <span className="text-[10.5px] text-gray-500 dark:text-gray-400 mt-0.5">
+                    {isAdmin && !impersonatedClient ? 'Administrator' : (clientUser?.company || impersonatedClient?.company || 'Client Workspace')}
+                  </span>
                 </div>
                 <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
               </div>

@@ -103,15 +103,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setClientUser(null);
           const storedImpersonation = readStoredImpersonation();
           if (storedImpersonation) setImpersonatedClientState(storedImpersonation);
-        } else if (data.role === 'client' && data.clientId) {
-          const clientId = String(data.clientId);
+        } else {
+          // Check if client record exists in 'clients' collection for additional company info
+          let clientComp = data.company || '';
+          let clientName = data.displayName || firebaseUser.displayName || '';
+
+          if (!clientComp || !clientName) {
+            try {
+              const clientRef = doc(db, 'clients', firebaseUser.uid);
+              const clientSnap = await getDoc(clientRef);
+              if (clientSnap.exists()) {
+                const cData = clientSnap.data();
+                if (!clientComp) clientComp = cData.company || '';
+                if (!clientName) clientName = cData.name || '';
+              }
+            } catch (e) {
+              console.warn('Unable to fetch clients doc:', e);
+            }
+          }
+
+          const clientId = String(data.clientId || firebaseUser.uid);
           const profile: ClientProfile = {
             id: firebaseUser.uid,
             clientId,
-            name: String(data.displayName || firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Client'),
+            name: String(clientName || firebaseUser.email?.split('@')[0] || 'Client'),
             email: String(firebaseUser.email || data.email || ''),
-            company: String(data.company || '')
+            company: String(clientComp || '')
           };
+
           setUserRole('client');
           setClientUser(profile);
           setImpersonatedClientState(null);
@@ -120,16 +139,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           await setDoc(userRef, {
             email: firebaseUser.email || '',
             displayName: profile.name,
+            company: profile.company,
             role: 'client',
             clientId,
             lastLogin: serverTimestamp()
-          }, { merge: true });
-        } else {
-          // Authenticated but not provisioned by an admin: fail closed.
-          setUserRole('user');
-          setClientUser(null);
-          setImpersonatedClientState(null);
-          sessionStorage.removeItem('mintage_admin_impersonation');
+          }, { merge: true }).catch(() => undefined);
         }
       } catch (error) {
         console.warn('Unable to load user profile:', error);
@@ -137,11 +151,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUserRole('admin');
           setClientUser(null);
         } else {
-          // Fail closed: an authenticated account without a tenant is not given
-          // access to another tenant. It can only see an empty client workspace.
-          setUserRole('user');
-          setClientUser(null);
+          const profile: ClientProfile = {
+            id: firebaseUser.uid,
+            clientId: firebaseUser.uid,
+            name: String(firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Client'),
+            email: String(firebaseUser.email || ''),
+          };
+          setUserRole('client');
+          setClientUser(profile);
           setImpersonatedClientState(null);
+          sessionStorage.removeItem('mintage_admin_impersonation');
         }
       } finally {
         setLoading(false);
